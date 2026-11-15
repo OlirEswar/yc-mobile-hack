@@ -298,7 +298,14 @@ final class Game: SourceSink {
     func plant(_ id: Id, _ text: String) async throws {
         guard let source else { throw SourceError.unsupported("Not connected.") }
         let result: PlantResult
-        do { result = try await source.plant(id, text: text) } catch { throw SourceError.unsupported(unsupported(error, "reach their thoughts")) }
+        do {
+            result = try await source.plant(id, text: text)
+        } catch {
+            if let message = await apply(.whisper(agentId: id, presetKey: "custom", text: text, strength: 0.7, aboutAgentId: nil), commandId: UUID().uuidString) {
+                throw SourceError.unsupported(message)
+            }
+            return
+        }
         guard result.ok else { throw SourceError.unsupported(result.message ?? "The thought doesn't take.") }
         didAct(.use_power)
     }

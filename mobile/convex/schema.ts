@@ -278,6 +278,24 @@ export default defineSchema({
     llmCooldownUntilTick: num,
     thefts: num,
     nextGoalSeq: num,
+    /** Society layer (docs/STORY_SPEC.md 8). All optional so older worlds still load. */
+    society: v.optional(
+      v.object({
+        /** Hidden social status 0..100: prestige from job, wealth, fame, org rank, deeds. */
+        status: num,
+        fame: num,
+        orgIds: v.array(v.id('organizations')),
+        partnerId: v.optional(v.id('agents')),
+        parentIds: v.array(v.id('agents')),
+        childIds: v.array(v.id('agents')),
+        /** Ticks of age for children; they grow up into colonists. */
+        bornTick: v.optional(num),
+        obsession: v.optional(v.object({ text: str, kind: str, target: v.optional(str), intensity: num, sinceTick: num })),
+        education: v.optional(v.object({ studying: v.optional(str), progress: num, mastered: v.array(str) })),
+        jobHistory: v.array(v.object({ occupation: str, fromTick: num })),
+        inspiration: num,
+      }),
+    ),
     /** The character's story (docs/STORY_SPEC.md 3.1). Absent on worlds seeded before iteration 2. */
     persona: v.optional(personaV),
   }).index('by_agent', ['agentId']),
@@ -417,6 +435,83 @@ export default defineSchema({
   })
     .index('by_world_status', ['worldId', 'status'])
     .index('by_world_key', ['worldId', 'key']),
+
+  // ----- society layer (docs/STORY_SPEC.md 8) -----
+  organizations: defineTable({
+    worldId: v.id('worlds'),
+    key: str,
+    name: str,
+    kind: str,
+    creed: str,
+    founderId: v.optional(v.id('agents')),
+    leaderId: v.optional(v.id('agents')),
+    officerIds: v.array(v.id('agents')),
+    memberIds: v.array(v.id('agents')),
+    treasury: num,
+    /** Hidden: how the colony regards it, -1..1. */
+    reputation: num,
+    status: str,
+    foundedTick: num,
+    territory: v.optional(v.array(str)),
+    rules: v.optional(v.array(str)),
+    rivalIds: v.array(v.id('organizations')),
+    state: v.optional(v.any()),
+  }).index('by_world_status', ['worldId', 'status']),
+
+  discoveries: defineTable({
+    worldId: v.id('worlds'),
+    /** Key into DISCOVERIES in shared/society.ts. */
+    key: str,
+    tick: num,
+    discovererIds: v.array(v.id('agents')),
+    eventId: v.optional(v.id('events')),
+  }).index('by_world_key', ['worldId', 'key']),
+
+  /** Research progress toward discoveries not yet made, per world. */
+  research: defineTable({
+    worldId: v.id('worlds'),
+    key: str,
+    progress: num,
+    contributorIds: v.array(v.id('agents')),
+  }).index('by_world_key', ['worldId', 'key']),
+
+  structures: defineTable({
+    worldId: v.id('worlds'),
+    /** Key into STRUCTURES in shared/society.ts. */
+    key: str,
+    name: str,
+    locationId: str,
+    builderIds: v.array(v.id('agents')),
+    ownerOrgId: v.optional(v.id('organizations')),
+    progress: num,
+    builtTick: v.optional(num),
+    eventId: v.optional(v.id('events')),
+  }).index('by_world', ['worldId']),
+
+  works: defineTable({
+    worldId: v.id('worlds'),
+    creatorId: v.id('agents'),
+    title: str,
+    kind: str,
+    about: str,
+    quality: num,
+    fame: num,
+    locationId: v.optional(str),
+    createdTick: num,
+    inspiredByEventId: v.optional(v.id('events')),
+  })
+    .index('by_world_fame', ['worldId', 'fame'])
+    .index('by_creator', ['creatorId']),
+
+  pets: defineTable({
+    worldId: v.id('worlds'),
+    ownerId: v.optional(v.id('agents')),
+    name: str,
+    species: str,
+    alive: v.boolean(),
+    bornTick: num,
+    bond: num,
+  }).index('by_owner', ['ownerId']),
 
   /** Inner monologue lines (docs/STORY_SPEC.md 5). */
   thoughts: defineTable({

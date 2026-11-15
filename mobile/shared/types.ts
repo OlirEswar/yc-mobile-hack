@@ -155,7 +155,7 @@ export type WorldEventPublic = {
 };
 
 export type AgentDetail = AgentLite & {
-  ageBand: 'young' | 'adult' | 'elder';
+  ageBand: 'child' | 'young' | 'adult' | 'elder';
   background: string;
   homeLocationId: LocationId;
   workLocationId?: LocationId;
@@ -179,6 +179,81 @@ export type AgentDetail = AgentLite & {
   persona?: PersonaPublic;
   /** Live storylines this colonist is part of, by id (see story:storylines). */
   storylineIds?: Id[];
+  /** Society layer (docs/STORY_SPEC.md 8). Presented as story, never as raw numbers. */
+  organizations?: { id: Id; name: string; kind: OrganizationKind; role: 'founder' | 'leader' | 'officer' | 'member' }[];
+  family?: { partnerId?: Id; partnerName?: string; parentIds: Id[]; childIds: Id[] };
+  pets?: { name: string; species: string }[];
+  /** A goal that has taken over their life, in words. */
+  obsession?: string;
+  /** Their notable works, newest first. */
+  works?: { id: Id; title: string; kind: string; fame: number }[];
+  /** How the colony sees them, in words ("a respected elder", "a nobody", "notorious"). Never the hidden number. */
+  standingLabel?: string;
+  /** What they are learning or have mastered, in words. */
+  education?: string;
+};
+
+export type OrganizationKind = 'company' | 'guild' | 'cult' | 'gang' | 'militia' | 'party' | 'school' | 'troupe' | 'breakaway';
+
+export type OrganizationPublic = {
+  id: Id;
+  name: string;
+  kind: OrganizationKind;
+  /** What they are for or believe, one sentence. */
+  creed: string;
+  leaderId?: Id;
+  memberIds: Id[];
+  foundedTick: Tick;
+  status: 'active' | 'disbanded';
+  /** For a breakaway colony: where it holds and the rules it declared. */
+  territory?: LocationId[];
+  rules?: string[];
+  /** Organizations it is at odds with. */
+  rivalIds: Id[];
+};
+
+export type DiscoveryPublic = {
+  key: string;
+  name: string;
+  /** What it changed in the world, one sentence. */
+  effect: string;
+  tick: Tick;
+  discovererIds: Id[];
+  eventId?: Id;
+};
+
+export type StructurePublic = {
+  id: Id;
+  key: string;
+  name: string;
+  locationId: LocationId;
+  builderIds: Id[];
+  /** 0..1 until finished. */
+  progress: number;
+  builtTick?: Tick;
+};
+
+export type WorkPublic = {
+  id: Id;
+  title: string;
+  kind: string;
+  creatorId: Id;
+  creatorName: string;
+  /** 0..1. Famous works are what the colony talks about. */
+  fame: number;
+  createdTick: Tick;
+  /** What it is about, one sentence. */
+  about: string;
+};
+
+/** The almanac: the colony's institutions, discoveries, landmarks and culture, for the story view. */
+export type SocietyOverview = {
+  organizations: OrganizationPublic[];
+  discoveries: DiscoveryPublic[];
+  structures: StructurePublic[];
+  works: WorkPublic[];
+  /** The colony's famous people in words, e.g. { agentId, name, for: "the painter of the Long Dark mural" }. */
+  notables: { agentId: Id; name: string; for: string }[];
 };
 
 export type ArcStage = 'setup' | 'rising' | 'crisis' | 'climax' | 'resolution';

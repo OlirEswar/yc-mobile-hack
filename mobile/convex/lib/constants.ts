@@ -21,14 +21,21 @@ export const INITIAL_STOCKPILES: Partial<Record<LocationId, Record<string, numbe
 
 export const INITIAL_TREASURY = 12_000;
 
+/**
+ * LLM calls per sim day (144 ticks, 8 real minutes at 1x). The followed colonist comes first: a plan
+ * for every decision (about one per 10 to 20 in-game minutes of waking activity) plus monologue
+ * lines, about 150 a day once fast-forward skips the night; storyline climaxes and big events share
+ * the crisis reserve; everyone else gets the rest. Questions to colonists have their own allowance
+ * per session (focus.ts). gpt-6-luna is cheap, so this is a few cents per sim day.
+ */
 export const DEFAULT_LLM_CONFIG = {
-  budgetPerDay: 40,
+  budgetPerDay: 260,
   maxConcurrent: 3,
-  /** 12 simulated hours between normal LLM plans for one agent. */
+  /** 12 simulated hours between normal LLM plans for one agent. Focus and crisis plans ignore it. */
   cooldownTicks: 72,
-  focusReserve: 6,
-  crisisReserve: 8,
-  speechPerDay: 12,
+  focusReserve: 150,
+  crisisReserve: 40,
+  speechPerDay: 40,
 };
 
 /** Bounds for the create-character power. */

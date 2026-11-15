@@ -16,10 +16,11 @@ import type { AgentDoc, MindDoc, Tx } from './engine/core';
 import { LANE_RANK, admits, charge, rollDay } from './cognition/budget';
 import { loadJobContext } from './cognition/context';
 import type { JobContext } from './cognition/context';
-import { planRequest, speechRequest } from './cognition/prompt';
+import { planRequest, speechRequest, thoughtRequest } from './cognition/prompt';
 import { chat, providerConfig } from './cognition/provider';
 import type { ChatResult, ProviderConfig } from './cognition/provider';
-import { parseJson, validatePlan, validateSpeech } from './cognition/validate';
+import { parseJson, validatePlan, validateSpeech, validateThought } from './cognition/validate';
+import { writeThought } from './storyteller/monologue';
 import type { ValidGoal, ValidPlan } from './cognition/validate';
 
 /** How far a mind's stateVersion may move after a job was queued before its answer is ignored. */
@@ -27,6 +28,8 @@ export const MAX_MIND_DRIFT = 1;
 /** A plan answer arriving later than this is about a moment that has passed (3 sim hours). */
 const PLAN_STALE_TICKS = 18;
 const SPEECH_STALE_TICKS = 3;
+/** A monologue line is about this moment; later than this it reads as a non sequitur. */
+const THOUGHT_STALE_TICKS = 3;
 /** A running job older than this lost its action; it is failed so its slot frees up. */
 const RUNNING_TIMEOUT_MS = 90_000;
 const QUEUE_SCAN = 60;
@@ -45,6 +48,7 @@ const planV = v.object({
   labels: v.array(v.string()),
   goal: v.optional(goalV),
   speech: v.optional(v.string()),
+  thought: v.optional(v.string()),
 });
 
 /** What one job did, for the trace and for debugPlan. Holds no secrets. */
@@ -58,6 +62,7 @@ export type JobReport = {
   dropped?: string[];
   plan?: ValidPlan;
   line?: string;
+  thought?: string;
   tokensIn?: number;
   tokensOut?: number;
   latencyMs?: number;
@@ -114,7 +119,8 @@ export const claim = internalMutation({
         await end(job, 'dropped', off);
         continue;
       }
-      if (tx.tick - job.enqueuedTick > (job.kind === 'speech' ? SPEECH_STALE_TICKS : PLAN_STALE_TICKS)) {
+      const staleAfter = job.kind === 'speech' ? SPEECH_STALE_TICKS : job.kind === 'thought' ? THOUGHT_STALE_TICKS : PLAN_STALE_TICKS;
+      if (tx.tick - job.enqueuedTick > staleAfter) {
         await end(job, 'stale', 'waited too long');
         continue;
       }
@@ -172,7 +178,7 @@ async function runJob(ctx: ActionCtx, config: ProviderConfig, jobId: Id<'cogniti
     return { jobId, outcome: await ctx.runMutation(internal.cognition.finish, { ...meta, status: 'stale', reason: loaded.reason }) };
   }
   const c = loaded.context;
-  const request = c.kind === 'plan' ? planRequest(c) : speechRequest(c);
+  const request = c.kind === 'plan' ? planRequest(c) : c.kind === 'thought' ? thoughtRequest(c) : speechRequest(c);
   const promptChars = request.system.length + request.user.length;
   const report: JobReport = { jobId, outcome: '', promptChars, approxPromptTokens: Math.round(promptChars / 4), prompt: { system: request.system, user: request.user } };
   let result: ChatResult;
@@ -198,6 +204,19 @@ async function runJob(ctx: ActionCtx, config: ProviderConfig, jobId: Id<'cogniti
       reason: checked.ok ? undefined : checked.reason,
       plan: checked.ok ? checked.plan : undefined,
       trace: { ...trace, dropped: checked.dropped },
+    });
+    return report;
+  }
+  if (c.kind === 'thought') {
+    const checked = validateThought(parsed);
+    if (checked.ok) report.thought = checked.text;
+    report.outcome = await ctx.runMutation(internal.cognition.finish, {
+      ...meta,
+      usage,
+      status: checked.ok ? 'done' : 'rejected',
+      reason: checked.ok ? undefined : checked.reason,
+      thought: checked.ok ? { text: checked.text, mood: checked.mood } : undefined,
+      trace,
     });
     return report;
   }
@@ -227,6 +246,7 @@ export const finish = internalMutation({
     reason: v.optional(v.string()),
     plan: v.optional(planV),
     speech: v.optional(v.object({ line: v.string(), partnerId: v.id('agents') })),
+    thought: v.optional(v.object({ text: v.string(), mood: v.optional(v.string()) })),
     usage: v.optional(v.object({ tokensIn: v.number(), tokensOut: v.number(), latencyMs: v.number() })),
     provider: v.string(),
     model: v.string(),
@@ -257,7 +277,7 @@ export const finish = internalMutation({
     if (a.status === 'failed') await recordFailure(tx, outcome);
     else if (a.status === 'done' && !a.commit) outcome = 'dry run';
     else if (a.status === 'done') {
-      const stale = a.plan ? await commitPlan(tx, job, a.plan) : await commitSpeech(tx, job, a.speech!);
+      const stale = a.plan ? await commitPlan(tx, job, a.plan) : a.thought ? await commitThought(tx, job, a.thought) : await commitSpeech(tx, job, a.speech!);
       status = stale ? 'stale' : 'done';
       outcome = stale ?? 'committed';
     }
@@ -315,6 +335,15 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
     agent.speech = plan.speech;
     touch(tx, agent);
   }
+  if (plan.thought) await writeThought(tx, agent._id, plan.thought, 'llm');
+  return null;
+}
+
+/** Adds a monologue line while its moment is still the agent's present. */
+async function commitThought(tx: Tx, job: Doc<'cognitionJobs'>, thought: { text: string; mood?: string }): Promise<string | null> {
+  const agent = await loadAgent(tx, job.agentId);
+  if (!agent?.alive) return 'agent dead';
+  await writeThought(tx, agent._id, thought.text, 'llm', thought.mood);
   return null;
 }
 

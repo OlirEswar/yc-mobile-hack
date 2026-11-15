@@ -758,8 +758,8 @@ async function beliefChoices(c: Ctx): Promise<Choice[]> {
   const accused = (await simState(tx)).accused ?? {};
   for (const b of c.beliefs) {
     if (!b.subjectAgentId || b.subjectAgentId === a._id || b.valence >= 0 || !ACCUSABLE.has(b.kind) || b.confidence < 0.45) continue;
-    // People act on a belief once, and again only when something new has reinforced it since.
-    if (b.acted !== undefined && b.lastReinforcedTick <= b.acted) continue;
+    // People act on a belief once, and again only when something new has reinforced it since, and not twice in a day.
+    if (b.acted !== undefined && (b.lastReinforcedTick <= b.acted || tx.tick - b.acted < 144)) continue;
     const subject = await loadAgent(tx, b.subjectAgentId);
     if (!subject?.alive) continue;
     // A case security has closed is old news, until the person does it again.

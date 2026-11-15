@@ -1062,7 +1062,7 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   if (!b) return fail(tx, a, 'Went to confront someone who was not there');
   const belief = key ? await getBelief(tx, a._id, key) : await suspicionAbout(tx, a, b._id);
   if (!belief || belief.subjectAgentId !== b._id) return fail(tx, a, 'Had nothing to accuse ' + b.name + ' of');
-  if (belief.acted !== undefined && tx.tick - belief.acted < 12) return 0;
+  if (belief.acted !== undefined && tx.tick - belief.acted < 144) return 0;
   if (owesFavor(await loadMind(tx, a), b._id, 'silence', tx.tick)) {
     await markActed(tx, belief);
     return fail(tx, a, 'Bit back the words: ' + b.name + ' paid for silence');

@@ -9,6 +9,7 @@ import { admits, rollDay } from '../cognition/budget';
 import { providerConfig } from '../cognition/provider';
 import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind, tiesOf } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
+import { debtsTo } from '../engine/ledger';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
 import { describeStoryline, involvedIn } from './storylines';
@@ -182,14 +183,14 @@ async function nudge(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], n
 }
 
 /** What a visitor sent by the director does when they find the followed colonist. */
-async function visitStep(tx: Tx, visitor: AgentDoc, a: AgentDoc, story?: StorylineDoc): Promise<string> {
+export async function visitStep(tx: Tx, visitor: AgentDoc, a: AgentDoc, story?: StorylineDoc): Promise<string> {
   const tie = (from: AgentDoc, to: AgentDoc) =>
     tx.ctx.db
       .query('relationships')
       .withIndex('by_from_to', (q) => q.eq('fromAgentId', from._id).eq('toAgentId', to._id))
       .first();
   const toward = await tie(visitor, a);
-  if ((toward?.obligation ?? 0) >= 0.2) return encodeStep('repay', a._id);
+  if (debtsTo(await loadMind(tx, visitor), a._id).length > 0) return encodeStep('repay', a._id);
   const beliefs = await tx.ctx.db
     .query('beliefs')
     .withIndex('by_agent_key', (q) => q.eq('agentId', visitor._id))

@@ -102,7 +102,8 @@ test('the director attaches events by cast, raises tension, records beats, escal
   const { worldId, agents } = await colony(t);
   const [a, b] = agents;
   await setPersona(t, a._id);
-  const storyId = await addStoryline(t, worldId, { participantIds: [a._id, b._id] });
+  // Emergent: seeded storylines are paced to build over the first sols.
+  const storyId = await addStoryline(t, worldId, { participantIds: [a._id, b._id], origin: 'emergent' });
 
   const [first] = await tick(t, worldId, threat(a._id, b._id, 0.7));
   let story = await get(t, storyId);

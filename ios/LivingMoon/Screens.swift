@@ -36,97 +36,162 @@ struct ColonyView: View {
     @State private var lastPrice: (value: Double, trend: Int) = (0, 0)
 
     var body: some View {
-        @Bindable var game = game
         let world = game.world
         let food = (world?.stockpiles["depot"]?["food"] ?? 0).rounded()
         let price = world?.prices["food"] ?? 0
 
-        NavigationStack {
-            ZStack {
-                MapView()
-                VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        StatChip(label: "People", value: "\(Int(world?.population.alive ?? 0))")
-                        StatChip(label: "Food", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true)
-                        StatChip(label: "Price", value: "\(Int(price))cr", trend: lastPrice.trend, goodWhenUp: false)
-                    }
-                    ForEach(world?.activeEffects ?? []) { effect in
-                        let sols = max(1, Int(((effect.endTick - (world?.tick ?? 0)) / Clock.ticksPerDay).rounded(.up)))
-                        Label(effect.label + " · " + (effect.type == "storm" ? "passing" : "\(sols) sol\(sols == 1 ? "" : "s") left"), systemImage: effect.type == "storm" ? "burst.fill" : "drop.degreesign.slash")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .glassEffect(.regular.tint((effect.type == "storm" ? Color.red : .amber).opacity(0.35)))
-                    }
-                    if let note = game.backendNote {
-                        Label(note, systemImage: "exclamationmark.triangle")
-                            .font(.caption2).lineLimit(2)
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .glassEffect()
-                    }
-                    Spacer()
-                    if let loc = game.selectedLocation { PlaceCard(location: loc) }
-                    PowerTray()
+        ZStack {
+            MapView()
+            VStack(spacing: 12) {
+                header
+                StatusCard(metrics: [
+                    Metric(label: "Colonists", value: "\(Int(world?.population.alive ?? 0))"),
+                    Metric(label: "Food stored", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true),
+                    Metric(label: "Food price", value: "\(Int(price))", unit: "cr", trend: lastPrice.trend, goodWhenUp: false),
+                ])
+                ForEach(world?.activeEffects ?? []) { effect in
+                    let sols = max(1, Int(((effect.endTick - (world?.tick ?? 0)) / Clock.ticksPerDay).rounded(.up)))
+                    EffectBanner(storm: effect.type == "storm", title: effect.label, detail: effect.type == "storm" ? "Passing" : "\(sols) sol\(sols == 1 ? "" : "s") left")
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Label(game.stamp, systemImage: "moon.fill")
-                        .labelStyle(.titleAndIcon)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 6)
-                        .fixedSize()
+                if let note = game.backendNote {
+                    Label(note, systemImage: "exclamationmark.triangle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 18))
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
-                            Label("Pause", systemImage: "pause.fill").tag(0.0)
-                            Label("1× speed", systemImage: "play.fill").tag(1.0)
-                            Label("4× speed", systemImage: "forward.fill").tag(4.0)
-                            Label("8× speed", systemImage: "forward.end.fill").tag(8.0)
-                        }
-                    } label: {
-                        Image(systemName: game.speed == 0 ? "pause.fill" : game.speed == 1 ? "play.fill" : "forward.fill")
+                Spacer()
+                if let toast = game.toast { ToastView(toast: toast) }
+                if let loc = game.selectedLocation { PlaceCard(location: loc) }
+                HStack(spacing: 10) {
+                    TickerView()
+                    Button { game.choosingPower = true } label: {
+                        Label("Powers", systemImage: "wand.and.stars")
+                            .font(.headline)
+                            .padding(.horizontal, 6)
+                            .frame(height: 40)
                     }
-                    .accessibilityLabel("Simulation speed")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
-                        Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
+                    .buttonStyle(.glassProminent)
+                    .accessibilityHint("Choose how to change the colony")
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .animation(.snappy(duration: 0.25), value: game.toast)
+        }
+        .sheet(isPresented: Binding(get: { game.choosingPower }, set: { game.choosingPower = $0 })) {
+            PowerMenu { power in
+                game.choosingPower = false
+                game.powerTarget = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { game.activePower = power }
+            }
+            .presentationDetents([.medium, .large])
         }
         .onChange(of: food) { old, new in lastFood = (new, new > old ? 1 : new < old ? -1 : lastFood.trend) }
         .onChange(of: price) { old, new in lastPrice = (new, new > old ? 1 : new < old ? -1 : lastPrice.trend) }
     }
+
+    private var header: some View {
+        @Bindable var game = game
+        let parts = Clock.parts(game.world?.tick ?? 0)
+        return HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "moon.fill").foregroundStyle(Color.amber)
+                Text("Sol \(parts.sol)").foregroundStyle(.secondary)
+                Text(Clock.time(game.world?.tick ?? 0)).monospacedDigit()
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16).frame(height: 44)
+            .glassEffect()
+            .accessibilityElement(children: .combine)
+            Spacer()
+            Menu {
+                Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
+                    Label("Pause", systemImage: "pause.fill").tag(0.0)
+                    Label("Normal speed", systemImage: "play.fill").tag(1.0)
+                    Label("4× speed", systemImage: "forward.fill").tag(4.0)
+                    Label("8× speed", systemImage: "forward.end.fill").tag(8.0)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: game.speed == 0 ? "pause.fill" : "play.fill")
+                    Text(game.speed == 0 ? "Paused" : "\(Int(game.speed))×").monospacedDigit()
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).frame(height: 44)
+                .glassEffect(.regular.interactive())
+            }
+            .accessibilityLabel("Simulation speed")
+            Menu {
+                Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
+                Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive())
+            }
+            .accessibilityLabel("More")
+        }
+        .padding(.leading, 4)
+    }
 }
 
-struct StatChip: View {
+struct Metric: Identifiable {
+    var id: String { label }
     var label: String
     var value: String
+    var unit: String? = nil
     var trend = 0
     var goodWhenUp = true
+}
+
+/// One quiet surface for the colony's headline numbers.
+struct StatusCard: View {
+    var metrics: [Metric]
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Text(value).font(.footnote.weight(.semibold).monospacedDigit())
-            if trend != 0 {
-                Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle((trend > 0) == goodWhenUp ? Color.green : .red)
+        HStack(spacing: 0) {
+            ForEach(Array(metrics.enumerated()), id: \.element.id) { i, m in
+                if i > 0 { Rectangle().fill(.white.opacity(0.12)).frame(width: 1, height: 34) }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(m.value).font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
+                        if let unit = m.unit { Text(unit).font(.caption).foregroundStyle(.secondary) }
+                        if m.trend != 0 {
+                            Image(systemName: m.trend > 0 ? "arrow.up.right" : "arrow.down.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle((m.trend > 0) == m.goodWhenUp ? Color.green : .red)
+                                .accessibilityLabel(m.trend > 0 ? "rising" : "falling")
+                        }
+                    }
+                    Text(m.label).font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, i == 0 ? 0 : 14)
+                .accessibilityElement(children: .combine)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .glassEffect()
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+}
+
+struct EffectBanner: View {
+    var storm: Bool
+    var title: String
+    var detail: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: storm ? "burst.fill" : "drop.degreesign.slash")
+                .foregroundStyle(storm ? Color.red : .amber)
+            Text(title).font(.subheadline.weight(.semibold))
+            Spacer()
+            Text(detail).font(.footnote).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .glassEffect(.regular.tint((storm ? Color.red : .amber).opacity(0.22)), in: .rect(cornerRadius: 18))
     }
 }
 
@@ -137,50 +202,99 @@ struct PlaceCard: View {
     var body: some View {
         let damaged = (game.world?.damage[location.rawValue] ?? 0) > 0
         let stock = game.world?.stockpiles[location.rawValue] ?? [:]
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(location.name).font(.headline)
-                if damaged { Text("Damaged").font(.caption.weight(.semibold)).foregroundStyle(.red) }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(location.name).font(.title3.weight(.semibold))
+                if damaged {
+                    Text("Damaged").font(.caption.weight(.semibold)).foregroundStyle(.red)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.red.opacity(0.15), in: .capsule)
+                }
                 Spacer()
-                Button("Close", systemImage: "xmark") { game.selectedLocation = nil }.labelStyle(.iconOnly)
+                Button("Close", systemImage: "xmark") { game.selectedLocation = nil }
+                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.small)
             }
-            Text(location.def.description).font(.footnote).foregroundStyle(.secondary)
+            Text(location.def.description).font(.subheadline).foregroundStyle(.secondary)
             if !stock.isEmpty {
-                Text(stock.sorted { $0.key < $1.key }.map { "\($0.key.capitalized) \(Int($0.value))" }.joined(separator: " · "))
-                    .font(.caption.monospacedDigit())
+                HStack(spacing: 18) {
+                    ForEach(stock.sorted { $0.key < $1.key }, id: \.key) { item in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(Int(item.value))").font(.system(.headline, design: .rounded).monospacedDigit())
+                            Text(item.key.capitalized).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .padding(18)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
     }
 }
 
-struct PowerTray: View {
-    @Environment(Game.self) private var game
+/// Every power, grouped by what it changes, each with a plain description.
+struct PowerMenu: View {
+    @Environment(\.dismiss) private var dismiss
+    var choose: (Power) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Power.allCases) { power in
-                Button {
-                    game.powerTarget = game.selectedID
-                    game.selectedID = nil
-                    game.activePower = power
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: power.symbol).font(.system(size: 18)).frame(height: 22)
-                        Text(power.short).font(.caption2)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    ForEach(Power.Kind.allCases, id: \.self) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.leading, 4)
+                            VStack(spacing: 0) {
+                                let powers = Power.allCases.filter { $0.kind == group }
+                                ForEach(Array(powers.enumerated()), id: \.element) { i, power in
+                                    if i > 0 { Divider().padding(.leading, 70) }
+                                    Button { choose(power) } label: { PowerRow(power: power) }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                            .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 22))
+                        }
                     }
-                    .foregroundStyle(power.believed ? Color.earth : .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(power.title)
+                .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 24)
+            }
+            .navigationTitle("Powers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
             }
         }
-        .padding(.horizontal, 4)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+    }
+}
+
+struct PowerRow: View {
+    var power: Power
+
+    var body: some View {
+        HStack(spacing: 14) {
+            PowerIcon(power: power, size: 42)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(power.title).font(.body.weight(.semibold))
+                Text(power.blurb).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+}
+
+struct PowerIcon: View {
+    var power: Power
+    var size: CGFloat = 42
+
+    var body: some View {
+        Image(systemName: power.symbol)
+            .font(.system(size: size * 0.42, weight: .semibold))
+            .foregroundStyle(power.tint)
+            .frame(width: size, height: size)
+            .background(power.tint.opacity(0.16), in: .rect(cornerRadius: size * 0.3))
     }
 }
 
@@ -213,102 +327,34 @@ struct InspectSheet: View {
 
     var body: some View {
         if let c = game.colonist(id) {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        Avatar(spriteId: c.spriteId, alive: c.alive, size: 60)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(c.name).font(.title.weight(.regular)).fontDesign(.serif)
-                            Text(occupation(c.occupation).label + (c.alive ? " · feels \(c.mood)" : " · died")).font(.subheadline).foregroundStyle(.secondary)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    header(c)
+                    if let d = detail {
+                        MindCard(agent: c, detail: d, now: game.world?.tick ?? 0)
+                        if !d.goals.isEmpty { WantsCard(goals: d.goals) }
+                        if !d.beliefs.isEmpty { BeliefsCard(first: c.first, beliefs: d.beliefs) }
+                        if !d.traits.isEmpty { TemperamentCard(traits: d.traits) }
+                        if !d.relationships.isEmpty { TiesCard(ties: d.relationships) { game.selectedID = $0 } }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-                    .listRowSeparator(.hidden)
-
-                    if c.alive {
-                        HStack(spacing: 8) {
-                            Button { open(nil, following: c.id) } label: { Text("Follow").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glassProminent)
-                            Button { open(.whisper, following: nil) } label: { Text("Whisper").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glass)
-                            Button { open(.supplyDrop, following: nil) } label: { Text("Drop").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glass)
-                        }
-                        .controlSize(.large)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                    }
-                }
-
-                Section("Doing") {
-                    Text(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel)
-                    if let plan = detail?.plan { Text(plan.intent).foregroundStyle(.secondary) }
-                }
-
-                Section("Needs") {
-                    HStack {
-                        NeedGauge(label: "Hunger", value: c.needs.hunger, tint: c.needs.hunger > 55 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Thirst", value: c.needs.thirst, tint: c.needs.thirst > 55 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Rest", value: 100 - c.needs.fatigue, tint: c.needs.fatigue > 65 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Health", value: c.health, tint: c.health < 40 ? .red : .green)
-                    }
-                    .padding(.vertical, 4)
-                    ForEach((detail?.inventory ?? [:]).sorted { $0.key < $1.key }, id: \.key) { item in
-                        LabeledContent(item.key.capitalized, value: item.key == "credits" ? "\(Int(item.value))cr" : "\(Int(item.value))")
-                    }
-                }
-
-                if let goals = detail?.goals, !goals.isEmpty {
-                    Section("Wants most") {
-                        ForEach(goals.prefix(3)) { g in
-                            Label(g.description, systemImage: g.source == "divine" ? "sparkles" : "scope")
-                                .foregroundStyle(g.source == "divine" ? Color.earth : .primary)
-                        }
-                    }
-                }
-
-                if let beliefs = detail?.beliefs, !beliefs.isEmpty {
-                    Section {
-                        ForEach(beliefs) { b in
-                            HStack {
-                                if b.divine { Image(systemName: "sparkles").foregroundStyle(Color.earth) }
-                                Text(b.text)
-                                Spacer()
-                                VStack(alignment: .trailing) {
-                                    Text(b.confidence, format: .percent.precision(.fractionLength(0))).monospacedDigit()
-                                    Text(b.sourceAgentName ?? sourceLabel(b.sourceType)).font(.caption2).foregroundStyle(b.divine ? Color.earth : .secondary)
+                    needs(c)
+                    if let events = detail?.recentEvents, !events.isEmpty {
+                        SheetSection("Recently") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(events.prefix(4)) { e in
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Image(systemName: e.symbol).foregroundStyle(e.tint).frame(width: 20)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(e.summary).font(.subheadline)
+                                            Text(Clock.stamp(e.tick)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
-                                .font(.subheadline)
-                            }
-                            .listRowBackground(b.divine ? Color.earth.opacity(0.14) : nil)
-                        }
-                    } header: { Text("Believes") } footer: { Text("Beliefs are what \(c.first) thinks, not what is true.") }
-                }
-
-                if let ties = detail?.relationships, !ties.isEmpty {
-                    Section("Ties") {
-                        ForEach(ties, id: \.toAgentId) { t in
-                            LabeledContent {
-                                Text(t.trust, format: .number.precision(.fractionLength(2)).sign(strategy: .always()))
-                                    .monospacedDigit().foregroundStyle(t.trust < 0 ? .red : .primary)
-                            } label: {
-                                Text(t.toAgentName).foregroundStyle(t.toAgentAlive ? .primary : .secondary)
-                                Text(t.kind.capitalized)
                             }
                         }
                     }
                 }
-
-                if let thought = detail?.lastThought {
-                    Section("Why") {
-                        Text(thought.intent)
-                        Text("after " + thought.trigger).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 32)
             }
             .task(id: id) {
                 for await d in game.detailStream(id) { detail = d }
@@ -316,8 +362,61 @@ struct InspectSheet: View {
         }
     }
 
-    private func sourceLabel(_ s: String) -> String {
-        ["observed": "saw it", "told": "was told", "rumor": "rumor", "divine": "whisper", "inference": "worked it out"][s] ?? s
+    private func header(_ c: AgentLite) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 16) {
+                Avatar(spriteId: c.spriteId, alive: c.alive, size: 68)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(c.name).font(.title.weight(.regular)).fontDesign(.serif)
+                    Text([occupation(c.occupation).label, detail?.factionName].compactMap { $0 }.joined(separator: " · "))
+                        .font(.subheadline.weight(.medium))
+                    Text(c.alive ? "Feels \(c.mood) · \(c.activityLabel.prefix(1).lowercased() + c.activityLabel.dropFirst())" : "Died" + (detail?.death.map { " · \($0.cause)" } ?? ""))
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            if c.alive {
+                HStack(spacing: 10) {
+                    Button { open(nil, following: c.id) } label: { Text("Follow").frame(maxWidth: .infinity) }
+                        .buttonStyle(.glassProminent)
+                    Button { open(.whisper, following: nil) } label: { Text("Whisper").frame(maxWidth: .infinity) }
+                        .buttonStyle(.glass).tint(.earth)
+                    Button { open(.supplyDrop, following: nil) } label: { Text("Give").frame(maxWidth: .infinity) }
+                        .buttonStyle(.glass)
+                }
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    private func needs(_ c: AgentLite) -> some View {
+        SheetSection("Body") {
+            VStack(spacing: 16) {
+                Grid(horizontalSpacing: 20, verticalSpacing: 16) {
+                    GridRow {
+                        NeedMeter(label: "Hunger", value: c.needs.hunger, warn: c.needs.hunger > 55, lowIsGood: true)
+                        NeedMeter(label: "Thirst", value: c.needs.thirst, warn: c.needs.thirst > 55, lowIsGood: true)
+                    }
+                    GridRow {
+                        NeedMeter(label: "Rest", value: 100 - c.needs.fatigue, warn: c.needs.fatigue > 65)
+                        NeedMeter(label: "Health", value: c.health, warn: c.health < 40, danger: c.health < 40)
+                    }
+                }
+                if let inventory = detail?.inventory, !inventory.isEmpty {
+                    Divider()
+                    HStack(spacing: 0) {
+                        ForEach(inventory.sorted { $0.key < $1.key }, id: \.key) { item in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("\(Int(item.value))").font(.system(.headline, design: .rounded).monospacedDigit())
+                                Text(item.key == "credits" ? "Credits" : item.key.capitalized).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Close the inspector, then present the next surface once it has gone.
@@ -331,24 +430,372 @@ struct InspectSheet: View {
     }
 }
 
-struct NeedGauge: View {
-    var label: String
+/// A titled group on a quiet card, the one surface style every inspector section shares.
+struct SheetSection<Content: View>: View {
+    var title: String
+    var note: String?
+    @ViewBuilder var content: Content
+
+    init(_ title: String, note: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.note = note
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 4)
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 22))
+            if let note {
+                Text(note).font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+/// Noticed → decided → plan: how this colonist got to what they're doing.
+struct MindCard: View {
+    var agent: AgentLite
+    var detail: AgentDetail
+    var now: Double
+
+    var body: some View {
+        SheetSection("How \(agent.first) is thinking", note: "Colonists notice something, decide what it means, then plan. They only act on what they believe.") {
+            VStack(alignment: .leading, spacing: 0) {
+                if let t = detail.lastThought {
+                    MindStep(mark: .done, label: "Noticed", text: t.trigger.prefix(1).uppercased() + t.trigger.dropFirst(), detail: ago(t.tick))
+                    MindStep(mark: .done, label: "Decided", text: t.intent, badge: t.source == "llm" ? ("Reasoned", "brain") : ("Instinct", "bolt.fill"))
+                }
+                if let plan = detail.plan {
+                    MindStep(mark: .active, label: detail.lastThought == nil ? "Planning" : "Plan", text: plan.intent, badge: plan.source == "routine" ? ("Routine", "repeat") : nil, last: plan.steps.isEmpty)
+                    ForEach(Array(plan.steps.enumerated()), id: \.offset) { i, step in
+                        let mark: MindStep.Mark = step.status == "done" || i < Int(plan.cursor) ? .done : step.status == "running" || i == Int(plan.cursor) ? .active : step.status == "failed" ? .failed : .waiting
+                        MindStep(mark: mark, label: nil, text: step.label, indent: true, last: i == plan.steps.count - 1)
+                    }
+                } else if detail.lastThought == nil {
+                    Text("Nothing on \(agent.first)'s mind beyond the day's routine.").font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func ago(_ tick: Double) -> String {
+        let minutes = Int(max(0, now - tick) * Clock.tickMinutes)
+        if minutes < 10 { return "just now" }
+        if minutes < 60 { return "\(minutes) min ago" }
+        if minutes < 1440 { return "\(minutes / 60) h ago" }
+        return "\(minutes / 1440) sol ago"
+    }
+}
+
+struct MindStep: View {
+    enum Mark { case done, active, waiting, failed }
+    var mark: Mark
+    var label: String?
+    var text: String
+    var detail: String? = nil
+    var badge: (String, String)? = nil
+    var indent = false
+    var last = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                icon.frame(width: 20, height: 20).padding(.top, label == nil ? 1 : 2)
+                Rectangle().fill(.white.opacity(0.14)).frame(width: 1.5).frame(maxHeight: .infinity).opacity(last ? 0 : 1)
+            }
+            .frame(width: 20)
+            VStack(alignment: .leading, spacing: 4) {
+                if let label {
+                    HStack(spacing: 8) {
+                        Text(label.uppercased()).font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(.secondary)
+                        if let badge {
+                            Label(badge.0, systemImage: badge.1)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.earth)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(Color.earth.opacity(0.14), in: .capsule)
+                        }
+                        Spacer()
+                        if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                Text(text).font(label == nil ? .subheadline : .body).foregroundStyle(mark == .waiting ? .secondary : .primary)
+            }
+            .padding(.bottom, last ? 0 : (label == nil ? 10 : 16))
+        }
+        .padding(.leading, indent ? 4 : 0)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch mark {
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .active: Image(systemName: "circle.dotted.circle").foregroundStyle(Color.earth).symbolEffect(.pulse)
+        case .waiting: Image(systemName: "circle").foregroundStyle(.tertiary)
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+        }
+    }
+}
+
+struct WantsCard: View {
+    var goals: [GoalPublic]
+
+    var body: some View {
+        SheetSection("Wants most") {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(goals.sorted { $0.priority > $1.priority }.prefix(3)) { g in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(g.description).font(.body)
+                            Spacer(minLength: 8)
+                            Text(origin(g.source)).font(.caption.weight(.medium)).foregroundStyle(g.source == "divine" ? Color.earth : .secondary)
+                        }
+                        Strength(value: g.priority, tint: g.source == "divine" ? .earth : .amber)
+                    }
+                }
+            }
+        }
+    }
+
+    private func origin(_ s: String) -> String {
+        ["divine": "From you", "needs": "Survival", "personality": "Personality", "social": "Others", "routine": "Routine"][s] ?? s.capitalized
+    }
+}
+
+struct BeliefsCard: View {
+    var first: String
+    var beliefs: [BeliefPublic]
+
+    var body: some View {
+        SheetSection("Believes", note: "Beliefs are what \(first) thinks, not what's true. Confidence shows how sure they are.") {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(beliefs.prefix(5)) { b in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(b.text).font(.body).foregroundStyle(b.divine ? Color.earth : .primary)
+                        HStack(spacing: 10) {
+                            Label(how(b), systemImage: icon(b.sourceType))
+                                .font(.caption).foregroundStyle(b.divine ? Color.earth : .secondary)
+                            Spacer()
+                            Text(b.confidence, format: .percent.precision(.fractionLength(0)))
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Strength(value: b.confidence, tint: b.divine ? .earth : .white.opacity(0.7)).frame(width: 56)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private func how(_ b: BeliefPublic) -> String {
+        switch b.sourceType {
+        case "observed": "Saw it"
+        case "told": b.sourceAgentName.map { "Told by \($0)" } ?? "Was told"
+        case "rumor": "Heard a rumor"
+        case "divine": "Your whisper"
+        case "inference": "Worked it out"
+        default: b.sourceType.capitalized
+        }
+    }
+
+    private func icon(_ s: String) -> String {
+        ["observed": "eye", "told": "bubble.left", "rumor": "ear", "divine": "sparkles", "inference": "lightbulb"][s] ?? "questionmark.circle"
+    }
+}
+
+struct TemperamentCard: View {
+    var traits: [String: Double]
+    private static let words: [String: (high: String, low: String)] = [
+        "ambition": ("Ambitious", "Content"), "empathy": ("Caring", "Cold"), "caution": ("Careful", "Reckless"),
+        "curiosity": ("Curious", "Incurious"), "sociability": ("Outgoing", "Private"), "stubbornness": ("Stubborn", "Easily swayed"),
+    ]
+
+    var body: some View {
+        let marked = TRAIT_KEYS.compactMap { key -> (String, Bool)? in
+            guard let v = traits[key], let w = Self.words[key] else { return nil }
+            return v >= 0.66 ? (w.high, true) : v <= 0.33 ? (w.low, false) : nil
+        }
+        if !marked.isEmpty {
+            SheetSection("Temperament", note: "Temperament shapes which choices feel right to them.") {
+                FlowRow(items: marked.map(\.0))
+            }
+        }
+    }
+}
+
+/// Short tags that wrap onto as many lines as they need.
+struct FlowRow: View {
+    var items: [String]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { ForEach(items, id: \.self, content: tag) }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(stride(from: 0, to: items.count, by: 3)), id: \.self) { i in
+                    HStack(spacing: 8) { ForEach(items[i..<min(i + 3, items.count)], id: \.self, content: tag) }
+                }
+            }
+        }
+    }
+
+    private func tag(_ s: String) -> some View {
+        Text(s).font(.subheadline.weight(.medium))
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.white.opacity(0.08), in: .capsule)
+    }
+}
+
+struct TiesCard: View {
+    var ties: [RelationshipPublic]
+    var open: (Id) -> Void
+
+    var body: some View {
+        SheetSection("Feels about") {
+            VStack(spacing: 0) {
+                ForEach(Array(ties.sorted { abs($0.trust) + $0.fear > abs($1.trust) + $1.fear }.prefix(5).enumerated()), id: \.element.toAgentId) { i, t in
+                    if i > 0 { Divider().padding(.vertical, 10) }
+                    Button { open(t.toAgentId) } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(t.toAgentName).font(.body).foregroundStyle(t.toAgentAlive ? .primary : .secondary)
+                                Text(t.toAgentAlive ? t.kind.capitalized : "\(t.kind.capitalized) · died").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(feeling(t)).font(.subheadline.weight(.medium)).foregroundStyle(tint(t))
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func feeling(_ t: RelationshipPublic) -> String {
+        if t.fear > 0.5 { return "Afraid" }
+        if t.trust <= -0.3 { return "Distrusts" }
+        if t.trust >= 0.5 && t.affinity >= 0.5 { return "Close" }
+        if t.trust >= 0.3 { return "Trusts" }
+        if t.affinity >= 0.4 { return "Likes" }
+        return "Neutral"
+    }
+
+    private func tint(_ t: RelationshipPublic) -> Color {
+        t.fear > 0.5 || t.trust <= -0.3 ? .red : t.trust >= 0.3 || t.affinity >= 0.4 ? .green : .secondary
+    }
+}
+
+struct Strength: View {
     var value: Double
     var tint: Color
 
     var body: some View {
-        VStack(spacing: 4) {
-            Gauge(value: min(100, max(0, value)), in: 0...100) { EmptyView() } currentValueLabel: { Text("\(Int(value))") }
-                .gaugeStyle(.accessoryCircularCapacity)
-                .tint(tint)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.1))
+                Capsule().fill(tint).frame(width: max(4, geo.size.width * min(1, max(0, value))))
+            }
         }
+        .frame(height: 4)
+        .accessibilityHidden(true)
+    }
+}
+
+struct NeedMeter: View {
+    var label: String
+    var value: Double
+    var warn = false
+    var lowIsGood = false
+    var danger = false
+
+    var body: some View {
+        let v = min(100, max(0, value))
+        let tint: Color = danger ? .red : warn ? .amber : .green
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label).font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(v))").font(.system(.headline, design: .rounded).monospacedDigit())
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.1))
+                    Capsule().fill(tint).frame(width: max(6, geo.size.width * v / 100))
+                }
+            }
+            .frame(height: 6)
+        }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) \(Int(value)) of 100")
+        .accessibilityLabel("\(label) \(Int(v)) of 100\(warn ? ", needs attention" : "")")
     }
 }
 
 // MARK: - Powers
+
+extension Power {
+    enum Kind: CaseIterable {
+        case world, minds, people
+        var title: String {
+            switch self {
+            case .world: "Change the world"
+            case .minds: "Change minds"
+            case .people: "Change who lives here"
+            }
+        }
+    }
+    var kind: Kind {
+        switch self {
+        case .drought, .meteors, .supplyDrop: .world
+        case .whisper, .rumor: .minds
+        case .arrival, .endLife: .people
+        }
+    }
+    var blurb: String {
+        switch self {
+        case .drought: "The ice wells fail for a few sols. Water and crops run short."
+        case .meteors: "Debris strikes exposed sites and stops work until it's repaired."
+        case .supplyDrop: "Give one colonist food, water or credits out of nowhere."
+        case .whisper: "Plant an idea in one person's mind. It doesn't have to be true."
+        case .rumor: "Start talk about someone and watch it spread and change."
+        case .arrival: "Design a new colonist and land them on the next shuttle."
+        case .endLife: "A colonist dies. Their household and friends will feel it."
+        }
+    }
+    var tint: Color {
+        switch kind {
+        case .world: .amber
+        case .minds: .earth
+        case .people: self == .endLife ? .red : .amber
+        }
+    }
+}
+
+/// The one filled action at the foot of a sheet.
+struct PrimaryAction: View {
+    var title: String
+    var tint: Color
+    var disabled = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.headline).lineLimit(1).frame(maxWidth: .infinity).frame(height: 30)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(tint)
+        .controlSize(.large)
+        .disabled(disabled)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
 
 struct PowerSheet: View {
     @Environment(Game.self) private var game
@@ -380,6 +827,14 @@ struct PowerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack(spacing: 14) {
+                        PowerIcon(power: power, size: 50)
+                        Text(power.blurb).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+                }
                 switch power {
                 case .drought:
                     Section {
@@ -465,12 +920,10 @@ struct PowerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(sending ? "…" : power == .endLife ? "End" : power == .whisper ? "Whisper" : power == .rumor ? "Spread" : "Begin") {
-                        if power == .endLife { confirmEnd = true } else { send() }
-                    }
-                    .tint(power == .endLife ? .red : power.believed ? .earth : .amber)
-                    .disabled(intervention == nil || sending)
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryAction(title: sending ? "Working…" : actionTitle, tint: power == .endLife ? .red : power.tint, disabled: intervention == nil || sending) {
+                    if power == .endLife { confirmEnd = true } else { send() }
                 }
             }
             .confirmationDialog("End \(game.colonist(target)?.name ?? "this life")?", isPresented: $confirmEnd, titleVisibility: .visible) {
@@ -486,6 +939,18 @@ struct PowerSheet: View {
         .onChange(of: presetKey) { fillIdea() }
         .onChange(of: about) { fillIdea() }
         .onChange(of: target) { if power == .rumor { fillIdea() } }
+    }
+
+    private var actionTitle: String {
+        switch power {
+        case .drought: "Start the drought"
+        case .meteors: "Call the storm"
+        case .supplyDrop: "Send \(amount) \(resource.rawValue) to \(name)"
+        case .endLife: "End \(name)'s life"
+        case .whisper: "Whisper to \(name)"
+        case .rumor: "Spread the rumor"
+        case .arrival: "Land"
+        }
     }
 
     private func targetPicker(_ label: String, selection: Binding<Id>, from people: [AgentLite]) -> some View {
@@ -564,7 +1029,7 @@ struct CreatorSheet: View {
                     .listRowBackground(Color.clear)
                 }
                 Section {
-                    TextField("Name", text: $name)
+                    LabeledContent("Name") { TextField("Name", text: $name).multilineTextAlignment(.trailing) }
                     Picker("Occupation", selection: $occupationId) {
                         ForEach(OCCUPATIONS) { Text($0.label).tag($0.id) }
                     }
@@ -594,13 +1059,12 @@ struct CreatorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(sending ? "…" : "Land") { land() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).count < 2 || sending)
-                }
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Randomize", systemImage: "dice") { randomize() }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryAction(title: sending ? "Landing…" : "Land \(name.split(separator: " ").first.map(String.init) ?? "them")", tint: .amber, disabled: name.trimmingCharacters(in: .whitespaces).count < 2 || sending) { land() }
             }
         }
     }
@@ -652,6 +1116,12 @@ struct FollowView: View {
                         }
                         .buttonStyle(.glass)
                         Spacer()
+                        Text(Clock.time(game.world?.tick ?? 0))
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 12).frame(height: 36)
+                            .glassEffect()
+                            .accessibilityLabel(game.stamp)
+                        Spacer()
                         Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
                             Image(systemName: "pause.fill").tag(0.0)
                             Text("1×").tag(1.0)
@@ -659,11 +1129,9 @@ struct FollowView: View {
                             Text("8×").tag(8.0)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 190)
+                        .frame(width: 172)
                     }
-                    if let toast = game.toast {
-                        Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
-                    }
+                    if let toast = game.toast { ToastView(toast: toast).padding(.top, 8) }
                     Spacer()
                     hud(c)
                 }
@@ -683,7 +1151,7 @@ struct FollowView: View {
                 Avatar(spriteId: c.spriteId)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(c.name).font(.title3).fontDesign(.serif)
-                    Text("\(occupation(c.occupation).label) · \(game.stamp)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 5) {
@@ -695,6 +1163,15 @@ struct FollowView: View {
             Divider()
             Grid(alignment: .topLeading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow { key("Doing"); Text(c.activityLabel) }
+                if let t = detail?.lastThought {
+                    GridRow {
+                        key("Thinking")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t.intent)
+                            Text("after " + t.trigger).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 if let goal = detail?.goals.first { GridRow { key("Wants"); Text(goal.description) } }
                 if let beliefs = detail?.beliefs.prefix(2), !beliefs.isEmpty {
                     GridRow {
@@ -721,7 +1198,7 @@ struct FollowView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(game.skipping)
-                Button("Ties") {
+                Button("Profile") {
                     let id = c.id
                     game.unfollow()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { game.selectedID = id }
@@ -761,28 +1238,45 @@ struct PeopleView: View {
 
     private var shown: [AgentLite] {
         let list = query.isEmpty ? game.agents : game.agents.filter { $0.name.localizedCaseInsensitiveContains(query) || occupation($0.occupation).label.localizedCaseInsensitiveContains(query) }
-        return list.sorted { ($0.alive ? 0 : 1, $0.name) < ($1.alive ? 0 : 1, $1.name) }
+        return list.sorted { $0.name < $1.name }
     }
 
     var body: some View {
+        let living = shown.filter(\.alive)
+        let gone = shown.filter { !$0.alive }
         NavigationStack {
-            List(shown) { c in
-                Button { game.selectedID = c.id } label: {
-                    HStack(spacing: 12) {
-                        Avatar(spriteId: c.spriteId, alive: c.alive, size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.name).foregroundStyle(c.alive ? .primary : .secondary)
-                            Text(c.alive ? c.activityLabel : "Died").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
+            List {
+                Section("\(living.count) living") {
+                    ForEach(living) { c in row(c) }
+                }
+                if !gone.isEmpty {
+                    Section("Gone") {
+                        ForEach(gone) { c in row(c) }
                     }
                 }
-                .tint(.primary)
             }
             .navigationTitle("People")
             .searchable(text: $query, prompt: "Name or occupation")
         }
+    }
+
+    private func row(_ c: AgentLite) -> some View {
+        Button { game.selectedID = c.id } label: {
+            HStack(spacing: 14) {
+                Avatar(spriteId: c.spriteId, alive: c.alive, size: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(c.name).font(.body.weight(.medium)).foregroundStyle(c.alive ? .primary : .secondary)
+                        Spacer(minLength: 8)
+                        Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text(c.alive ? "Feels \(c.mood) · \(c.activityLabel.prefix(1).lowercased() + c.activityLabel.dropFirst())" : "Died")
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .tint(.primary)
     }
 }
 

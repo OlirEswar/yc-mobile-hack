@@ -1,0 +1,480 @@
+{
+ "tile_size": 16,
+ "columns": 16,
+ "edge_bits": {
+  "N": 1,
+  "E": 2,
+  "S": 4,
+  "W": 8
+ },
+ "tiles": [
+  {
+   "name": "grass_0",
+   "atlas": [
+    0,
+    0
+   ],
+   "terrain": "grass",
+   "edge": -1
+  },
+  {
+   "name": "grass_1",
+   "atlas": [
+    1,
+    0
+   ],
+   "terrain": "grass",
+   "edge": -1
+  },
+  {
+   "name": "grass_2",
+   "atlas": [
+    2,
+    0
+   ],
+   "terrain": "grass",
+   "edge": -1
+  },
+  {
+   "name": "grass_3",
+   "atlas": [
+    3,
+    0
+   ],
+   "terrain": "grass",
+   "edge": -1
+  },
+  {
+   "name": "sand_0",
+   "atlas": [
+    4,
+    0
+   ],
+   "terrain": "sand",
+   "edge": -1
+  },
+  {
+   "name": "sand_1",
+   "atlas": [
+    5,
+    0
+   ],
+   "terrain": "sand",
+   "edge": -1
+  },
+  {
+   "name": "sand_2",
+   "atlas": [
+    6,
+    0
+   ],
+   "terrain": "sand",
+   "edge": -1
+  },
+  {
+   "name": "sand_3",
+   "atlas": [
+    7,
+    0
+   ],
+   "terrain": "sand",
+   "edge": -1
+  },
+  {
+   "name": "water_0",
+   "atlas": [
+    8,
+    0
+   ],
+   "terrain": "water",
+   "edge": -1
+  },
+  {
+   "name": "water_1",
+   "atlas": [
+    9,
+    0
+   ],
+   "terrain": "water",
+   "edge": -1
+  },
+  {
+   "name": "water_2",
+   "atlas": [
+    10,
+    0
+   ],
+   "terrain": "water",
+   "edge": -1
+  },
+  {
+   "name": "water_3",
+   "atlas": [
+    11,
+    0
+   ],
+   "terrain": "water",
+   "edge": -1
+  },
+  {
+   "name": "forest_0",
+   "atlas": [
+    12,
+    0
+   ],
+   "terrain": "forest",
+   "edge": -1
+  },
+  {
+   "name": "forest_1",
+   "atlas": [
+    13,
+    0
+   ],
+   "terrain": "forest",
+   "edge": -1
+  },
+  {
+   "name": "forest_2",
+   "atlas": [
+    14,
+    0
+   ],
+   "terrain": "forest",
+   "edge": -1
+  },
+  {
+   "name": "forest_3",
+   "atlas": [
+    15,
+    0
+   ],
+   "terrain": "forest",
+   "edge": -1
+  },
+  {
+   "name": "mountain_0",
+   "atlas": [
+    0,
+    1
+   ],
+   "terrain": "mountain",
+   "edge": -1
+  },
+  {
+   "name": "mountain_1",
+   "atlas": [
+    1,
+    1
+   ],
+   "terrain": "mountain",
+   "edge": -1
+  },
+  {
+   "name": "mountain_2",
+   "atlas": [
+    2,
+    1
+   ],
+   "terrain": "mountain",
+   "edge": -1
+  },
+  {
+   "name": "mountain_3",
+   "atlas": [
+    3,
+    1
+   ],
+   "terrain": "mountain",
+   "edge": -1
+  },
+  {
+   "name": "shore_00",
+   "atlas": [
+    0,
+    2
+   ],
+   "terrain": "water",
+   "edge": 0
+  },
+  {
+   "name": "shore_01",
+   "atlas": [
+    1,
+    2
+   ],
+   "terrain": "water",
+   "edge": 1
+  },
+  {
+   "name": "shore_02",
+   "atlas": [
+    2,
+    2
+   ],
+   "terrain": "water",
+   "edge": 2
+  },
+  {
+   "name": "shore_03",
+   "atlas": [
+    3,
+    2
+   ],
+   "terrain": "water",
+   "edge": 3
+  },
+  {
+   "name": "shore_04",
+   "atlas": [
+    4,
+    2
+   ],
+   "terrain": "water",
+   "edge": 4
+  },
+  {
+   "name": "shore_05",
+   "atlas": [
+    5,
+    2
+   ],
+   "terrain": "water",
+   "edge": 5
+  },
+  {
+   "name": "shore_06",
+   "atlas": [
+    6,
+    2
+   ],
+   "terrain": "water",
+   "edge": 6
+  },
+  {
+   "name": "shore_07",
+   "atlas": [
+    7,
+    2
+   ],
+   "terrain": "water",
+   "edge": 7
+  },
+  {
+   "name": "shore_08",
+   "atlas": [
+    8,
+    2
+   ],
+   "terrain": "water",
+   "edge": 8
+  },
+  {
+   "name": "shore_09",
+   "atlas": [
+    9,
+    2
+   ],
+   "terrain": "water",
+   "edge": 9
+  },
+  {
+   "name": "shore_10",
+   "atlas": [
+    10,
+    2
+   ],
+   "terrain": "water",
+   "edge": 10
+  },
+  {
+   "name": "shore_11",
+   "atlas": [
+    11,
+    2
+   ],
+   "terrain": "water",
+   "edge": 11
+  },
+  {
+   "name": "shore_12",
+   "atlas": [
+    12,
+    2
+   ],
+   "terrain": "water",
+   "edge": 12
+  },
+  {
+   "name": "shore_13",
+   "atlas": [
+    13,
+    2
+   ],
+   "terrain": "water",
+   "edge": 13
+  },
+  {
+   "name": "shore_14",
+   "atlas": [
+    14,
+    2
+   ],
+   "terrain": "water",
+   "edge": 14
+  },
+  {
+   "name": "shore_15",
+   "atlas": [
+    15,
+    2
+   ],
+   "terrain": "water",
+   "edge": 15
+  },
+  {
+   "name": "beach_00",
+   "atlas": [
+    0,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 0
+  },
+  {
+   "name": "beach_01",
+   "atlas": [
+    1,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 1
+  },
+  {
+   "name": "beach_02",
+   "atlas": [
+    2,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 2
+  },
+  {
+   "name": "beach_03",
+   "atlas": [
+    3,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 3
+  },
+  {
+   "name": "beach_04",
+   "atlas": [
+    4,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 4
+  },
+  {
+   "name": "beach_05",
+   "atlas": [
+    5,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 5
+  },
+  {
+   "name": "beach_06",
+   "atlas": [
+    6,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 6
+  },
+  {
+   "name": "beach_07",
+   "atlas": [
+    7,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 7
+  },
+  {
+   "name": "beach_08",
+   "atlas": [
+    8,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 8
+  },
+  {
+   "name": "beach_09",
+   "atlas": [
+    9,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 9
+  },
+  {
+   "name": "beach_10",
+   "atlas": [
+    10,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 10
+  },
+  {
+   "name": "beach_11",
+   "atlas": [
+    11,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 11
+  },
+  {
+   "name": "beach_12",
+   "atlas": [
+    12,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 12
+  },
+  {
+   "name": "beach_13",
+   "atlas": [
+    13,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 13
+  },
+  {
+   "name": "beach_14",
+   "atlas": [
+    14,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 14
+  },
+  {
+   "name": "beach_15",
+   "atlas": [
+    15,
+    3
+   ],
+   "terrain": "sand",
+   "edge": 15
+  }
+ ]
+}

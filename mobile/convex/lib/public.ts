@@ -8,6 +8,8 @@ import type {
   EventCategory,
   FactionPublic,
   GoalPublic,
+  PersonaPublic,
+  StorylinePublic,
   WorldEventPublic,
   WorldPublic,
 } from '../../shared/types';
@@ -53,7 +55,29 @@ export function toEventPublic(e: Doc<'events'>): WorldEventPublic {
     salience: e.salience,
     causationEventId: e.causationEventId,
     banner: e.banner,
+    storylineId: typeof e.facts?.storylineId === 'string' ? e.facts.storylineId : undefined,
     visibility: e.visibility as WorldEventPublic['visibility'],
+  };
+}
+
+/** The public face of a persona: never the secret, never the need. */
+export function toPersonaPublic(p: NonNullable<Doc<'minds'>['persona']>): PersonaPublic {
+  return { epithet: p.epithet, want: p.want, fear: p.fear, flaw: p.flaw, voice: p.voice, arc: { stage: p.arc.stage as PersonaPublic['arc']['stage'], note: p.arc.note }, key: p.key };
+}
+
+/** Newest twelve beats only. */
+export function toStorylinePublic(s: Doc<'storylines'>): StorylinePublic {
+  return {
+    id: s._id,
+    title: s.title,
+    premise: s.premise,
+    status: s.status as StorylinePublic['status'],
+    tension: s.tension,
+    participantIds: s.participantIds,
+    beats: s.beats.slice(-12),
+    origin: s.origin as StorylinePublic['origin'],
+    createdTick: s.createdTick,
+    lastBeatTick: s.lastBeatTick,
   };
 }
 

@@ -107,7 +107,7 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
       fail('expected ' + required + ' args');
       continue;
     }
-    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, householdId: c.householdId, living, person, belief });
+    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, householdId: c.householdId, living, person, belief, society: c.societyRefs });
     if (typeof encoded === 'string') {
       fail(encoded);
       continue;
@@ -145,6 +145,7 @@ type Lookup = {
   living: (value: string) => PersonRef | undefined;
   person: (value: string) => PersonRef | undefined;
   belief: (value: string) => Held | undefined;
+  society: PlanContext['societyRefs'];
 };
 
 const RESOURCE_LIST = RESOURCES as readonly string[];
@@ -345,7 +346,7 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
       return { args: [topic], label: 'Rally the plaza' };
     }
     default:
-      return validateSocietyArgs(type, args, l);
+      return validateSocietyArgs(type, args, { living: l.living, ...l.society });
   }
 }
 

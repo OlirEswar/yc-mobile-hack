@@ -6,6 +6,7 @@
 import { LOCATIONS, LOCATION_IDS, RESOURCES, TRADED_RESOURCES } from '../../shared/colony';
 import type { GoalKind } from '../../shared/types';
 import { STEP_SPECS } from '../engine/core';
+import { SOCIETY_ARG_KINDS } from '../society/validate';
 import type { AskContext, PersonaContext, PlanContext, SpeechContext, ThoughtContext } from './context';
 import type { ChatRequest } from './provider';
 
@@ -172,7 +173,11 @@ const ABOUT: Partial<Record<keyof typeof STEP_SPECS, string>> = {
 const conf = (x: number): string => x.toFixed(1);
 
 function legalSteps(): string {
-  const steps = Object.entries(STEP_SPECS).map(([type, spec]) => '- ' + type + '(' + spec.args.join(', ') + '): ' + (ABOUT[type as keyof typeof STEP_SPECS] ?? spec.about));
+  const steps = Object.entries(STEP_SPECS).map(([type, spec]) => {
+    const kinds = SOCIETY_ARG_KINDS[type as keyof typeof SOCIETY_ARG_KINDS];
+    const about = ABOUT[type as keyof typeof STEP_SPECS] ?? spec.about;
+    return '- ' + type + '(' + spec.args.join(', ') + '): ' + about + (kinds ? ' Args: ' + Object.entries(kinds).map(([k, h]) => k + ' = ' + h).join('; ') + '.' : '');
+  });
   const args = Object.entries(ARG_HELP).map(([name, help]) => name + ' = ' + help).join('; ');
   const places = LOCATION_IDS.map((id) => id + ' (' + LOCATIONS[id].name + (LOCATIONS[id].exposed ? ', surface' : '') + ')').join(', ');
   const topics = (t: Record<string, string>) => Object.entries(t).map(([key, about]) => key + ' (' + about + ')').join(', ');
@@ -241,6 +246,7 @@ function situationLines(c: Situation): string[] {
     ...c.world.map((w) => '- ' + w),
     '',
     ...(c.storylines.length > 0 ? ['Stories ' + first + ' is caught up in:', ...c.storylines.map((l) => '- ' + l), ''] : []),
+    ...(c.societyRefs.orgs.length > 0 ? ['Organizations (orgId: name, kind):', ...c.societyRefs.orgs.map((o) => '- ' + o.id + ': ' + o.name + ', ' + o.kind + (o.leader ? ' (they lead it)' : o.member ? ' (member)' : '')), ''] : []),
     'Goals:',
     ...(c.goals.length > 0
       ? c.goals.map((g) => '- [' + g.kind + ', priority ' + conf(g.priority) + '] ' + g.description + (refOf(g.targetId) ? ' (about ' + refOf(g.targetId) + ')' : ''))

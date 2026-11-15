@@ -6,6 +6,7 @@ import { validatePlan, validateThought } from './cognition/validate';
 const id = (n: number) => ('agent' + n) as Id<'agents'>;
 
 const context: PlanContext = {
+  societyRefs: { orgs: [], pets: [], children: [], discovered: [] },
   kind: 'plan',
   tick: 100,
   agentId: id(0),

@@ -9,7 +9,7 @@ import { LOCATIONS, OCCUPATIONS, TRAIT_KEYS, VALUE_KEYS, tickToClock } from '../
 import type { LocationId } from '../../shared/colony';
 import { ROSTER_ASLEEP, ROSTER_DEAD, ROSTER_TRANSIT, locChar } from '../seed/insert';
 import { beliefKey } from '../engine/core';
-import { societyContext } from '../society/context';
+import { societyContext, societyLookup } from '../society/detail';
 import { describeStoryline, liveStorylines } from '../storyteller/storylines';
 
 export type PersonRef = {
@@ -91,6 +91,8 @@ export type PlanContext = {
   secret?: SecretRef;
   /** Society layer lines in words (organizations, family, status, obsession). */
   society: string[];
+  /** Organizations, pets, children and discoveries the plan may name in society steps. */
+  societyRefs: Awaited<ReturnType<typeof societyLookup>>;
   /** Live storylines they are part of, one line each. */
   storylines: string[];
   /** Their latest monologue lines, newest first (followed colonist only). */
@@ -384,7 +386,7 @@ async function thoughtContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'a
     identity: identityOf(agent, mind.ageBand, await factionOf(ctx, world, agent)),
     personality: describeTraits(agent.traits),
     ...personaOf(mind, agent._id),
-    society: await societyContext(ctx, agent, mind),
+    society: await societyLines(ctx, agent, mind),
     mood: agent.mood,
     feeling: describeFeeling(agent),
     place: placeName(agent.locationId),
@@ -506,10 +508,16 @@ export async function planContext(
       people,
       followed: opts.followed,
       ...personaOf(mind, agent._id),
-      society: await societyContext(ctx, agent, mind),
+      society: await societyLines(ctx, agent, mind),
+      societyRefs: await societyLookup(ctx, agent, mind),
       storylines: await storylinesOf(ctx, world._id, agent._id, 3),
       thoughts: opts.followed ? await recentThoughts(ctx, agent._id, 3) : [],
   };
+}
+
+/** The society layer's context as prompt lines. */
+async function societyLines(ctx: QueryCtx, agent: Doc<'agents'>, mind: Doc<'minds'>): Promise<string[]> {
+  return (await societyContext(ctx, agent, mind)).split('\n').filter(Boolean);
 }
 
 /** Questions a session asked this colonist, oldest first. */

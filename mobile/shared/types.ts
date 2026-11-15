@@ -109,7 +109,7 @@ export type RelationshipPublic = {
   toAgentId: Id;
   toAgentName: string;
   toAgentAlive: boolean;
-  kind: 'family' | 'friend' | 'colleague' | 'rival' | 'acquaintance';
+  kind: 'family' | 'friend' | 'colleague' | 'rival' | 'acquaintance' | 'romance' | 'partner';
   affinity: number; // -1..1
   trust: number; // -1..1
   fear: number; // 0..1

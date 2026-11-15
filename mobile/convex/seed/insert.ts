@@ -3,6 +3,7 @@
  * personas, the opening scene, beliefs, ties, factions, the storylines in motion, the key-character
  * map (worlds.keyAgents) and the starter (worlds.starterAgentId).
  */
+import { seedSociety } from '../society/seed';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { COLONY_NAME, LOCATION_IDS } from '../../shared/colony';
@@ -298,5 +299,6 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
   const keyAgents: Record<string, Id<'agents'>> = {};
   for (const [key, seq] of Object.entries(colony.keyAgents)) keyAgents[key] = agentIds[seq];
   await ctx.db.patch(worldId, { roster: { loc, st }, roles, keyAgents, starterAgentId: agentIds[colony.starter] });
+  await seedSociety(ctx, worldId, agentIds, { children: false });
   return worldId;
 }

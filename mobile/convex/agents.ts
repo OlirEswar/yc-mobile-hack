@@ -1,3 +1,4 @@
+import { societyDetail } from './society/detail';
 import { v } from 'convex/values';
 import { query } from './_generated/server';
 import { asAgentId, asWorldId } from './lib/auth';
@@ -128,6 +129,7 @@ export const get = query({
       death: mind.death,
       persona: mind.persona ? toPersonaPublic(mind.persona) : undefined,
       storylineIds: (await liveStorylines(ctx, worldId)).filter((s) => s.participantIds.includes(agentId)).map((s) => s._id),
+      ...(await societyDetail(ctx, agent, mind)),
     };
   },
 });

@@ -10,6 +10,7 @@ import { BONUS_YES_AT, CUT_AT, NORMAL_STOCK } from '../lib/constants';
 import { addStock, councilIds, firstName, reserveDays, reserveRatio, stock } from './conditions';
 import { adjustRelationship, emitEvent, loadAgent, loadFactions, loadMind, touch, touchHousehold } from './core';
 import type { AgentDoc, EventId, Tx } from './core';
+import { owesFavor } from './ledger';
 import { getBelief, tie } from './social';
 import { allAgents, allHouseholds, simState } from './state';
 
@@ -56,7 +57,8 @@ async function rationVote(tx: Tx, members: AgentDoc[], chair: AgentDoc | undefin
     for (const p of petitions) {
       if (p.agentId === m._id) continue;
       const r = await tie(tx, m._id, p.agentId);
-      if ((r?.affinity ?? 0) + (r?.trust ?? 0) > 0.3) want += p.topic === 'rations_open' ? -0.5 : 0.5;
+      const bought = owesFavor(await loadMind(tx, m), p.agentId, 'vote', tx.tick);
+      if (bought || (r?.affinity ?? 0) + (r?.trust ?? 0) + (r?.obligation ?? 0) * 0.5 > 0.3) want += p.topic === 'rations_open' ? -0.5 : 0.5;
     }
     votes.push({ m, want: Math.max(0, Math.min(2, Math.round(want))) });
   }
@@ -238,8 +240,69 @@ async function lean(tx: Tx, voter: AgentDoc, a: AgentDoc, b: AgentDoc): Promise<
   if (voter._id === a._id) return a;
   if (voter._id === b._id) return b;
   const [ra, rb] = [await tie(tx, voter._id, a._id), await tie(tx, voter._id, b._id)];
-  const score = (r: typeof ra, x: AgentDoc) => (r?.affinity ?? 0) + (r?.trust ?? 0) + x.standing * 0.05;
+  const mind = await loadMind(tx, voter);
+  const score = (r: typeof ra, x: AgentDoc) => (r?.affinity ?? 0) + (r?.trust ?? 0) + (r?.obligation ?? 0) * 0.5 + x.standing * 0.05 + (owesFavor(mind, x._id, 'vote', tx.tick) ? 1 : 0);
   return score(ra, a) >= score(rb, b) ? a : b;
+}
+
+/**
+ * A rally with enough people behind it forces a vote on the chair. The crowd's anger weighs on every
+ * councilor; the most respected councilor other than the chair stands as the alternative.
+ */
+export async function recallVote(tx: Tx, organizer: AgentDoc, crowd: number, causeId: EventId): Promise<void> {
+  const members: AgentDoc[] = [];
+  for (const id of councilIds(tx)) {
+    const m = await loadAgent(tx, id as AgentDoc['_id']);
+    if (m?.alive) members.push(m);
+  }
+  const chair = members.find((m) => m._id === tx.world.roles.chair);
+  const challenger = members.filter((m) => m._id !== chair?._id).sort((x, y) => y.standing - x.standing)[0];
+  if (!chair || !challenger) return;
+  const tally = { keep: 0, remove: 0 };
+  for (const m of members) {
+    if (m._id === chair._id) {
+      tally.keep += 1;
+      continue;
+    }
+    const toChair = await tie(tx, m._id, chair._id);
+    const toOrganizer = await tie(tx, m._id, organizer._id);
+    const pressure = crowd / 20 + (toOrganizer?.affinity ?? 0) * 0.3 + (owesFavor(await loadMind(tx, m), organizer._id, 'vote', tx.tick) ? 1 : 0);
+    tally[(toChair?.affinity ?? 0) + (toChair?.trust ?? 0) * 0.5 - pressure < 0.1 ? 'remove' : 'keep'] += 1;
+  }
+  if (tally.remove <= tally.keep) {
+    await adjustRelationship(tx, chair, organizer, { affinity: -0.3, trust: -0.2, kind: 'rival' });
+    await emitEvent(tx, {
+      category: 'politics',
+      eventType: 'recall_failed',
+      actorId: chair._id,
+      participantIds: [organizer._id, ...members.map((m) => m._id)],
+      locationId: 'plaza',
+      summary: 'The council voted ' + tally.keep + ' to ' + tally.remove + ' to keep ' + chair.name + ' as chair, despite the ' + crowd + ' colonists ' + organizer.name + ' brought to the plaza. ' + firstName(chair.name) + ' will not forget who organised it.',
+      salience: 0.8,
+      causationEventId: causeId,
+      visibility: 'public',
+    });
+    return;
+  }
+  tx.world.roles.chair = challenger._id;
+  challenger.role = 'chair';
+  chair.role = undefined;
+  challenger.mood = 'proud';
+  chair.mood = 'humiliated';
+  touch(tx, challenger);
+  touch(tx, chair);
+  await adjustRelationship(tx, chair, organizer, { affinity: -0.5, trust: -0.4, kind: 'rival' });
+  await emitEvent(tx, {
+    category: 'politics',
+    eventType: 'leadership_change',
+    actorId: challenger._id,
+    participantIds: [chair._id, organizer._id, ...members.map((m) => m._id)],
+    locationId: 'plaza',
+    summary: 'Under pressure from ' + crowd + ' colonists rallied by ' + organizer.name + ', the council voted ' + tally.remove + ' to ' + tally.keep + ' to recall ' + chair.name + '. ' + challenger.name + ' takes the gavel.',
+    salience: 0.92,
+    causationEventId: causeId,
+    visibility: 'public',
+  });
 }
 
 /** A discredited chair faces the most respected councilor; the table votes by who they trust. */

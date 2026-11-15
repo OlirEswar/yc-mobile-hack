@@ -7,10 +7,12 @@
 import { SOCIETY_STEP_SPECS } from '../society/steps';
 import { finishSocietyStep, startSocietyStep } from '../society/hooks';
 import { ROUTES, findPath, routeKey } from '../../shared/colony';
-import type { TradedResourceId } from '../../shared/colony';
-import type { ActivityKind } from '../../shared/types';
 import { BASE_PRICES, DRINK_RELIEF, MEAL_RELIEF, PANTRY_DAYS, RATIONS, RESERVE_FLOOR, WAGE_PER_HOUR } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
+import { FAILED, SECURITY, act, fail, int, isRes, isTraded, roll, say, units } from './act';
+import type { Res } from './act';
+
+export { FAILED } from './act';
 import {
   addStock,
   blockedRoutes,
@@ -40,7 +42,7 @@ import {
   touchHousehold,
   touchMind,
 } from './core';
-import type { AgentDoc, AgentId, EventId, HouseholdDoc, Tx } from './core';
+import type { AgentDoc, EventId, HouseholdDoc, Tx } from './core';
 import { simState } from './state';
 import {
   getBelief,
@@ -56,47 +58,12 @@ import {
   ACCUSABLE,
 } from './social';
 import { accuseLine, beliefLine, denyLine, reply, smallTalk, workLabel } from './text';
-
-export const FAILED = -1;
-
-const RESOURCES = ['food', 'water', 'parts', 'medicine', 'credits'] as const;
-type Res = (typeof RESOURCES)[number];
-const isRes = (r: string): r is Res => (RESOURCES as readonly string[]).includes(r);
-const isTraded = (r: string): r is TradedResourceId => r === 'food' || r === 'water' || r === 'parts' || r === 'medicine';
-const SECURITY = new Set(['security', 'quartermaster']);
-
-const roll = (tx: Tx, a: AgentDoc, salt: string): number => rand(tx.world.seed, tx.tick, a.seq, salt);
-const int = (s: string | undefined, lo: number, hi: number, fallback: number): number => {
-  const n = Math.round(Number(s));
-  return Number.isFinite(n) ? clamp(n, lo, hi) : fallback;
-};
-const units = (n: number, res: string): string => n + ' ' + res;
-
-function act(tx: Tx, a: AgentDoc, activity: ActivityKind, label: string, withId?: AgentId, speech?: string): void {
-  a.activity = activity;
-  a.activityLabel = label;
-  a.interactingWithId = withId;
-  a.speech = speech;
-  touch(tx, a);
-}
-
-/** Shows a short line over someone else's head without changing what they are doing. */
-function say(tx: Tx, b: AgentDoc, withId: AgentId, speech: string): void {
-  b.interactingWithId = withId;
-  b.speech = speech;
-  touch(tx, b);
-}
-
-/** Abandons the plan with a legible reason. The planner picks something else next tick. */
-async function fail(tx: Tx, a: AgentDoc, label: string): Promise<number> {
-  a.q = [];
-  a.failStreak += 1;
-  act(tx, a, 'idle', label);
-  if (a.failStreak === 3) {
-    await enqueueCognition(tx, a, { kind: 'plan', trigger: 'plans keep failing: ' + label, priority: 0.5, lane: 'normal' });
-  }
-  return FAILED;
-}
+import { comfort, confide, court, reconcile, threaten } from './bonds';
+import { rally, strikeStart } from './collective';
+import { blackmail, bribe, confess, eavesdrop, lie, sabotage, unmaskLiar } from './intrigue';
+import { owesFavor, settleStrategy, stashTotal } from './ledger';
+import { barter, beg, borrow, fromStash, growDone, growStart, hide, repay, scavengeDone, scavengeStart, smuggle } from './livelihood';
+import { exposeSecret } from './secrets';
 
 /** Starts a step. label is the plan's display label for it, when the plan has one. */
 export async function startStep(tx: Tx, a: AgentDoc, encoded: string, label?: string): Promise<number> {
@@ -151,6 +118,48 @@ export async function startStep(tx: Tx, a: AgentDoc, encoded: string, label?: st
       return repairStart(tx, a, x);
     case 'mourn':
       return mourn(tx, a, x);
+    case 'grow':
+      return growStart(tx, a, int(x, 3, 24, 12));
+    case 'scavenge':
+      return scavengeStart(tx, a, x ?? a.locationId);
+    case 'beg':
+      return beg(tx, a, x, y);
+    case 'borrow':
+      return borrow(tx, a, x, y, int(z, 1, 200, 2));
+    case 'repay':
+      return repay(tx, a, x);
+    case 'barter':
+      return barter(tx, a, x, y, int(z, 1, 20, 1), step.args[3], int(step.args[4], 1, 20, 1));
+    case 'bribe':
+      return bribe(tx, a, x, y, z);
+    case 'blackmail':
+      return blackmail(tx, a, x, y);
+    case 'lie':
+      return lie(tx, a, x, y, z);
+    case 'confide':
+      return confide(tx, a, x, y);
+    case 'court':
+      return court(tx, a, x);
+    case 'comfort':
+      return comfort(tx, a, x);
+    case 'threaten':
+      return threaten(tx, a, x);
+    case 'sabotage':
+      return sabotage(tx, a, x ?? a.locationId);
+    case 'smuggle':
+      return smuggle(tx, a, x, int(y, 1, 20, 3));
+    case 'rally':
+      return rally(tx, a, x);
+    case 'strike':
+      return strikeStart(tx, a, int(x, 1, 36, 12));
+    case 'reconcile':
+      return reconcile(tx, a, x);
+    case 'eavesdrop':
+      return eavesdrop(tx, a, x);
+    case 'hide':
+      return hide(tx, a, x, int(y, 1, 200, 2));
+    case 'confess':
+      return confess(tx, a, x);
     default: {
       const ticks = await startSocietyStep(tx, a, step.type, step.args, label);
       return ticks < 0 ? FAILED : ticks;
@@ -167,6 +176,8 @@ export async function finishStep(tx: Tx, a: AgentDoc, encoded: string, startTick
   else if (step.type === 'investigate') await investigateDone(tx, a, step.args[0]);
   else if (step.type === 'repair') await repairDone(tx, a, step.args[0], elapsed);
   else if (step.type === 'mourn') a.mood = 'sombre';
+  else if (step.type === 'grow') await growDone(tx, a, elapsed);
+  else if (step.type === 'scavenge') await scavengeDone(tx, a, step.args[0] ?? a.locationId);
   else if (step.type === 'go' || step.type === 'flee') a.move = undefined;
   else if (step.type in SOCIETY_STEP_SPECS) await finishSocietyStep(tx, a, step.type, step.args, startTick);
 }
@@ -330,6 +341,8 @@ async function consume(tx: Tx, a: AgentDoc, res: 'food' | 'water'): Promise<numb
   if (a.inv[res] >= 1) {
     a.inv[res] -= 1;
     label = verb + (res === 'food' ? ' from own supplies' : ' from own flask');
+  } else if (await fromStash(tx, a, res)) {
+    label = verb + ' from a hidden stash';
   } else if (a.locationId === a.homeLocationId) {
     const household = await loadHousehold(tx, a.householdId);
     if (household?.missing) await noticePantryTheft(tx, a, household);
@@ -355,6 +368,11 @@ async function consume(tx: Tx, a: AgentDoc, res: 'food' | 'water'): Promise<numb
   }
   if (res === 'food') a.needs.hunger = Math.max(0, a.needs.hunger - MEAL_RELIEF);
   else a.needs.thirst = Math.max(0, a.needs.thirst - DRINK_RELIEF);
+  const mind = await loadMind(tx, a);
+  if (mind?.ledger?.pending?.res === res) {
+    settleStrategy(tx, mind, true);
+    touchMind(tx, mind);
+  }
   act(tx, a, res === 'food' ? 'eating' : 'drinking', label);
   return res === 'food' ? 2 : 1;
 }
@@ -834,7 +852,7 @@ async function steal(tx: Tx, a: AgentDoc, target: string, res: string, qty: numb
   const seen: AgentDoc[] = [];
   for (const id of (await agentsAt(tx, a.locationId, { exclude: [a._id] })).slice(0, 10)) {
     const w = await loadAgent(tx, id);
-    if (!w) continue;
+    if (!w || owesFavor(await loadMind(tx, w), a._id, 'look_away', tx.tick)) continue;
     const onDuty = SECURITY.has(w.occupation) && w.activity === 'working';
     const p = 0.12 + w.traits.caution * 0.25 + (onDuty ? 0.45 : 0) + (w._id === victim?._id ? 0.3 : 0);
     if (rand(tx.world.seed, tx.tick, w.seq, 'notice:' + a.seq) < p) seen.push(w);
@@ -851,6 +869,7 @@ async function steal(tx: Tx, a: AgentDoc, target: string, res: string, qty: numb
     act(tx, a, 'stealing', 'Caught reaching into ' + where, guard._id, 'I was only looking!');
     say(tx, guard, a._id, 'Put it back, ' + firstName(a.name) + '. Now.');
     a.mood = 'humiliated';
+    if (mind) settleStrategy(tx, mind, false);
     const { eventId } = await emitEvent(tx, {
       category: 'social',
       eventType: 'theft_foiled',
@@ -1026,10 +1045,23 @@ async function investigateDone(tx: Tx, a: AgentDoc, who: string): Promise<void> 
     truthEventId: eventId,
   });
   if (source) await adjustRelationship(tx, a, source, { trust: -0.3, affinity: -0.1 });
+  await unmaskLiar(tx, a, belief?.originEventId);
 }
 
 const kindPhrase = (kind: string): string =>
-  ({ thief: 'has been stealing', hoarding: 'is hoarding supplies', saboteur: 'sabotaged the drills', corrupt: 'is skimming credits', suspect: 'had a hand in the death', untrustworthy: 'cannot be trusted' })[kind] ?? 'is what people say';
+  ({
+    thief: 'has been stealing',
+    hoarding: 'is hoarding supplies',
+    saboteur: 'sabotaged equipment',
+    corrupt: 'takes bribes',
+    suspect: 'had a hand in the death',
+    untrustworthy: 'cannot be trusted',
+    smuggler: 'trades off the books',
+    liar: 'spreads lies',
+    briber: 'buys people off',
+    blackmailer: 'blackmails people',
+    affair: 'is having an affair',
+  })[kind] ?? 'is hiding something';
 
 async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined): Promise<number> {
   const b = await presentWith(tx, a, who);
@@ -1037,6 +1069,10 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   const belief = key ? await getBelief(tx, a._id, key) : await suspicionAbout(tx, a, b._id);
   if (!belief || belief.subjectAgentId !== b._id) return fail(tx, a, 'Had nothing to accuse ' + b.name + ' of');
   if (belief.acted !== undefined && tx.tick - belief.acted < 12) return 0;
+  if (owesFavor(await loadMind(tx, a), b._id, 'silence', tx.tick)) {
+    await markActed(tx, belief);
+    return fail(tx, a, 'Bit back the words: ' + b.name + ' paid for silence');
+  }
   const { truth, settled } = await truthAbout(tx, belief.kind, b);
   if (settled) {
     await markActed(tx, belief);
@@ -1097,6 +1133,7 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   a.mood = 'angry';
   touch(tx, b);
   if (enforcer && truth === true && (belief.kind === 'thief' || (belief.kind === 'hoarding' && b.role !== 'quartermaster'))) await arrest(tx, a, b, belief.kind, eventId);
+  if (truth === true && (await loadMind(tx, b))?.persona?.secret?.kind === belief.kind && (belief.sourceType === 'observed' || believers.length >= 2)) await exposeSecret(tx, b, 'accused', eventId, a);
   if (leads) await maybeSplitFaction(tx, b, believers, eventId);
   await enqueueCognition(tx, b, { kind: 'plan', trigger: 'publicly accused by ' + a.name + ': ' + belief.text, priority: 0.7, lane: 'crisis', eventId });
   return 2;
@@ -1111,9 +1148,13 @@ async function arrest(tx: Tx, officer: AgentDoc, culprit: AgentDoc, kind: string
   const fine = hoarding ? 0 : Math.min(Math.floor(culprit.inv.credits), 25);
   culprit.inv.credits = round2(culprit.inv.credits - fine);
   tx.world.econ.treasury = round2(tx.world.econ.treasury + fine);
+  const mind = await loadMind(tx, culprit);
+  const stash = mind?.ledger?.stash;
+  const searched = !!stash && stashTotal(mind) > 0 && rand(tx.world.seed, tx.tick, officer.seq, 'search') < 0.5;
   const returned = (['water', 'food'] as const).map((res) => {
-    const n = Math.floor(culprit.inv[res] * (hoarding ? 0.7 : 0.5));
-    culprit.inv[res] -= n;
+    const n = Math.floor(culprit.inv[res] * (hoarding ? 0.7 : 0.5)) + (searched ? Math.floor(stash[res]) : 0);
+    culprit.inv[res] = Math.max(0, culprit.inv[res] - n);
+    if (searched) stash[res] = 0;
     addStock(tx.world, 'depot', res, n);
     return n;
   });
@@ -1122,12 +1163,9 @@ async function arrest(tx: Tx, officer: AgentDoc, culprit: AgentDoc, kind: string
   if (!hoarding) {
     // Unattributed thefts are put down to the thief who was caught, rightly or not.
     sim.cases = sim.cases.filter((c) => c.suspectId !== undefined && c.suspectId !== culprit._id);
-    const mind = await loadMind(tx, culprit);
-    if (mind) {
-      mind.thefts = 0;
-      touchMind(tx, mind);
-    }
+    if (mind) mind.thefts = 0;
   }
+  if (mind) touchMind(tx, mind);
   culprit.mood = 'humiliated';
   touch(tx, culprit);
   const goods = [returned[0] ? units(returned[0], 'water') : '', returned[1] ? units(returned[1], 'food') : ''].filter(Boolean).join(' and ');
@@ -1138,7 +1176,7 @@ async function arrest(tx: Tx, officer: AgentDoc, culprit: AgentDoc, kind: string
     participantIds: [culprit._id],
     locationId: officer.locationId,
     summary: hoarding
-      ? officer.name + ' searched ' + culprit.name + "'s stash and hauled " + (goods || 'what was left') + ' back to the depot for the ration line.'
+      ? officer.name + ' searched ' + culprit.name + "'s quarters" + (searched ? ', found the hidden stash,' : '') + ' and hauled ' + (goods || 'what was left') + ' back to the depot for the ration line.'
       : officer.name + ' fined ' + culprit.name + ' ' + fine + ' credits for theft' + (goods ? ' and sent ' + goods + ' back to the depot.' : '.'),
     salience: 0.7,
     causationEventId: accusationId,

@@ -6,9 +6,8 @@
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
 import { societyChoices } from '../society/hooks';
-import { BASE_PRICES, BONUS_AT, CUT_AT, RESERVE_FLOOR } from '../lib/constants';
+import { BASE_PRICES, BONUS_AT, CUT_AT } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
-import type { CognitionRequest } from './core';
 import {
   droughtSeverity,
   firstName,
@@ -36,64 +35,15 @@ import {
   touch,
   touchMind,
 } from './core';
-import type { AgentDoc, BeliefDoc, EventId, FactionDoc, HouseholdDoc, MindDoc, RelationshipDoc, StepType, Tx } from './core';
+import type { AgentDoc, BeliefDoc, EventId, Tx } from './core';
+import { desireChoices, onStrike } from './desires';
+import { cool, settleStrategy, startStrategy } from './ledger';
+import { Plan, findable } from './plan';
+import type { Choice, Ctx, Goal } from './plan';
 import { simState } from './state';
+import { drivesOf, meetNeed, raiseMoney, stashed, strategyWeights } from './strategies';
 import { ACCUSABLE, ACCUSE_KINDS, beliefsOf, effectiveConfidence, getBelief, markActed, truthAbout } from './social';
-import { workLabel } from './text';
-
-type Goal = MindDoc['goals'][number];
-
-/** Everything the planner looks at, read once per decision. */
-type Ctx = {
-  tx: Tx;
-  a: AgentDoc;
-  mind: MindDoc;
-  p: number;
-  day: number;
-  beliefs: BeliefDoc[];
-  ties: RelationshipDoc[];
-  household: HouseholdDoc | null;
-  factions: FactionDoc[];
-  drought: number;
-  /** In the personal work shift. */
-  shift: boolean;
-  /** Awake and off shift. */
-  free: boolean;
-};
-
-type Choice = {
-  score: number;
-  /** routine plans need no "why" panel entry; the rest set a trigger. */
-  routine: boolean;
-  intent: string;
-  steps: string[];
-  labels: string[];
-  trigger?: string;
-  goalId?: string;
-  causeEventId?: EventId;
-  /** Asks the LLM to think again about this decision. */
-  llm?: CognitionRequest;
-};
-
-/** Builds a step list while tracking where the agent will be. */
-class Plan {
-  steps: string[] = [];
-  labels: string[] = [];
-  constructor(public loc: string) {}
-  go(to: string, label?: string): this {
-    if (to !== this.loc) {
-      this.steps.push(encodeStep('go', to));
-      this.labels.push(label ?? 'Walk to ' + locName(to));
-      this.loc = to;
-    }
-    return this;
-  }
-  add(type: StepType, args: (string | number)[], label: string): this {
-    this.steps.push(encodeStep(type, ...args));
-    this.labels.push(label);
-    return this;
-  }
-}
+import { intentLine, workLabel } from './text';
 
 /** Standing at which someone who wants a council seat asks for one. */
 const SEAT_STANDING = 9;
@@ -129,10 +79,16 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
     drought: droughtSeverity(tx.world),
     shift,
     free: p < BEDTIME && !shift,
+    weights: strategyWeights(a, mind),
+    drives: drivesOf(a, mind),
   };
+  const pending = mind.ledger?.pending;
+  if (pending && (pending.res === 'credits' || tx.tick - pending.tick > 72)) settleStrategy(tx, mind, pending.res === 'credits');
 
   const choices: (Choice | null)[] = [shelter(c), sleep(c), await work(c), leisure(c), await politics(c)];
   for (const res of ['water', 'food'] as const) choices.push(await supply(c, res));
+  choices.push(await raiseMoney(c));
+  choices.push(...(await desireChoices(c)));
   for (const g of mind.goals) if (g.status === 'active') choices.push(await goalChoice(c, g));
   choices.push(...(await beliefChoices(c)));
   choices.push(await duty(c));
@@ -160,6 +116,8 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
     causeEventId: chosen.causeEventId,
     trigger: chosen.routine ? undefined : chosen.trigger ?? chosen.intent,
   });
+  if (chosen.strategy) startStrategy(tx, mind, chosen.strategy.s, chosen.strategy.res);
+  if (chosen.cooldown) cool(tx, mind, chosen.cooldown.key, chosen.cooldown.ticks);
   touchMind(tx, mind);
   if (chosen.llm) await enqueueCognition(tx, a, chosen.llm);
   if (tx.world.focusAgentId === a._id && (!chosen.routine || p < 6)) {
@@ -219,6 +177,16 @@ async function work(c: Ctx): Promise<Choice | null> {
       causeEventId: tx.world.causes.storm,
     };
   }
+  if (await onStrike(tx, a)) {
+    return {
+      score: 0.75,
+      routine: false,
+      intent: intentLine('strike', rand(tx.world.seed, tx.tick, a.seq, 'picket'), { me: a.name }),
+      ...new Plan(a.locationId).go('plaza', 'Joining the picket at the Commons Plaza').add('strike', [ticks], 'On strike at the Commons Plaza'),
+      trigger: 'the crews are on strike',
+      causeEventId: (await simState(tx)).strike?.eventId,
+    };
+  }
   const resident = a.occupation === 'resident';
   return {
     score: (resident ? 0.42 : 0.62) + 0.1 * c.mind.values.wealth + (a.role ? 0.05 : 0),
@@ -259,7 +227,10 @@ function mealtime(p: number): boolean {
   return p < 8 || (p >= LUNCH[0] && p < LUNCH[1]) || (p >= SHIFT_END && p < SHIFT_END + 18);
 }
 
-/** How the agent gets the food or water they need, cheapest honest way first. */
+/**
+ * Food or water: what is at hand first (own supplies, a hidden stash, the household pantry), then
+ * whichever way this person would go about it (engine/strategies.ts).
+ */
 async function supply(c: Ctx, res: 'food' | 'water'): Promise<Choice | null> {
   const { a, tx, household, p } = c;
   const need = res === 'water' ? a.needs.thirst : a.needs.hunger;
@@ -272,49 +243,17 @@ async function supply(c: Ctx, res: 'food' | 'water'): Promise<Choice | null> {
   const plan = new Plan(a.locationId);
   const base = { score, routine: urgency < 0.5, causeEventId: undefined as EventId | undefined };
   if (a.inv[res] >= 1) return { ...base, intent: res === 'food' ? 'Eating from my own supplies' : 'Having a drink from my flask', ...plan.add(verb, [], consume + ' from own supplies') };
-
+  if (stashed(c.mind, res) && (a.locationId === a.homeLocationId || urgency > 0.3)) {
+    return { ...base, intent: 'Going home to the ' + res + ' hidden where nobody else will find it', ...plan.go(a.homeLocationId, 'Going home').add(verb, [], consume + ' from the hidden stash') };
+  }
   const fee = Math.max(1, Math.round(tx.world.prices[res] * 0.5));
   const canteen = stock(tx.world, 'canteen', res) >= 1 && a.inv.credits >= fee;
   const sociable = canteen && meal > 0 && p >= LUNCH[0] && a.traits.sociability > 0.5 && a.inv.credits > 15;
   if (household && household.pantry[res] >= 1 && !sociable) {
     return { ...base, intent: 'Heading home to ' + verb + ' from the household pantry', ...plan.go(a.homeLocationId, 'Going home').add(verb, [], consume + ' at home') };
   }
-  const rationOpen = household && household.rationDay <= c.day && stock(tx.world, 'depot', res) >= 1;
-  if (rationOpen) {
-    plan.go('depot', 'Walking to the Supply Depot').add('ration', [], 'Collecting the household ration').go(a.homeLocationId, 'Carrying the ration home').add(verb, [], consume + ' at home');
-    return { ...base, intent: "Collecting today's household ration at the Supply Depot", ...plan };
-  }
-  if (canteen) {
-    return { ...base, intent: res === 'food' ? 'Going to the Airlock Canteen for a meal' : 'Going to the Airlock Canteen for a drink', ...plan.go('canteen').add(verb, [], consume + ' at the canteen') };
-  }
-  const price = tx.world.prices[res];
-  const scared = (await getBelief(tx, a._id, 'scarcity:water')) !== null || c.drought > 0;
-  const qty = scared ? 3 + Math.round(a.traits.caution * 3) : 2;
-  const marketHas = stock(tx.world, 'depot', res) > RESERVE_FLOOR[res] || price > BASE_PRICES[res];
-  if (marketHas && a.inv.credits >= Math.ceil(price * 1.3)) {
-    const high = price >= BASE_PRICES[res] * 1.6;
-    const intent = 'Walking to the Exchange to buy ' + res + (high ? ' even at ' + Math.round(price * 10) / 10 + ' credits' : '') + (scared ? ' before prices rise again' : '');
-    plan.go('market', 'Walking to the Exchange Concourse').add('buy', [res, qty], 'Buying ' + qty + ' ' + res).add(verb, [], consume + ' at the Exchange');
-    return { ...base, routine: !high && !scared, intent, ...plan, trigger: high ? res + ' costs ' + Math.round(price * 10) / 10 + ' credits' : undefined, causeEventId: high ? scarcityCause(tx.world, res) : undefined };
-  }
-  if (urgency < 0.35) return null;
-
-  const friend = c.ties.find((t) => t.toAlive && t.affinity >= 0.35 && t.kind !== 'rival' && !household?.memberIds.includes(t.toAgentId));
-  const friendDoc = friend ? await loadAgent(tx, friend.toAgentId) : null;
-  const theft = await theftChoice(c, res, need);
-  if (theft) return theft;
-  if (friendDoc && friendDoc.alive && friendDoc.activity !== 'sleeping' && isLocation(friendDoc.locationId) && stormAt(tx.world, friendDoc.locationId) === 0) {
-    plan.go(friendDoc.locationId, 'Looking for ' + friendDoc.name).add('talk', [friendDoc._id, 'ask:' + res], 'Asking ' + friendDoc.name + ' for ' + res);
-    return {
-      ...base,
-      routine: false,
-      intent: 'Going to ask ' + friendDoc.name + ' for ' + res + '. There is none left at home and no credits to buy it',
-      ...plan,
-      trigger: (res === 'water' ? 'thirsty' : 'hungry') + ' with an empty pantry and ' + Math.floor(a.inv.credits) + ' credits',
-      causeEventId: scarcityCause(tx.world, res),
-    };
-  }
-  return null;
+  if (urgency < 0.35 && !canteen && !(household && household.rationDay <= c.day)) return null;
+  return meetNeed(c, res, score, need);
 }
 
 /**
@@ -463,14 +402,6 @@ async function goalAction(c: Ctx, g: Goal, weight: number): Promise<Choice | nul
     };
   }
   return null;
-}
-
-/** Where to find someone right now, if they can be reached and talked to. */
-async function findable(c: Ctx, id: string | undefined): Promise<AgentDoc | null> {
-  if (!id) return null;
-  const b = await loadAgent(c.tx, id as AgentDoc['_id']);
-  if (!b || !b.alive || b.activity === 'sleeping' || stormAt(c.tx.world, b.locationId) > 0) return null;
-  return b;
 }
 
 async function befriend(c: Ctx, g: Goal, weight: number): Promise<Choice | null> {

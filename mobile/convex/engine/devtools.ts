@@ -141,3 +141,65 @@ export async function chronicleText(ctx: QueryCtx, worldId: Id<'worlds'>, option
     })
     .join('\n');
 }
+
+const TEST_PERSONAS: Record<string, { want: string; fear: string; strategies: string[]; secret?: { kind: string; text: string } }> = {
+  'Dmitri Volkov': { want: 'Keep the council in his debt and his second ledger hidden', fear: 'An audit', strategies: ['scheme', 'trade', 'work'], secret: { kind: 'embezzler', text: 'Dmitri Volkov keeps a second ledger and sells reserve water to shuttle crews.' } },
+  'Joao Ferreira': { want: 'A union strike that wins the crews a fair share of the water', fear: 'Another Long Dark', strategies: ['work', 'borrow', 'charm'] },
+  'Mira Castellanos': { want: 'Love that does not have to hide', fear: 'Being found out', strategies: ['grow', 'charm', 'work'], secret: { kind: 'affair', text: 'Mira Castellanos has been seeing someone behind her partner\'s back.' } },
+  'Tobias Okafor': { want: 'Get rich enough to buy passage back to Earth', fear: 'Dying poor on the Moon', strategies: ['smuggle', 'trade', 'scheme'] },
+  'Elias Thorne': { want: 'Protect his children from going hungry', fear: 'Watching Wren and Pip starve', strategies: ['work', 'steal', 'beg'] },
+  'Lucia Navarro': { want: 'Find someone to love', fear: 'Growing old alone in Ring A', strategies: ['charm', 'work', 'borrow'] },
+  'Nadia Haddad': { want: 'Save enough credits to escape the colony', fear: 'The council', strategies: ['smuggle', 'scavenge', 'work'], secret: { kind: 'smuggler', text: 'Nadia Haddad runs contraband for the shuttle crews.' } },
+  'Priya Raghunathan': { want: 'Uncover the truth about the Long Dark', fear: 'That the reactor fault was no accident', strategies: ['work', 'trade', 'charm'] },
+  'Hana Yilmaz': { want: 'Recall the chair and lead the council herself', fear: 'Irrelevance', strategies: ['charm', 'scheme', 'work'] },
+  'Kenji Watanabe': { want: 'Pay back the debts he ran up during the Long Dark', fear: 'His creditors', strategies: ['grow', 'scavenge', 'borrow'], secret: { kind: 'coward', text: 'Kenji Watanabe hid in an airlock during the Long Dark while others died.' } },
+  'Yusuf Rahman': { want: 'Win the heart of someone at the canteen', fear: 'Rejection', strategies: ['work', 'charm', 'beg'] },
+};
+
+/**
+ * Gives every mind without a persona a minimal one, so tests and dumps exercise persona-driven
+ * planning on the iteration-1 seed: a few named characters get authored wants and secrets, the
+ * rest a want from their traits and, for a sixth of them, a secret.
+ */
+export async function testPersonas(ctx: MutationCtx, worldId: Id<'worlds'>): Promise<void> {
+  const agents = await ctx.db
+    .query('agents')
+    .withIndex('by_world_seq', (q) => q.eq('worldId', worldId))
+    .collect();
+  const wants = ['Save up some credits', 'Find someone to share the long nights with', 'Get even with whoever wronged them', 'A seat on the council', 'Keep the family fed', 'Find out what really happened in the Long Dark'];
+  const secrets = [
+    { kind: 'thief', text: 'has been skimming from the household pantry for months.' },
+    { kind: 'saboteur', text: 'damaged the ice drills last winter to get a shift cancelled.' },
+    { kind: 'affair', text: 'is having an affair with a neighbour.' },
+    { kind: 'smuggler', text: 'sells parts to shuttle crews off the books.' },
+  ];
+  for (const a of agents) {
+    if (!a.mindId) continue;
+    const mind = await ctx.db.get(a.mindId);
+    if (!mind || mind.persona) continue;
+    const authored = TEST_PERSONAS[a.name];
+    const t = a.traits;
+    const strategies = authored?.strategies ?? [
+      t.empathy < 0.25 && t.caution < 0.5 ? 'steal' : 'work',
+      t.sociability > 0.55 ? 'charm' : 'grow',
+      t.curiosity > 0.55 ? 'scavenge' : 'trade',
+      t.ambition > 0.65 ? 'scheme' : 'borrow',
+      t.caution < 0.35 ? 'smuggle' : 'beg',
+    ];
+    const secret = authored?.secret ?? (a.seq % 6 === 1 ? { ...secrets[a.seq % secrets.length], text: a.name + ' ' + secrets[a.seq % secrets.length].text } : undefined);
+    await ctx.db.patch(mind._id, {
+      persona: {
+        epithet: a.occupation.replace(/_/g, ' '),
+        want: authored?.want ?? wants[a.seq % wants.length],
+        need: 'To be seen',
+        fear: authored?.fear ?? 'Running out of water',
+        flaw: 'Pride',
+        voice: 'Plain',
+        secret,
+        strategies,
+        arc: { stage: 'setup', note: '' },
+        key: !!authored,
+      },
+    });
+  }
+}

@@ -11,6 +11,7 @@ import { ROSTER_WORKING, locChar } from '../seed/insert';
 import { activeEffects, addStock, droughtSeverity, locName, reserveDays, reserveRatio, shelterFrom, stock, stormAt } from './conditions';
 import { agentsAt, dayOf, emitEvent, encodeStep, hourOf, interrupt, killAgent, loadAgent, touch } from './core';
 import type { Tx } from './core';
+import { strikeHour } from './collective';
 import { fillVacancies, holdCouncil } from './council';
 import { simState } from './state';
 
@@ -19,6 +20,7 @@ export async function runSystems(tx: Tx): Promise<void> {
   await standingEffects(tx);
   if (tx.tick % TICKS_PER_HOUR === 0) {
     await hourly(tx);
+    await strikeHour(tx);
     if (hourOf(tx.tick) === 19 || (await councilEmergency(tx))) await holdCouncil(tx);
   }
   if (dayOf(tx.tick) > tx.world.lastDailyDay) await daily(tx);

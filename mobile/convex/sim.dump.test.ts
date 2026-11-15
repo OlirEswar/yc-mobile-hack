@@ -6,13 +6,14 @@
  *   DUMP_DAYS=3 DUMP_POWER=drought npx vitest run convex/sim.dump.test.ts
  *
  * DUMP_POWER is one of drought, storm, kill, rumor, whisper. DUMP_MIN sets the salience floor (0.5).
+ * Minds without a persona get a test persona (engine/devtools.ts testPersonas) unless DUMP_RAW is set.
  */
 import { convexTest } from 'convex-test';
 import { test } from 'vitest';
 import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
-import { agentBySeq, chronicleText, plantRumor, runTicks, smite, startEffect, whisper } from './engine/devtools';
+import { agentBySeq, chronicleText, plantRumor, runTicks, smite, startEffect, testPersonas, whisper } from './engine/devtools';
 import { modules } from './test.setup';
 
 const env = (key: string): string | undefined => (typeof process !== 'undefined' ? process.env[key] : undefined);
@@ -24,6 +25,7 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
   const days = Number(env('DUMP_DAYS'));
   const power = env('DUMP_POWER');
   const named = async (name: string) => (await t.run((ctx) => ctx.db.query('agents').collect())).find((a) => a.name === name)!;
+  if (!env('DUMP_RAW')) await t.run((ctx) => testPersonas(ctx, id));
   await t.run((ctx) => runTicks(ctx, id, 12));
   if (power === 'drought') await t.run((ctx) => startEffect(ctx, id, { type: 'drought', severity: 0.6, ticks: 3 * 144 }));
   if (power === 'storm') await t.run((ctx) => startEffect(ctx, id, { type: 'storm', severity: 0.8, ticks: 24, locationIds: ['solar_farm', 'ice_wells'] }));
@@ -46,4 +48,12 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
       ', water ' + world.prices.water + ' cr, depot ' + Math.round(world.stockpiles.depot.water) + ' water / ' + Math.round(world.stockpiles.depot.food) + ' food\n',
   );
   console.log(await t.run((ctx) => chronicleText(ctx, id, { minSalience: Number(env('DUMP_MIN') ?? 0.5) })));
+  const events = await t.run((ctx) => ctx.db.query('events').collect());
+  const kinds = new Map<string, number>();
+  for (const e of events) kinds.set(e.eventType, (kinds.get(e.eventType) ?? 0) + 1);
+  console.log('\nEvents by type:', [...kinds].sort((x, y) => y[1] - x[1]).map(([k, n]) => k + ' ' + n).join(', '));
+  const minds = await t.run((ctx) => ctx.db.query('minds').collect());
+  const tried = new Map<string, string>();
+  for (const m of minds) for (const s of m.ledger?.tried ?? []) tried.set(s.s, (tried.get(s.s) ?? '') + (s.ok ? '+' : '-'));
+  console.log('Strategies tried (+ worked, - failed):', [...tried].map(([s, r]) => s + ' ' + r.length + ' (' + [...r].filter((x) => x === '+').length + ' ok)').join(', '));
 }, 3_600_000);

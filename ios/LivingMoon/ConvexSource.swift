@@ -9,7 +9,7 @@ final class ConvexSource: WorldSource {
     let isLive = true
     private let client: ConvexClient
     private var sessionToken = ""
-    private var worldId = ""
+    private(set) var worldId = ""
     private var bag: Set<AnyCancellable> = []
     private weak var sink: SourceSink?
 
@@ -72,6 +72,39 @@ final class ConvexSource: WorldSource {
 
     func chain(_ eventId: Id) async throws -> [WorldEventPublic] {
         try await first("chronicle:chain", ["worldId": worldId, "eventId": eventId], as: [WorldEventPublic].self)
+    }
+
+    func intro() async -> StoryIntro? {
+        try? await first("story:intro", ["worldId": worldId], as: StoryIntro?.self)
+    }
+
+    func society() async -> SocietyOverview? {
+        for path in ["society/api:overview", "society:overview"] {
+            if let overview = try? await first(path, ["worldId": worldId], as: SocietyOverview.self) { return overview }
+        }
+        return nil
+    }
+
+    /// The story and focus queries are newer than some deployments: a missing function reads as empty.
+    func watchStorylines(agentId: Id?, _ onValue: @escaping ([StorylinePublic]) -> Void) -> () -> Void {
+        var args: [String: ConvexEncodable?] = ["worldId": worldId]
+        if let agentId { args["agentId"] = agentId }
+        let c = watch("story:storylines", args, as: [StorylinePublic].self, onError: { _ in onValue([]) }, onValue)
+        return { c.cancel() }
+    }
+
+    func watchFocus(_ agentId: Id, _ onValue: @escaping (FocusState?) -> Void) -> () -> Void {
+        let c = watch("focus:state", ["worldId": worldId, "agentId": agentId], as: FocusState?.self, onError: { _ in onValue(nil) }, onValue)
+        return { c.cancel() }
+    }
+
+    func watchConversation(_ agentId: Id, _ onValue: @escaping ([AskTurn]) -> Void) -> () -> Void {
+        let c = watch("focus:conversation", ["sessionToken": sessionToken, "agentId": agentId], as: [AskTurn].self, onError: { _ in onValue([]) }, onValue)
+        return { c.cancel() }
+    }
+
+    func ask(_ agentId: Id, question: String) async throws -> AskResult {
+        try await client.action("focus:ask", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "question": question])
     }
 
     /// One value from a query. ConvexMobile only exposes reactive queries.

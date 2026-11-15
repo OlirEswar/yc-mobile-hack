@@ -106,46 +106,22 @@ func findPath(_ from: LocationId, _ to: LocationId) -> (nodes: [LocationId], tic
     return (nodes, dist[to]!)
 }
 
-// MARK: - Map geometry (world pixels on the 1280 x 1920 ground image)
+// MARK: - Map geometry (world pixels; the data is generated into ArtLayout.swift)
 
-struct LocationLayout { let center: CGPoint; let footprint: CGRect; let entry: CGPoint; let stand: CGRect }
+func routeKey(_ a: LocationId, _ b: LocationId) -> String {
+    a.rawValue < b.rawValue ? "\(a.rawValue)|\(b.rawValue)" : "\(b.rawValue)|\(a.rawValue)"
+}
 
-enum MapLayout {
-    static let size = CGSize(width: 1280, height: 1920)
-
-    private static func make(_ cx: CGFloat, _ cy: CGFloat, _ w: CGFloat, _ h: CGFloat, entry: CGPoint) -> LocationLayout {
-        let box = CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
-        let stand = CGRect(x: cx - (w - 96) / 2, y: cy + 8 - (h - 104) / 2, width: w - 96, height: h - 104)
-        return LocationLayout(center: CGPoint(x: cx, y: cy), footprint: box, entry: entry, stand: stand)
-    }
-
-    static let locations: [LocationId: LocationLayout] = [
-        .solar_farm: make(300, 230, 384, 256, entry: .init(x: 400, y: 360)),
-        .observatory: make(640, 330, 224, 224, entry: .init(x: 640, y: 444)),
-        .landing_pad: make(980, 220, 320, 256, entry: .init(x: 900, y: 350)),
-        .canteen: make(300, 680, 256, 224, entry: .init(x: 430, y: 700)),
-        .market: make(980, 690, 288, 224, entry: .init(x: 834, y: 710)),
-        .plaza: make(640, 860, 320, 288, entry: .init(x: 640, y: 860)),
-        .hydroponics: make(290, 1140, 384, 288, entry: .init(x: 484, y: 1160)),
-        .depot: make(640, 1200, 224, 192, entry: .init(x: 640, y: 1102)),
-        .workshop: make(990, 1150, 288, 256, entry: .init(x: 844, y: 1170)),
-        .habitat_a: make(330, 1520, 352, 288, entry: .init(x: 508, y: 1500)),
-        .medbay: make(660, 1480, 224, 192, entry: .init(x: 660, y: 1382)),
-        .habitat_b: make(980, 1530, 352, 288, entry: .init(x: 802, y: 1510)),
-        .ice_wells: make(360, 1800, 352, 176, entry: .init(x: 380, y: 1710)),
-        .quarry: make(960, 1810, 352, 176, entry: .init(x: 940, y: 1720)),
-    ]
-
-    /// Top-left corner of each building's art, from the art manifest.
-    static let buildingOrigin: [LocationId: CGPoint] = [
-        .plaza: .init(x: 480, y: 716), .market: .init(x: 836, y: 578), .canteen: .init(x: 172, y: 568), .hydroponics: .init(x: 98, y: 996),
-        .depot: .init(x: 528, y: 1104), .workshop: .init(x: 846, y: 1022), .medbay: .init(x: 548, y: 1384), .habitat_a: .init(x: 154, y: 1376),
-        .habitat_b: .init(x: 804, y: 1386), .ice_wells: .init(x: 184, y: 1712), .quarry: .init(x: 784, y: 1722), .solar_farm: .init(x: 108, y: 102),
-        .observatory: .init(x: 528, y: 218), .landing_pad: .init(x: 820, y: 92),
-    ]
-
+extension MapLayout {
     static func location(at p: CGPoint) -> LocationId? {
         LocationId.allCases.first { locations[$0]!.footprint.contains(p) }
+    }
+
+    /// The painted tube or track between two adjacent locations, door to door, in travel order.
+    static func leg(_ from: LocationId, _ to: LocationId) -> [CGPoint] {
+        let mid = routeWaypoints[routeKey(from, to)] ?? []
+        let ordered = from.rawValue < to.rawValue ? mid : mid.reversed()
+        return [locations[from]!.entry] + ordered + [locations[to]!.entry]
     }
 }
 
@@ -286,6 +262,8 @@ struct WorldEventPublic: Codable, Identifiable, Hashable {
     var salience: Double
     var causationEventId: Id?
     var banner: Bool
+    /// Storyline this event is a beat of, if any.
+    var storylineId: Id?
     var visibility: String
 }
 
@@ -315,6 +293,27 @@ struct AgentDetail: Codable, Identifiable, Hashable {
     var recentEvents: [WorldEventPublic]
     var lastThought: ThoughtPublic?
     var death: Death?
+    /// Who they are in a line, what they want and fear, their arc. Never their secret.
+    var persona: PersonaPublic?
+    /// Live storylines this colonist is part of.
+    var storylineIds: [Id]?
+
+    // The society layer, all in words.
+    var organizations: [Membership]?
+    var family: Family?
+    var pets: [Pet]?
+    /// A goal that has taken over their life.
+    var obsession: String?
+    /// Notable works, newest first.
+    var works: [WorkRef]?
+    /// How the colony sees them, e.g. "a respected elder".
+    var standingLabel: String?
+    var education: String?
+
+    struct Membership: Codable, Hashable { var id: Id; var name: String; var kind: String; var role: String }
+    struct Family: Codable, Hashable { var partnerId: Id?; var partnerName: String?; var parentIds: [Id]; var childIds: [Id] }
+    struct Pet: Codable, Hashable { var name: String; var species: String }
+    struct WorkRef: Codable, Hashable, Identifiable { var id: Id; var title: String; var kind: String; var fame: Double }
 }
 
 struct ActiveEffect: Codable, Identifiable, Hashable {
@@ -341,8 +340,201 @@ struct WorldPublic: Codable, Hashable {
     var stockpiles: [String: [String: Double]]
     var damage: [String: Double]
     var prices: [String: Double]
+    /// True while the tick loop fast-forwards through the followed colonist's routine.
+    var focusWarp: Bool?
 
     var running: Bool { status == "running" && speed > 0 }
+}
+
+// MARK: - Society (the almanac)
+
+struct OrganizationPublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var name: String
+    /// company, guild, cult, gang, militia, party, school, troupe or breakaway.
+    var kind: String
+    var creed: String
+    var leaderId: Id?
+    var memberIds: [Id]
+    var foundedTick: Double
+    var status: String
+    var territory: [LocationId]?
+    var rules: [String]?
+    var rivalIds: [Id]
+}
+
+struct DiscoveryPublic: Codable, Identifiable, Hashable {
+    var key: String
+    var name: String
+    var effect: String
+    var tick: Double
+    var discovererIds: [Id]
+    var eventId: Id?
+    var id: String { key }
+}
+
+struct StructurePublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var key: String
+    var name: String
+    var locationId: LocationId
+    var builderIds: [Id]
+    var progress: Double
+    var builtTick: Double?
+}
+
+struct WorkPublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var title: String
+    var kind: String
+    var creatorId: Id
+    var creatorName: String
+    var fame: Double
+    var createdTick: Double
+    var about: String
+}
+
+struct Notable: Codable, Hashable, Identifiable {
+    var agentId: Id
+    var name: String
+    /// What they are known for, e.g. "the painter of the Long Dark mural".
+    var known: String
+    var id: Id { agentId }
+
+    private enum CodingKeys: String, CodingKey { case agentId, name, known = "for" }
+}
+
+struct SocietyOverview: Codable, Hashable {
+    var organizations: [OrganizationPublic]
+    var discoveries: [DiscoveryPublic]
+    var structures: [StructurePublic]
+    var works: [WorkPublic]
+    var notables: [Notable]
+}
+
+// MARK: - Story
+
+struct PersonaPublic: Codable, Hashable {
+    struct Arc: Codable, Hashable {
+        /// setup, rising, crisis, climax or resolution.
+        var stage: String
+        var note: String
+    }
+
+    /// Short tag shown under the name, e.g. "the quartermaster who keeps two ledgers".
+    var epithet: String
+    var want: String
+    var fear: String
+    var flaw: String
+    /// How they talk.
+    var voice: String
+    var arc: Arc
+    /// True for the authored key characters.
+    var key: Bool
+}
+
+struct StoryBeat: Codable, Hashable { var tick: Double; var text: String; var eventId: Id? }
+
+struct StorylinePublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var title: String
+    /// One or two sentences: what is at stake.
+    var premise: String
+    /// brewing, rising, climax, resolved or fizzled.
+    var status: String
+    var tension: Double
+    var participantIds: [Id]
+    /// Newest last, capped.
+    var beats: [StoryBeat]
+    /// seed, emergent or player.
+    var origin: String
+    var createdTick: Double
+    var lastBeatTick: Double
+
+    var live: Bool { status != "resolved" && status != "fizzled" }
+}
+
+struct KeyCharacterCard: Codable, Identifiable, Hashable {
+    var agentId: Id
+    var name: String
+    var spriteId: String
+    var epithet: String
+    /// Why the player should care, one sentence.
+    var hook: String
+    var factionId: String?
+    var id: Id { agentId }
+}
+
+/// The player actions a tutorial card can wait for.
+enum TutorialAction: String, Codable {
+    case tap, follow_starter, read_thoughts, ask_question, switch_character, use_power, open_chronicle, open_storylines
+}
+
+struct TutorialStep: Codable, Identifiable, Hashable {
+    var id: String
+    var title: String
+    var body: String
+    /// Kept as text so a newer backend's action never breaks decoding; unknown ones advance on tap.
+    var advanceOn: String
+    var agentId: Id?
+
+    var action: TutorialAction { TutorialAction(rawValue: advanceOn) ?? .tap }
+}
+
+struct HistoryEntry: Codable, Hashable { var era: String; var text: String }
+
+struct StoryIntro: Codable, Hashable {
+    var title: String
+    var setting: [String]
+    var history: [HistoryEntry]
+    var tensions: [String]
+    var keyCharacters: [KeyCharacterCard]
+    var starterAgentId: Id
+    var tutorial: [TutorialStep]
+}
+
+/// One line of a colonist's inner monologue.
+struct ThoughtLine: Codable, Identifiable, Hashable {
+    var id: Id
+    var tick: Double
+    var text: String
+    var mood: String?
+    var source: String
+}
+
+/// A reason to switch the camera to someone else.
+struct StoryHook: Codable, Hashable, Identifiable {
+    var agentId: Id
+    var name: String
+    var reason: String
+    var storylineId: Id?
+    var id: String { agentId + reason }
+}
+
+struct FocusState: Codable, Hashable {
+    var agentId: Id
+    /// Newest first.
+    var thoughts: [ThoughtLine]
+    var hooks: [StoryHook]
+    var storylines: [StorylinePublic]
+    var warping: Bool
+}
+
+struct AskTurn: Codable, Identifiable, Hashable { var id: Id; var tick: Double; var question: String; var answer: String }
+
+enum AskResult: Decodable {
+    case answered(AskTurn)
+    case refused(code: String, message: String)
+
+    private enum Keys: String, CodingKey { case ok, turn, code, message }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        if try c.decode(Bool.self, forKey: .ok) {
+            self = .answered(try c.decode(AskTurn.self, forKey: .turn))
+        } else {
+            self = .refused(code: try c.decodeIfPresent(String.self, forKey: .code) ?? "unavailable", message: try c.decodeIfPresent(String.self, forKey: .message) ?? "They don't answer.")
+        }
+    }
 }
 
 // MARK: - God powers

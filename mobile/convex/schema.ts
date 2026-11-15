@@ -154,6 +154,8 @@ export default defineSchema({
     focusWarp: v.optional(v.boolean()),
     /** The colonist the story introduction starts the player on. */
     starterAgentId: v.optional(v.id('agents')),
+    /** The director's last nudge: when it brought the story to the followed colonist, and who it sent. */
+    nudge: v.optional(v.object({ agentId: v.id('agents'), tick: num, visitorId: v.optional(v.id('agents')) })),
     /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
     sim: v.optional(
       v.object({
@@ -353,6 +355,8 @@ export default defineSchema({
     banner: v.boolean(),
     visibility: str,
     facts: v.optional(v.any()),
+    /** Storyline this event is a beat of, set by the director. */
+    storylineId: v.optional(v.id('storylines')),
   })
     .index('by_world_version', ['worldId', 'version'])
     .index('by_world_tier_tick', ['worldId', 'tier', 'tick'])
@@ -446,6 +450,8 @@ export default defineSchema({
     /** Set by the Whop payment.succeeded webhook once this install buys the Colony Pass. */
     premium: v.optional(v.boolean()),
     premiumPaymentId: v.optional(str),
+    /** focus:ask rate limit: the last question (wall clock) and the questions asked this sim day. */
+    ask: v.optional(v.object({ lastAt: num, day: num, count: num })),
   })
     .index('by_device', ['deviceId'])
     .index('by_token', ['token']),

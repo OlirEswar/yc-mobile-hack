@@ -53,6 +53,7 @@ export function toEventPublic(e: Doc<'events'>): WorldEventPublic {
     salience: e.salience,
     causationEventId: e.causationEventId,
     banner: e.banner,
+    storylineId: e.storylineId,
     visibility: e.visibility as WorldEventPublic['visibility'],
   };
 }

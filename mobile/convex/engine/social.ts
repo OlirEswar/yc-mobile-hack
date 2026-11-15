@@ -11,9 +11,9 @@ import { adjustRelationship, enqueueCognition, learnBelief, loadAgent, loadFacti
 import type { AgentDoc, AgentId, BeliefDoc, EventId, RelationshipDoc, Tx } from './core';
 
 /** Belief kinds that accuse a person of something an investigation can settle. */
-export const ACCUSABLE = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect', 'untrustworthy']);
+export const ACCUSABLE = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect', 'untrustworthy', 'smuggler', 'liar', 'briber', 'blackmailer', 'affair']);
 /** What someone can be publicly accused of: acts, not opinions. */
-export const ACCUSE_KINDS = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect']);
+export const ACCUSE_KINDS = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect', 'smuggler', 'liar', 'briber', 'blackmailer', 'affair']);
 /** Beliefs heavy enough that learning one is worth an LLM rethink. */
 const HEAVY = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect']);
 
@@ -85,14 +85,31 @@ export async function truthAbout(tx: Tx, kind: string, subject: AgentDoc): Promi
     if (perHead >= (RATIONS[0].food + RATIONS[0].water) * PANTRY_DAYS * 1.4) return { truth: true, detail: 'a pantry packed far past its ration' };
     return { truth: false, detail: 'no more than anyone else has' };
   }
+  const mind = await loadMind(tx, subject);
+  const secret = mind?.persona?.secret;
+  if (secret && secret.kind === kind) {
+    return secret.exposedAtTick !== undefined ? { truth: true, detail: 'it is already common knowledge', settled: true } : { truth: true, detail: secret.text.charAt(0).toLowerCase() + secret.text.slice(1).replace(/\.$/, '') };
+  }
+  const deeds = mind?.ledger?.deeds[kind] ?? 0;
+  if (DEED_DETAIL[kind]) return deeds > 0 ? { truth: true, detail: DEED_DETAIL[kind](deeds) } : { truth: false, detail: 'nothing to show they ever did' };
   if (kind === 'hero') return { truth: subject.traits.empathy >= 0.65, detail: subject.traits.empathy >= 0.65 ? 'neighbours who owe them meals' : 'nobody who remembers a kindness' };
-  if (kind === 'saboteur' || kind === 'suspect') return { truth: false, detail: 'no sign they had anything to do with it' };
+  if (kind === 'suspect') return { truth: false, detail: 'no sign they had anything to do with it' };
   if (kind === 'corrupt') {
     const rich = subject.inv.credits >= 400 && !!subject.role;
     return { truth: rich, detail: rich ? Math.round(subject.inv.credits) + ' credits no wage explains' : 'accounts that add up' };
   }
   return { truth: null, detail: '' };
 }
+
+/** Wrongs recorded as ledger deeds, and how an investigation describes finding them. */
+const DEED_DETAIL: Record<string, (n: number) => string> = {
+  saboteur: (n) => (n === 1 ? 'tool marks on the damaged machinery that match their kit' : n + ' acts of sabotage traced to them'),
+  smuggler: (n) => 'shuttle crews who remember ' + (n === 1 ? 'one off-book deal' : n + ' off-book deals') + ' with them',
+  liar: () => 'stories they told that fall apart when checked',
+  briber: () => 'credits that changed hands where they should not have',
+  blackmailer: () => 'people who have been paying them to keep quiet',
+  affair: () => 'nights spent in the wrong bunk',
+};
 
 export type SpreadOutcome =
   | { kind: 'learned'; belief: BeliefDoc; created: boolean; confidence: number }

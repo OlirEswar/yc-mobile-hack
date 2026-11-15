@@ -216,6 +216,12 @@ export type WorldPublic = {
   prices: Record<TradedResourceId, number>;
   factions: FactionPublic[];
   llm: { enabled: boolean; callsToday: number; budgetPerDay: number; queued: number };
+  /** Depot ration policy: 0 full rations, 1 reduced, 2 emergency. */
+  rationLevel?: 0 | 1 | 2;
+  /** Colony treasury in credits. Wages are paid from it; sales and the daily levy return to it. */
+  treasury?: number;
+  /** Raw regolith waiting at the quarry and at the works. Feeds parts; not a tradeable resource. */
+  regolith?: { quarry: number; workshop: number };
 };
 
 export type SyncUpdates = {

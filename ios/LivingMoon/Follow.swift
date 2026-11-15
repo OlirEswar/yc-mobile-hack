@@ -12,6 +12,7 @@ struct FollowView: View {
     @State private var pane = Pane.now
     @State private var power: Power?
     @State private var profile = false
+    @State private var keyboard = false
 
     /// The monologue: the backend's when it has one, else the last recorded decision.
     private var thoughts: [ThoughtLine] {
@@ -26,9 +27,11 @@ struct FollowView: View {
             if let c = game.colonist(game.followingID) {
                 VStack(spacing: 10) {
                     topBar
-                    hooks
-                    if let line = thoughts.first { ThoughtBubble(line: line) }
-                    CoachCard()
+                    if !keyboard {
+                        hooks
+                        if let line = thoughts.first { ThoughtBubble(line: line) }
+                        CoachCard()
+                    }
                     if let toast = game.toast {
                         Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
                     }
@@ -40,6 +43,9 @@ struct FollowView: View {
                 .animation(.smooth, value: thoughts.first?.id)
                 .animation(.smooth, value: focus?.hooks ?? [])
                 .animation(.smooth, value: game.tutorialStep)
+                .animation(.smooth, value: keyboard)
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }
                 .task(id: c.id) { for await d in game.detailStream(c.id) { detail = d } }
                 .task(id: c.id) { for await f in game.focusStream(c.id) { focus = f } }
                 .task(id: c.id) { for await turns in game.conversationStream(c.id) { conversation = turns } }
@@ -146,6 +152,8 @@ struct FollowView: View {
         }
         .padding(16)
         .glassEffect(.regular, in: .rect(cornerRadius: 30))
+        .contentShape(.rect(cornerRadius: 30))
+        .onTapGesture {}
     }
 
     private func header(_ c: AgentLite) -> some View {

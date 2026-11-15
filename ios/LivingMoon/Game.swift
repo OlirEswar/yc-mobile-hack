@@ -191,7 +191,10 @@ final class Game: SourceSink {
     }
 
     func advanceTutorial() {
-        withAnimation(.smooth) { tutorialIndex += 1 }
+        withAnimation(.smooth) {
+            tutorialIndex += 1
+            if let step = tutorialStep, step.action == .follow_starter, let id = followingID, id == (step.agentId ?? intro?.starterAgentId) { tutorialIndex += 1 }
+        }
         UserDefaults.standard.set(tutorialIndex, forKey: worldKey("tutorial"))
     }
 

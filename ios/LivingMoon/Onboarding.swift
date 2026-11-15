@@ -37,7 +37,7 @@ struct OnboardingView: View {
 
 // MARK: - Backdrop
 
-/// Near-black sky, a faint dot field and one luminous orb that settles somewhere new on each step.
+/// Near-black sky, a faint dot field and the moon, which settles somewhere new on each step.
 private struct OnboardingBackdrop: View {
     let route: OnboardingView.Route?
 
@@ -53,7 +53,7 @@ private struct OnboardingBackdrop: View {
             ZStack {
                 Color.black
                 DotField().opacity(0.6)
-                Orb()
+                Moon()
                     .frame(width: size, height: size)
                     .position(center)
                     .animation(.smooth(duration: 0.9), value: route)
@@ -63,36 +63,19 @@ private struct OnboardingBackdrop: View {
     }
 }
 
-/// The moon sitting in a real Liquid Glass disc, with two soft lights behind the glass that it bends at the rim.
-struct Orb: View {
+/// The moon with a faint warm glow behind it.
+struct Moon: View {
     var body: some View {
         GeometryReader { geo in
             let d = min(geo.size.width, geo.size.height)
             ZStack {
                 Circle()
-                    .fill(Color.amber.opacity(0.5))
-                    .frame(width: d * 0.75, height: d * 0.75)
-                    .blur(radius: d * 0.16)
-                    .offset(x: d * 0.1, y: d * 0.26)
-                Circle()
-                    .fill(Color.earth.opacity(0.3))
-                    .frame(width: d * 0.55, height: d * 0.55)
-                    .blur(radius: d * 0.14)
-                    .offset(x: -d * 0.24, y: -d * 0.2)
-                Circle()
-                    .fill(.clear)
-                    .frame(width: d, height: d)
-                    .glassEffect(.clear, in: .circle)
-                    .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.04), Color.amber.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-                MoonSurface()
+                    .fill(Color.amber.opacity(0.28))
                     .frame(width: d * 0.8, height: d * 0.8)
-                    .shadow(color: .black.opacity(0.7), radius: d * 0.05, y: d * 0.02)
-                Ellipse()
-                    .fill(LinearGradient(colors: [.white.opacity(0.16), .clear], startPoint: .top, endPoint: .bottom))
-                    .frame(width: d * 0.6, height: d * 0.22)
-                    .blur(radius: d * 0.025)
-                    .offset(y: -d * 0.35)
-                    .blendMode(.plusLighter)
+                    .blur(radius: d * 0.18)
+                    .offset(x: d * 0.08, y: d * 0.16)
+                MoonSurface()
+                    .frame(width: d * 0.9, height: d * 0.9)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -520,7 +503,7 @@ private struct CheckoutSheet: View {
                 Spacer()
             } else {
                 HStack(spacing: 14) {
-                    Orb().frame(width: 52, height: 52)
+                    Moon().frame(width: 52, height: 52)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Colony Pass").font(.headline)
                         Text("One-time purchase").font(.subheadline).foregroundStyle(.secondary)

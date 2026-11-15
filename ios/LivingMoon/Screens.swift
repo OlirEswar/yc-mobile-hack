@@ -65,19 +65,19 @@ struct ColonyView: View {
                     }
                     Spacer()
                     if let loc = game.selectedLocation { PlaceCard(location: loc) }
-                    PowerTray()
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Label(game.stamp, systemImage: "moon.fill")
-                        .labelStyle(.titleAndIcon)
+                    Text(game.stamp)
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                         .padding(.horizontal, 6)
                         .fixedSize()
                 }
+                ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
@@ -155,32 +155,37 @@ struct PlaceCard: View {
     }
 }
 
-struct PowerTray: View {
+/// The god powers as a dropdown in the top bar. A power opened while a colonist is selected targets them.
+struct PowerMenu: View {
     @Environment(Game.self) private var game
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Power.allCases) { power in
-                Button {
-                    game.powerTarget = game.selectedID
-                    game.selectedID = nil
-                    game.activePower = power
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: power.symbol).font(.system(size: 18)).frame(height: 22)
-                        Text(power.short).font(.caption2)
-                    }
-                    .foregroundStyle(power.believed ? Color.earth : .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(power.title)
+        Menu {
+            Section("Change the world") {
+                ForEach(Power.allCases.filter { !$0.believed }) { item($0) }
             }
+            Section("Change what they believe") {
+                ForEach(Power.allCases.filter(\.believed)) { item($0) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("Powers")
+                Image(systemName: "chevron.down").font(.caption2.weight(.bold))
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 6)
+            .fixedSize()
         }
-        .padding(.horizontal, 4)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .tint(.amber)
+        .accessibilityLabel("God powers")
+    }
+
+    private func item(_ power: Power) -> some View {
+        Button(power.title, systemImage: power.symbol) {
+            game.powerTarget = game.selectedID
+            game.selectedID = nil
+            game.activePower = power
+        }
     }
 }
 

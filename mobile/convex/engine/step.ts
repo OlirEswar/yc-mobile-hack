@@ -3,6 +3,7 @@
  * activity has ended (by the by_world_due index), up to a per-tick cap so one mutation stays small.
  * Used by the tick loop (sim:tick) and by world:skipToNotable.
  */
+import { societyTick } from '../society/hooks';
 import { directorTick } from '../storyteller/director';
 import { AGENT_STEPS_PER_TICK, LEVY_FREE, LEVY_RATE } from '../lib/constants';
 import { round2 } from '../lib/rng';
@@ -41,6 +42,7 @@ export async function advance(tx: Tx, ticks: number, options: AdvanceOptions = {
       .filter((a) => a.alive && a.busyUntilTick <= tx.tick)
       .sort((x, y) => x.busyUntilTick - y.busyUntilTick || x.seq - y.seq)
       .slice(0, AGENT_STEPS_PER_TICK);
+    await societyTick(tx);
     for (const a of ready) await stepAgent(tx, a);
     await directorTick(tx, firstEvent);
     steps += ready.length;

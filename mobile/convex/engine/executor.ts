@@ -4,6 +4,8 @@
  * it ends. Success is decided from real state: who is present, stock, credits, skill, witnesses.
  * Interactions resolve when they start, so their speech bubbles show while they last.
  */
+import { SOCIETY_STEP_SPECS } from '../society/steps';
+import { finishSocietyStep, startSocietyStep } from '../society/hooks';
 import { ROUTES, findPath, routeKey } from '../../shared/colony';
 import type { TradedResourceId } from '../../shared/colony';
 import type { ActivityKind } from '../../shared/types';
@@ -149,8 +151,10 @@ export async function startStep(tx: Tx, a: AgentDoc, encoded: string, label?: st
       return repairStart(tx, a, x);
     case 'mourn':
       return mourn(tx, a, x);
-    default:
-      return fail(tx, a, 'Did not know how to ' + step.type);
+    default: {
+      const ticks = await startSocietyStep(tx, a, step.type, step.args, label);
+      return ticks < 0 ? FAILED : ticks;
+    }
   }
 }
 
@@ -164,6 +168,7 @@ export async function finishStep(tx: Tx, a: AgentDoc, encoded: string, startTick
   else if (step.type === 'repair') await repairDone(tx, a, step.args[0], elapsed);
   else if (step.type === 'mourn') a.mood = 'sombre';
   else if (step.type === 'go' || step.type === 'flee') a.move = undefined;
+  else if (step.type in SOCIETY_STEP_SPECS) await finishSocietyStep(tx, a, step.type, step.args, startTick);
 }
 
 // ---------- movement ----------

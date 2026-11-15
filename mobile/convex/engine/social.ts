@@ -6,6 +6,7 @@ import type { Id } from '../_generated/dataModel';
 import { PANTRY_DAYS, RATIONS } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import { reserveDays } from './conditions';
+import { simState } from './state';
 import { adjustRelationship, enqueueCognition, learnBelief, loadAgent, loadFactions, loadHousehold, loadMind, touchFaction, emitEvent } from './core';
 import type { AgentDoc, AgentId, BeliefDoc, EventId, RelationshipDoc, Tx } from './core';
 
@@ -56,11 +57,17 @@ export const trustWeight = (r: RelationshipDoc | null): number => ((r?.trust ?? 
  * Whether what a belief says about someone is really so, from world state: true, false, or null
  * when nothing an investigation could find would settle it. detail describes the evidence.
  */
-export async function truthAbout(tx: Tx, kind: string, subject: AgentDoc): Promise<{ truth: boolean | null; detail: string }> {
+export async function truthAbout(tx: Tx, kind: string, subject: AgentDoc): Promise<{ truth: boolean | null; detail: string; settled?: boolean }> {
+  const punished = (await simState(tx)).punished?.[subject._id];
   if (kind === 'thief') {
     const mind = await loadMind(tx, subject);
     const thefts = mind?.thefts ?? 0;
-    return thefts > 0 ? { truth: true, detail: thefts === 1 ? 'a theft traced back to them' : thefts + ' thefts traced back to them' } : { truth: false, detail: 'nothing missing that leads to them' };
+    if (thefts > 0) return { truth: true, detail: thefts === 1 ? 'a theft traced back to them' : thefts + ' thefts traced back to them' };
+    if (punished !== undefined) return { truth: true, detail: 'security has already fined them for it', settled: true };
+    return { truth: false, detail: 'nothing that ties them to any theft' };
+  }
+  if (kind === 'hoarding' && punished !== undefined && tx.tick - punished < 432) {
+    return { truth: true, detail: 'security has already made them hand their stash to the depot', settled: true };
   }
   if (kind === 'hoarding') {
     if (subject.role === 'quartermaster') {

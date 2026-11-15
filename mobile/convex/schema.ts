@@ -150,6 +150,8 @@ export default defineSchema({
         missingEventId: v.optional(v.id('events')),
         /** Tick of the last public accusation against each agent, so a crowd does not pile on. */
         accused: v.optional(v.record(v.string(), v.number())),
+        /** Tick security last fined a thief or searched a hoarder, so a closed case is not reopened. */
+        punished: v.optional(v.record(v.string(), v.number())),
       }),
     ),
   }).index('by_device', ['deviceId']),

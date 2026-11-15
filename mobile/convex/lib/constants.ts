@@ -116,5 +116,5 @@ export const DAILY_USE = { food: 1.5, water: 2.2 };
 /** Reserve ratio (depot stock over NORMAL_STOCK) below which each council stance votes to cut rations to reduced, then emergency. */
 export const CUT_AT: Record<string, [number, number]> = { guard: [0.6, 0.3], trade: [0.45, 0.2], open: [0.3, 0.12] };
 /** Reserve ratio above which the open-handed ask the council for a bonus ration, and each stance's price for agreeing. */
-export const BONUS_AT = 1.15;
-export const BONUS_YES_AT: Record<string, number> = { open: 1.15, trade: 1.3, guard: 1.6 };
+export const BONUS_AT = 0.95;
+export const BONUS_YES_AT: Record<string, number> = { open: 0.95, trade: 1.2, guard: 1.5 };

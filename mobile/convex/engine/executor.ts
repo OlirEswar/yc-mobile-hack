@@ -231,7 +231,7 @@ async function restock(tx: Tx, a: AgentDoc): Promise<void> {
     tx.world.econ.treasury = round2(tx.world.econ.treasury + cost);
     addStock(tx.world, 'depot', res, -n);
     if (n >= 15) {
-      await emitEvent(tx, {
+      const { eventId, witnessIds } = await emitEvent(tx, {
         category: 'economy',
         eventType: 'stockpiling',
         actorId: a._id,
@@ -241,6 +241,21 @@ async function restock(tx: Tx, a: AgentDoc): Promise<void> {
         causationEventId: scarcityCause(tx.world, res),
         witnesses: 'location',
       });
+      // Whoever watched the crates go out of the depot in a drought starts to talk about it.
+      for (const id of witnessIds.slice(0, 4)) {
+        const w = id === a._id ? null : await loadAgent(tx, id);
+        if (!w || w.occupation === 'trader') continue;
+        await learnBelief(tx, w, {
+          kind: 'hoarding',
+          text: a.name + ' is hoarding water behind the stall while the wells run dry.',
+          valence: -1,
+          confidence: round2(0.35 + 0.25 * w.traits.stubbornness + 0.15 * (1 - w.traits.empathy)),
+          sourceType: 'inference',
+          subjectAgentId: a._id,
+          subjectName: a.name,
+          originEventId: eventId,
+        });
+      }
     }
   }
   touch(tx, a);
@@ -343,25 +358,27 @@ async function noticePantryTheft(tx: Tx, a: AgentDoc, household: HouseholdDoc): 
   household.missing = undefined;
   touchHousehold(tx, household);
   const what = [missing.food >= 1 ? units(Math.round(missing.food), 'food') : '', missing.water >= 1 ? units(Math.round(missing.water), 'water') : ''].filter(Boolean).join(' and ');
-  const { eventId } = await emitEvent(tx, {
-    category: 'social',
-    eventType: 'theft_discovered',
-    actorId: a._id,
-    participantIds: household.memberIds,
-    locationId: a.locationId,
-    summary: a.name + ' found ' + household.name + "'s pantry " + what + ' short. Someone has been in their stores.',
-    salience: 0.55,
-    causationEventId: missing.eventId,
-  });
-  const sim = await simState(tx);
-  sim.cases.push({ eventId, locationId: a.locationId, tick: tx.tick });
-  a.mood = 'suspicious';
   const ties = await tx.ctx.db
     .query('relationships')
     .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
     .order('desc')
     .take(14);
   const distrusted = ties.filter((t) => t.toAlive && t.kind !== 'family' && t.trust < 0).sort((x, y) => x.trust - y.trust)[0];
+  const { eventId } = await emitEvent(tx, {
+    category: 'social',
+    eventType: 'theft_discovered',
+    actorId: a._id,
+    participantIds: household.memberIds,
+    locationId: a.locationId,
+    summary:
+      a.name + ' found ' + household.name + (household.name.endsWith('s') ? "' pantry " : "'s pantry ") + what + ' short.' +
+      (distrusted ? ' ' + firstName(a.name) + ' is sure it was ' + distrusted.toName + ', whom ' + firstName(a.name) + ' has never trusted.' : ' Someone has been in their stores.'),
+    salience: 0.55,
+    causationEventId: missing.eventId,
+  });
+  const sim = await simState(tx);
+  sim.cases.push({ eventId, locationId: a.locationId, tick: tx.tick });
+  a.mood = 'suspicious';
   if (!distrusted) return;
   await learnBelief(tx, a, {
     kind: 'thief',
@@ -575,7 +592,7 @@ async function talk(tx: Tx, a: AgentDoc, who: string | undefined, topic: string 
   const before = await tie(tx, a._id, b._id);
   const warmth = 0.03 + 0.04 * a.traits.sociability;
   const after = await adjustRelationship(tx, a, b, { affinity: warmth, trust: 0.01 });
-  await adjustRelationship(tx, b, a, { affinity: 0.02 + 0.03 * b.traits.sociability });
+  const fromB = await adjustRelationship(tx, b, a, { affinity: 0.02 + 0.03 * b.traits.sociability });
 
   const key = topic && topic !== 'any' ? topic : chooseTopic(tx, a, b);
   const belief = key ? await getBelief(tx, a._id, key) : null;
@@ -588,14 +605,19 @@ async function talk(tx: Tx, a: AgentDoc, who: string | undefined, topic: string 
     say(tx, b, a._id, reply(answer, belief.subjectName, r));
     const aboutPerson = !!belief.subjectAgentId;
     if (outcome.kind === 'defended') {
+      // The first time it is a defence; the time it tips into dislike it is a falling-out; in between it is old news.
+      const now = (await tie(tx, b._id, a._id))?.affinity ?? 0;
+      const fallingOut = fromB.affinity > -0.25 && now <= -0.25;
       await emitEvent(tx, {
         category: 'social',
-        eventType: 'rumor_rejected',
+        eventType: fallingOut ? 'falling_out' : 'rumor_rejected',
         actorId: b._id,
         participantIds: [a._id, belief.subjectAgentId!],
         locationId: a.locationId,
-        summary: b.name + ' stood up for ' + belief.subjectName + ' when ' + a.name + ' repeated that "' + belief.text + '"',
-        salience: 0.4,
+        summary: fallingOut
+          ? b.name + ' has had enough of ' + a.name + ' running down ' + belief.subjectName + '. The two of them are barely speaking.'
+          : b.name + ' stood up for ' + belief.subjectName + ' when ' + a.name + ' repeated that "' + belief.text + '"',
+        salience: fallingOut ? 0.55 : fromB.affinity < 0 ? 0.25 : 0.4,
         causationEventId: belief.originEventId,
       });
     } else if (aboutPerson || outcome.kind === 'learned') {
@@ -791,7 +813,7 @@ async function steal(tx: Tx, a: AgentDoc, target: string, res: string, qty: numb
     const id = tx.ctx.db.normalizeId('households', target.slice(7));
     household = id ? await loadHousehold(tx, id) : null;
     if (!household || a.locationId !== household.homeLocationId || (res !== 'food' && res !== 'water')) return fail(tx, a, 'Could not get into that pantry');
-    where = household.name + "'s pantry";
+    where = household.name + (household.name.endsWith('s') ? "' pantry" : "'s pantry");
     available = household.pantry[res];
   } else {
     victim = await presentWith(tx, a, target);
@@ -922,19 +944,19 @@ async function investigateDone(tx: Tx, a: AgentDoc, who: string): Promise<void> 
   const openCase = sim.cases.find((c) => c.suspectId === b._id) ?? sim.cases.find((c) => !c.suspectId);
   const kind = belief?.kind ?? (openCase ? 'thief' : undefined);
   if (!kind) return;
-  const { truth, detail } = await truthAbout(tx, kind, b);
-  const cause = belief?.originEventId ?? openCase?.eventId;
+  const { truth, detail, settled } = await truthAbout(tx, kind, b);
+  const cause = belief ? belief.originEventId : openCase?.eventId;
   const what = kindPhrase(kind);
-  if (belief) await markActed(tx, belief);
-  if (truth === null) {
+  if (belief && (truth !== true || settled)) await markActed(tx, belief);
+  if (truth === null || settled) {
     await emitEvent(tx, {
       category: 'social',
       eventType: 'investigation',
       actorId: a._id,
       participantIds: [b._id],
       locationId: a.locationId,
-      summary: a.name + ' asked around about ' + b.name + ' but learned nothing certain.',
-      salience: 0.25,
+      summary: settled ? a.name + ' asked around about ' + b.name + ' and heard ' + detail + '.' : a.name + ' asked around about ' + b.name + ' but learned nothing certain.',
+      salience: settled ? 0.35 : 0.25,
       causationEventId: cause,
     });
     return;
@@ -1008,7 +1030,11 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   const belief = key ? await getBelief(tx, a._id, key) : await suspicionAbout(tx, a, b._id);
   if (!belief || belief.subjectAgentId !== b._id) return fail(tx, a, 'Had nothing to accuse ' + b.name + ' of');
   if (belief.acted !== undefined && tx.tick - belief.acted < 12) return 0;
-  const { truth } = await truthAbout(tx, belief.kind, b);
+  const { truth, settled } = await truthAbout(tx, belief.kind, b);
+  if (settled) {
+    await markActed(tx, belief);
+    return fail(tx, a, 'Learned that ' + b.name + ' has already answered for it');
+  }
   const r = roll(tx, a, 'accuse');
   const factions = await loadFactions(tx);
   const leads = factions.find((f) => f.leaderAgentId === b._id);
@@ -1063,41 +1089,50 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   b.mood = truth === true ? 'humiliated' : 'angry';
   a.mood = 'angry';
   touch(tx, b);
-  if (enforcer && truth === true && belief.kind === 'thief') await arrest(tx, a, b, eventId);
+  if (enforcer && truth === true && (belief.kind === 'thief' || (belief.kind === 'hoarding' && b.role !== 'quartermaster'))) await arrest(tx, a, b, belief.kind, eventId);
   if (leads) await maybeSplitFaction(tx, b, believers, eventId);
   await enqueueCognition(tx, b, { kind: 'plan', trigger: 'publicly accused by ' + a.name + ': ' + belief.text, priority: 0.7, lane: 'crisis', eventId });
   return 2;
 }
 
-/** Security fines a proven thief and closes the cases against them. */
-async function arrest(tx: Tx, officer: AgentDoc, thief: AgentDoc, accusationId: EventId): Promise<void> {
-  const fine = Math.min(Math.floor(thief.inv.credits), 25);
-  thief.inv.credits = round2(thief.inv.credits - fine);
+/**
+ * Security deals with a proven case: a thief is fined and half of what they carry goes back to the
+ * depot; a hoarder has most of the stash seized. Either way the case is closed until it happens again.
+ */
+async function arrest(tx: Tx, officer: AgentDoc, culprit: AgentDoc, kind: string, accusationId: EventId): Promise<void> {
+  const hoarding = kind === 'hoarding';
+  const fine = hoarding ? 0 : Math.min(Math.floor(culprit.inv.credits), 25);
+  culprit.inv.credits = round2(culprit.inv.credits - fine);
   tx.world.econ.treasury = round2(tx.world.econ.treasury + fine);
   const returned = (['water', 'food'] as const).map((res) => {
-    const n = Math.floor(thief.inv[res] / 2);
-    thief.inv[res] -= n;
+    const n = Math.floor(culprit.inv[res] * (hoarding ? 0.7 : 0.5));
+    culprit.inv[res] -= n;
     addStock(tx.world, 'depot', res, n);
     return n;
   });
   const sim = await simState(tx);
-  // Unattributed thefts are put down to the thief who was caught, rightly or not.
-  sim.cases = sim.cases.filter((c) => c.suspectId !== undefined && c.suspectId !== thief._id);
-  const mind = await loadMind(tx, thief);
-  if (mind) {
-    mind.thefts = 0;
-    touchMind(tx, mind);
+  sim.punished = { ...sim.punished, [culprit._id]: tx.tick };
+  if (!hoarding) {
+    // Unattributed thefts are put down to the thief who was caught, rightly or not.
+    sim.cases = sim.cases.filter((c) => c.suspectId !== undefined && c.suspectId !== culprit._id);
+    const mind = await loadMind(tx, culprit);
+    if (mind) {
+      mind.thefts = 0;
+      touchMind(tx, mind);
+    }
   }
-  touch(tx, thief);
+  culprit.mood = 'humiliated';
+  touch(tx, culprit);
+  const goods = [returned[0] ? units(returned[0], 'water') : '', returned[1] ? units(returned[1], 'food') : ''].filter(Boolean).join(' and ');
   await emitEvent(tx, {
     category: 'politics',
     eventType: 'arrest',
     actorId: officer._id,
-    participantIds: [thief._id],
+    participantIds: [culprit._id],
     locationId: officer.locationId,
-    summary:
-      officer.name + ' fined ' + thief.name + ' ' + fine + ' credits for theft' +
-      (returned[0] + returned[1] > 0 ? ' and sent ' + [returned[0] ? units(returned[0], 'water') : '', returned[1] ? units(returned[1], 'food') : ''].filter(Boolean).join(' and ') + ' back to the depot.' : '.'),
+    summary: hoarding
+      ? officer.name + ' searched ' + culprit.name + "'s stash and hauled " + (goods || 'what was left') + ' back to the depot for the ration line.'
+      : officer.name + ' fined ' + culprit.name + ' ' + fine + ' credits for theft' + (goods ? ' and sent ' + goods + ' back to the depot.' : '.'),
     salience: 0.7,
     causationEventId: accusationId,
     visibility: 'public',

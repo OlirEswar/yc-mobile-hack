@@ -37,7 +37,7 @@ import {
 } from './core';
 import type { AgentDoc, BeliefDoc, EventId, FactionDoc, HouseholdDoc, MindDoc, RelationshipDoc, StepType, Tx } from './core';
 import { simState } from './state';
-import { ACCUSABLE, ACCUSE_KINDS, beliefsOf, effectiveConfidence, getBelief, markActed } from './social';
+import { ACCUSABLE, ACCUSE_KINDS, beliefsOf, effectiveConfidence, getBelief, markActed, truthAbout } from './social';
 import { workLabel } from './text';
 
 type Goal = MindDoc['goals'][number];
@@ -545,13 +545,15 @@ async function smearRival(c: Ctx, weight: number): Promise<Choice | null> {
       actorId: a._id,
       participantIds: [rival._id],
       locationId: 'market',
-      summary: a.name + ', losing customers to ' + rival.name + "'s lower prices, has started telling people " + firstName(rival.name) + ' waters down what he sells.',
-      salience: 0.55,
+      summary: existing
+        ? a.name + ' is still telling anyone who will listen that ' + rival.name + ' waters down the stock.'
+        : a.name + ', losing customers to ' + rival.name + "'s lower prices, has started telling people " + firstName(rival.name) + ' waters down the stock.',
+      salience: existing ? 0.3 : 0.55,
       visibility: 'private',
     });
     await learnBelief(tx, a, {
       kind: 'untrustworthy',
-      text: rival.name + ' waters down the water he sells.',
+      text: rival.name + ' waters down the water at that stall.',
       valence: -1,
       confidence: 0.75,
       sourceType: 'inference',
@@ -564,7 +566,7 @@ async function smearRival(c: Ctx, weight: number): Promise<Choice | null> {
     return {
       score: weight * 0.9 + 0.15,
       routine: false,
-      intent: 'Making sure the canteen hears that ' + rival.name + ' waters down his stock',
+      intent: 'Making sure the canteen hears that ' + rival.name + ' waters down the stock',
       ...new Plan(a.locationId).go('canteen').add('talk', ['any', key], 'Whispering about ' + rival.name).add('talk', ['any', key], 'Whispering about ' + rival.name + ' to someone else'),
       trigger: 'losing customers to ' + rival.name,
       causeEventId: eventId,
@@ -586,7 +588,7 @@ async function undercut(c: Ctx, g: Goal, weight: number): Promise<Choice | null>
       actorId: a._id,
       participantIds: [rival._id],
       locationId: 'market',
-      summary: a.name + ' chalked up lower prices than ' + rival.name + "'s across the concourse, going after her customers.",
+      summary: a.name + ' chalked up lower prices than ' + rival.name + "'s across the concourse, going after " + firstName(rival.name) + "'s customers.",
       salience: 0.42,
     });
   }
@@ -677,7 +679,7 @@ async function investigateGoal(c: Ctx, g: Goal, weight: number): Promise<Choice 
   if (!b?.alive) return null;
   const kind = g.drive && ACCUSABLE.has(g.drive) ? g.drive : 'hoarding';
   let belief = c.beliefs.find((x) => x.key === kind + ':' + b._id);
-  if (belief?.acted !== undefined && tx.tick - belief.acted < 288) return null;
+  if (belief?.truthEventId || (belief?.acted !== undefined && tx.tick - belief.acted < 288)) return null;
   if (g.source !== 'divine' && rand(tx.world.seed, tx.tick, a.seq, 'probe') > 0.25) return null;
   if (!belief) {
     await learnBelief(tx, a, {
@@ -830,13 +832,15 @@ async function beliefChoices(c: Ctx): Promise<Choice[]> {
     if (b.acted !== undefined && b.lastReinforcedTick <= b.acted) continue;
     const subject = await loadAgent(tx, b.subjectAgentId);
     if (!subject?.alive) continue;
+    // A case security has closed is old news, until the person does it again.
+    if ((b.kind === 'thief' || b.kind === 'hoarding') && (await truthAbout(tx, b.kind, subject)).settled) continue;
     const affinity = c.ties.find((r) => r.toAgentId === subject._id)?.affinity ?? 0;
     const ownLeader = c.factions.some((f) => f.key === a.factionId && f.leaderAgentId === subject._id);
     const rivalFaction = subject.factionId && a.factionId && subject.factionId !== a.factionId ? 0.12 : 0;
     const observed = b.sourceType === 'observed';
     // The curious and security look into things; most people only now and then.
     const minded = security || rand(tx.world.seed, tx.tick, a.seq, 'probe:' + b.key) < t.curiosity * 0.5;
-    const investigate = b.kind === 'untrustworthy' || !minded ? 0 : b.confidence * (0.1 + 0.45 * t.curiosity + (security ? 0.45 : 0)) * (observed ? 0.2 : 1);
+    const investigate = b.kind === 'untrustworthy' || b.truthEventId || !minded ? 0 : b.confidence * (0.1 + 0.45 * t.curiosity + (security ? 0.45 : 0)) * (observed ? 0.2 : 1);
     const accuse =
       (b.confidence - 0.35) * (0.4 + 0.6 * t.stubbornness + 0.5 * (1 - t.caution)) +
       rivalFaction +

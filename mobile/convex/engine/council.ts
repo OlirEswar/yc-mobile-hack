@@ -6,7 +6,7 @@
  */
 import { OCCUPATIONS, TICKS_PER_DAY } from '../../shared/colony';
 import { round1 } from '../lib/rng';
-import { BONUS_AT, BONUS_YES_AT, CUT_AT, NORMAL_STOCK } from '../lib/constants';
+import { BONUS_YES_AT, CUT_AT, NORMAL_STOCK } from '../lib/constants';
 import { addStock, councilIds, firstName, reserveDays, reserveRatio, stock } from './conditions';
 import { adjustRelationship, emitEvent, loadAgent, loadFactions, loadMind, touch, touchHousehold } from './core';
 import type { AgentDoc, EventId, Tx } from './core';
@@ -68,7 +68,7 @@ async function rationVote(tx: Tx, members: AgentDoc[], chair: AgentDoc | undefin
 
   const lead = petitions[petitions.length - 1];
   const petitioner = lead ? await loadAgent(tx, lead.agentId) : null;
-  if (result === 0 && level === 0 && ratio > BONUS_AT && petitions.some((p) => p.topic === 'rations_open')) {
+  if (result === 0 && level === 0 && petitions.some((p) => p.topic === 'rations_open')) {
     await bonusVote(tx, members, ratio, petitions);
     return;
   }
@@ -110,7 +110,8 @@ async function rationVote(tx: Tx, members: AgentDoc[], chair: AgentDoc | undefin
     participantIds: members.map((m) => m._id),
     locationId: 'plaza',
     summary:
-      'The council voted ' + ayes.length + ' to ' + nays.length + ' to ' + (cutting ? 'cut' : 'raise') + ' depot rations to ' + LEVEL_NAMES[result] + ', with ' + round1(days) + ' days of reserve left.' +
+      (!cutting && petitioner ? 'Giving in to ' + petitioner.name + "'s plea from the ration line, the council" : 'The council') +
+      ' voted ' + ayes.length + ' to ' + nays.length + ' to ' + (cutting ? 'cut' : 'raise') + ' depot rations to ' + LEVEL_NAMES[result] + ', with ' + round1(days) + ' days of reserve left.' +
       (nays.length > 0 ? ' ' + list(nays.map((m) => firstName(m.name))) + ' voted against.' : ''),
     salience: 0.82,
     causationEventId: cause,

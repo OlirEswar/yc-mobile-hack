@@ -5,7 +5,7 @@ import { toAgentLite, toEventPublic } from './lib/public';
 import type { SyncUpdates } from '../shared/types';
 
 /** Most events one sync returns: the newest ones win, so a client that fell far behind skips the oldest. */
-export const SYNC_EVENT_CAP = 200;
+const SYNC_EVENT_CAP = 200;
 
 /**
  * Agents and events changed after sinceVersion, read through the by_world_version indexes so only

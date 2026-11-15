@@ -26,7 +26,7 @@ export const feed = query({
     if (!worldId) return [];
     const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(args.limit ?? DEFAULT_LIMIT)));
     const minSalience = args.minSalience ?? 0;
-    const before = args.beforeTick ?? Infinity;
+    const { beforeTick } = args;
     const listed = (e: Doc<'events'> | null): e is Doc<'events'> => !!e && e.worldId === worldId && e.visibility !== 'private' && e.salience >= minSalience;
 
     if (args.agentId !== undefined) {
@@ -34,7 +34,7 @@ export const feed = query({
       if (!agentId) return [];
       const memories = await ctx.db
         .query('memories')
-        .withIndex('by_agent_tick', (q) => q.eq('agentId', agentId).lt('tick', before))
+        .withIndex('by_agent_tick', (q) => (beforeTick === undefined ? q.eq('agentId', agentId) : q.eq('agentId', agentId).lt('tick', beforeTick)))
         .order('desc')
         .take(limit * 3);
       const out: Doc<'events'>[] = [];
@@ -53,7 +53,10 @@ export const feed = query({
     for (let tier = salienceTier(minSalience); tier <= 3; tier++) {
       const rows = await ctx.db
         .query('events')
-        .withIndex('by_world_tier_tick', (q) => q.eq('worldId', worldId).eq('tier', tier).lt('tick', before))
+        .withIndex('by_world_tier_tick', (q) => {
+          const inTier = q.eq('worldId', worldId).eq('tier', tier);
+          return beforeTick === undefined ? inTier : inTier.lt('tick', beforeTick);
+        })
         .order('desc')
         .take(limit * 2);
       merged.push(...rows.filter(listed));

@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as agents from "../agents.js";
 import type * as billing from "../billing.js";
+import type * as chronicle from "../chronicle.js";
 import type * as cognition from "../cognition.js";
 import type * as engine_conditions from "../engine/conditions.js";
 import type * as engine_core from "../engine/core.js";
@@ -25,16 +26,24 @@ import type * as engine_step from "../engine/step.js";
 import type * as engine_systems from "../engine/systems.js";
 import type * as engine_text from "../engine/text.js";
 import type * as http from "../http.js";
+import type * as interventions from "../interventions.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_public from "../lib/public.js";
 import type * as lib_rng from "../lib/rng.js";
+import type * as powers_arrival from "../powers/arrival.js";
+import type * as powers_colonists from "../powers/colonists.js";
+import type * as powers_common from "../powers/common.js";
+import type * as powers_environment from "../powers/environment.js";
+import type * as powers_ideas from "../powers/ideas.js";
+import type * as powers_index from "../powers/index.js";
 import type * as seed_build from "../seed/build.js";
 import type * as seed_insert from "../seed/insert.js";
 import type * as seed_keyCharacters from "../seed/keyCharacters.js";
 import type * as seed_names from "../seed/names.js";
 import type * as session from "../session.js";
 import type * as sim from "../sim.js";
+import type * as sync from "../sync.js";
 import type * as world from "../world.js";
 
 import type {
@@ -47,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   agents: typeof agents;
   billing: typeof billing;
+  chronicle: typeof chronicle;
   cognition: typeof cognition;
   "engine/conditions": typeof engine_conditions;
   "engine/core": typeof engine_core;
@@ -61,16 +71,24 @@ declare const fullApi: ApiFromModules<{
   "engine/systems": typeof engine_systems;
   "engine/text": typeof engine_text;
   http: typeof http;
+  interventions: typeof interventions;
   "lib/auth": typeof lib_auth;
   "lib/constants": typeof lib_constants;
   "lib/public": typeof lib_public;
   "lib/rng": typeof lib_rng;
+  "powers/arrival": typeof powers_arrival;
+  "powers/colonists": typeof powers_colonists;
+  "powers/common": typeof powers_common;
+  "powers/environment": typeof powers_environment;
+  "powers/ideas": typeof powers_ideas;
+  "powers/index": typeof powers_index;
   "seed/build": typeof seed_build;
   "seed/insert": typeof seed_insert;
   "seed/keyCharacters": typeof seed_keyCharacters;
   "seed/names": typeof seed_names;
   session: typeof session;
   sim: typeof sim;
+  sync: typeof sync;
   world: typeof world;
 }>;
 

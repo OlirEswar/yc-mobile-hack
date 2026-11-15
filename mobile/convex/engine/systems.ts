@@ -61,14 +61,25 @@ async function standingEffects(tx: Tx): Promise<void> {
 async function stormOnset(tx: Tx, e: Tx['world']['activeEffects'][number]): Promise<void> {
   const struck = e.locationIds.length > 0 ? e.locationIds : Object.values(LOCATIONS).filter((l) => l.exposed).map((l) => l.id);
   for (const loc of struck) {
-    for (const id of await agentsAt(tx, loc, { includeAsleep: true })) {
+    const caught = await agentsAt(tx, loc, { includeAsleep: true });
+    for (const id of caught) {
       const a = await loadAgent(tx, id);
       if (!a?.alive) continue;
-      const to = shelterFrom(loc);
       a.needs.safety = Math.min(100, a.needs.safety + 50);
       a.mood = 'afraid';
-      interrupt(tx, a, [encodeStep('flee', to), encodeStep('rest', 3)]);
+      interrupt(tx, a, [encodeStep('flee', shelterFrom(loc)), encodeStep('rest', 3)]);
     }
+    if (caught.length === 0) continue;
+    await emitEvent(tx, {
+      category: 'environment',
+      eventType: 'evacuation',
+      participantIds: caught,
+      locationId: loc,
+      summary: caught.length + (caught.length === 1 ? ' worker' : ' workers') + ' caught out at ' + locName(loc) + ' ran for the airlock at ' + locName(shelterFrom(loc)) + '.',
+      salience: 0.5,
+      causationEventId: e.eventId,
+      visibility: 'public',
+    });
   }
 }
 

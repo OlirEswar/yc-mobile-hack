@@ -337,6 +337,8 @@ export async function fillVacancies(tx: Tx): Promise<void> {
       heir.mood = 'proud';
       touch(tx, heir);
       filled(v);
+      // A new faction leader inheriting the faction's post was announced when they took over.
+      if (leader) continue;
       await emitEvent(tx, {
         category: 'politics',
         eventType: 'promotion',

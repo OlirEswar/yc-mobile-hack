@@ -4,7 +4,6 @@
  * it ends. Success is decided from real state: who is present, stock, credits, skill, witnesses.
  * Interactions resolve when they start, so their speech bubbles show while they last.
  */
-import type { Id } from '../_generated/dataModel';
 import { ROUTES, findPath, routeKey } from '../../shared/colony';
 import type { TradedResourceId } from '../../shared/colony';
 import type { ActivityKind } from '../../shared/types';
@@ -563,7 +562,8 @@ async function partnerHere(tx: Tx, a: AgentDoc): Promise<AgentDoc | null> {
 async function talk(tx: Tx, a: AgentDoc, who: string | undefined, topic: string | undefined): Promise<number> {
   const b = who === 'any' || !who ? await partnerHere(tx, a) : await presentWith(tx, a, who);
   if (!b) {
-    const named = who && who !== 'any' ? await loadAgent(tx, tx.ctx.db.normalizeId('agents', who) as Id<'agents'>) : null;
+    const namedId = who && who !== 'any' ? tx.ctx.db.normalizeId('agents', who) : null;
+    const named = namedId ? await loadAgent(tx, namedId) : null;
     return fail(tx, a, named ? 'Looked for ' + named.name + ' at ' + locName(a.locationId) + ' but they were not there' : 'Found nobody to talk to at ' + locName(a.locationId));
   }
   a.needs.social = Math.max(0, a.needs.social - 28);
@@ -607,7 +607,7 @@ async function talk(tx: Tx, a: AgentDoc, who: string | undefined, topic: string 
         participantIds: [b._id, ...(belief.subjectAgentId ? [belief.subjectAgentId] : [])],
         locationId: a.locationId,
         summary: a.name + ' told ' + b.name + ': "' + belief.text + '"' + (outcome.kind === 'doubted' ? ' ' + firstName(b.name) + ' did not buy it.' : ''),
-        salience: !aboutPerson || !fresh ? 0.15 : belief.valence > 0 ? 0.22 : belief.originEventId && belief.hops <= 1 ? 0.45 : belief.originEventId ? 0.32 : 0.22,
+        salience: !aboutPerson || !fresh ? 0.15 : belief.valence > 0 ? 0.22 : belief.originEventId && belief.hops === 0 ? 0.45 : belief.originEventId ? 0.32 : 0.22,
         causationEventId: belief.originEventId,
         facts: { beliefKey: belief.key, hops: belief.hops + 1 },
       });
@@ -1179,7 +1179,7 @@ async function repairDone(tx: Tx, a: AgentDoc, loc: string, ticks: number): Prom
   const before = tx.world.damage[loc] ?? 0;
   if (before <= 0) return;
   const engineer = a.occupation === 'fabricator' || a.occupation === 'solar_tech';
-  const after = Math.max(0, before - ((0.1 * ticks) / 6) * (engineer ? 1.6 : 0.8) * (0.5 + a.skill / 100));
+  const after = Math.max(0, before - ((0.05 * ticks) / 6) * (engineer ? 1.6 : 0.8) * (0.5 + a.skill / 100));
   if (after <= 0.01) {
     delete tx.world.damage[loc];
     await emitEvent(tx, {

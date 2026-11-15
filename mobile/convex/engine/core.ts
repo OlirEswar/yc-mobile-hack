@@ -13,7 +13,7 @@
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
-import { LOCATION_IDS, START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
+import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
 import { NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';

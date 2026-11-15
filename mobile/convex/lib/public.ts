@@ -55,11 +55,7 @@ export function toEventPublic(e: Doc<'events'>): WorldEventPublic {
     salience: e.salience,
     causationEventId: e.causationEventId,
     banner: e.banner,
-<<<<<<< HEAD
-    storylineId: typeof e.facts?.storylineId === 'string' ? e.facts.storylineId : undefined,
-=======
-    storylineId: e.storylineId,
->>>>>>> origin/capy/lw-story-teller
+    storylineId: e.storylineId ?? (typeof e.facts?.storylineId === 'string' ? e.facts.storylineId : undefined),
     visibility: e.visibility as WorldEventPublic['visibility'],
   };
 }

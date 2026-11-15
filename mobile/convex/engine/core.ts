@@ -13,7 +13,7 @@
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
-import { LOCATION_IDS, START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
+import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
 import { NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
@@ -32,6 +32,10 @@ import {
 export type AgentDoc = Doc<'agents'>;
 export type MindDoc = Doc<'minds'>;
 export type WorldDoc = Doc<'worlds'>;
+export type HouseholdDoc = Doc<'households'>;
+export type FactionDoc = Doc<'factions'>;
+export type BeliefDoc = Doc<'beliefs'>;
+export type RelationshipDoc = Doc<'relationships'>;
 export type AgentId = Id<'agents'>;
 export type EventId = Id<'events'>;
 
@@ -98,6 +102,11 @@ export type Tx = {
   rosterSt: string[];
   index: AgentId[] | null;
   indexDirty: boolean;
+  /** Working copies of households (pantries, rations) and factions, written once by commitTx. */
+  households: Map<string, HouseholdDoc>;
+  dirtyHouseholds: Set<string>;
+  factions: FactionDoc[] | null;
+  dirtyFactions: Set<string>;
   /** Events emitted so far, in order. */
   eventIds: EventId[];
 };
@@ -116,6 +125,10 @@ export function beginTx(ctx: MutationCtx, world: WorldDoc): Tx {
     rosterSt: world.roster.st.split(''),
     index: null,
     indexDirty: false,
+    households: new Map(),
+    dirtyHouseholds: new Set(),
+    factions: null,
+    dirtyFactions: new Set(),
     eventIds: [],
   };
 }
@@ -172,6 +185,33 @@ export async function loadMind(tx: Tx, a: AgentDoc): Promise<MindDoc | null> {
 
 export const touchMind = (tx: Tx, m: MindDoc): void => void tx.dirtyMinds.add(m._id);
 
+/** The working copy of a household. Mutate it, then call touchHousehold. */
+export async function loadHousehold(tx: Tx, id: Id<'households'> | undefined): Promise<HouseholdDoc | null> {
+  if (!id) return null;
+  const cached = tx.households.get(id);
+  if (cached) return cached;
+  const doc = await tx.ctx.db.get(id);
+  if (!doc || doc.worldId !== tx.world._id) return null;
+  const copy = JSON.parse(JSON.stringify(doc)) as HouseholdDoc;
+  tx.households.set(id, copy);
+  return copy;
+}
+
+export const touchHousehold = (tx: Tx, h: HouseholdDoc): void => void tx.dirtyHouseholds.add(h._id);
+
+/** Working copies of the world's factions. Mutate one, then call touchFaction. */
+export async function loadFactions(tx: Tx): Promise<FactionDoc[]> {
+  if (tx.factions) return tx.factions;
+  const docs = await tx.ctx.db
+    .query('factions')
+    .withIndex('by_world', (q) => q.eq('worldId', tx.world._id))
+    .collect();
+  tx.factions = docs.map((f) => JSON.parse(JSON.stringify(f)) as FactionDoc);
+  return tx.factions;
+}
+
+export const touchFaction = (tx: Tx, f: FactionDoc): void => void tx.dirtyFactions.add(f._id);
+
 /** Agent ids by seq. */
 export async function agentIndex(tx: Tx): Promise<AgentId[]> {
   if (tx.index) return tx.index;
@@ -222,6 +262,15 @@ export async function commitTx(tx: Tx): Promise<void> {
   }
   for (const id of tx.dirtyMinds) {
     const { _id, _creationTime, ...fields } = tx.minds.get(id)!;
+    await tx.ctx.db.replace(_id, fields);
+  }
+  for (const id of tx.dirtyHouseholds) {
+    const { _id, _creationTime, ...fields } = tx.households.get(id)!;
+    await tx.ctx.db.replace(_id, fields);
+  }
+  for (const f of tx.factions ?? []) {
+    if (!tx.dirtyFactions.has(f._id)) continue;
+    const { _id, _creationTime, ...fields } = f;
     await tx.ctx.db.replace(_id, fields);
   }
   if (tx.indexDirty && tx.index) {
@@ -539,9 +588,14 @@ export async function setPlan(tx: Tx, a: AgentDoc, plan: PlanInput): Promise<voi
 
 // ---------- death ----------
 
+/** Causes of death that make the bereaved look for someone to blame. */
+const VIOLENT_CAUSE = /murder|kill|stab|shot|poison|strangl|attack|beat|violen|blood/i;
+
 /**
  * Kills an agent: writes the death, the public event and the population count, marks every tie to
  * them, vacates their role, and puts grief in front of whatever their family and friends were doing.
+ * The death ripples: bystanders are shaken, a faction that loses its leader picks a successor, and
+ * a violent death sets the bereaved suspecting the victim's rivals.
  */
 export async function killAgent(
   tx: Tx,
@@ -570,18 +624,16 @@ export async function killAgent(
   }
   tx.world.population = { alive: tx.world.population.alive - 1, dead: tx.world.population.dead + 1 };
   if (tx.world.focusAgentId === a._id) tx.world.focusAgentId = undefined;
-  for (const [role, holder] of Object.entries(tx.world.roles)) {
-    if (holder !== a._id) continue;
-    delete tx.world.roles[role];
-    tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role });
-  }
+  const vacated = Object.entries(tx.world.roles).filter(([, holder]) => holder === a._id).map(([role]) => role);
+  for (const role of vacated) delete tx.world.roles[role];
+  if (tx.world.sim) tx.world.sim.council = tx.world.sim.council.filter((id) => id !== a._id);
 
   const ties = await tx.ctx.db
     .query('relationships')
     .withIndex('by_to', (q) => q.eq('toAgentId', a._id))
     .collect();
   const close = ties.filter((t) => t.kind === 'family' || (t.kind === 'friend' && t.affinity >= 0.3));
-  const { eventId } = await emitEvent(tx, {
+  const { eventId, witnessIds } = await emitEvent(tx, {
     category: death.category ?? 'health',
     eventType: 'death',
     actorId: a._id,
@@ -594,14 +646,104 @@ export async function killAgent(
     witnesses: 'location',
     facts: { cause: death.cause },
   });
+  for (const role of vacated) tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role, eventId });
+  if (vacated.length === 0 && a.occupation !== 'resident') tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, eventId });
   for (const t of ties) await tx.ctx.db.patch(t._id, { toAlive: false });
   for (const t of close) {
     const mourner = await loadAgent(tx, t.fromAgentId);
     if (!mourner || !mourner.alive) continue;
     mourner.mood = 'grieving';
     interrupt(tx, mourner, [encodeStep('mourn', a._id)]);
+    await enqueueCognition(tx, mourner, {
+      kind: 'plan',
+      trigger: (t.kind === 'family' ? 'family member ' : 'close friend ') + a.name + ' died',
+      detail: death.cause,
+      priority: 0.8,
+      lane: 'crisis',
+      eventId,
+    });
   }
+  for (const id of witnessIds) {
+    const witness = await loadAgent(tx, id);
+    if (!witness || !witness.alive || witness.mood === 'grieving') continue;
+    witness.needs.safety = Math.min(100, witness.needs.safety + 35);
+    witness.mood = 'shaken';
+    touch(tx, witness);
+  }
+  await succeedFactionLeader(tx, a, eventId);
+  if (VIOLENT_CAUSE.test(death.cause)) await suspectRivals(tx, a, close, eventId);
   return eventId;
+}
+
+/** A faction that loses its leader turns to its most respected surviving officer. */
+async function succeedFactionLeader(tx: Tx, dead: AgentDoc, deathEventId: EventId): Promise<void> {
+  for (const f of await loadFactions(tx)) {
+    if (f.key === dead.factionId) {
+      f.memberCount = Math.max(0, f.memberCount - 1);
+      touchFaction(tx, f);
+    }
+    if (f.leaderAgentId !== dead._id) continue;
+    f.officerIds = f.officerIds.filter((id) => id !== dead._id);
+    let heir: AgentDoc | null = null;
+    for (const id of f.officerIds) {
+      const officer = await loadAgent(tx, id);
+      if (officer?.alive && (!heir || officer.standing > heir.standing)) heir = officer;
+    }
+    f.leaderAgentId = heir?._id;
+    touchFaction(tx, f);
+    if (!heir) continue;
+    f.officerIds = f.officerIds.filter((id) => id !== heir._id);
+    await emitEvent(tx, {
+      category: 'politics',
+      eventType: 'leadership_change',
+      actorId: heir._id,
+      participantIds: [dead._id],
+      summary: heir.name + ' now leads the ' + f.name + ' after the death of ' + dead.name + '.',
+      salience: 0.8,
+      causationEventId: deathEventId,
+      visibility: 'public',
+    });
+  }
+}
+
+/** After a violent death, the bereaved wonder aloud about the victim's worst rival. */
+async function suspectRivals(tx: Tx, dead: AgentDoc, close: Doc<'relationships'>[], deathEventId: EventId): Promise<void> {
+  const rivals = await tx.ctx.db
+    .query('relationships')
+    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', dead._id))
+    .order('desc')
+    .take(16);
+  const rival = rivals.filter((r) => r.toAlive && r.affinity < -0.15).sort((x, y) => x.affinity - y.affinity)[0];
+  if (!rival) return;
+  const suspect = await loadAgent(tx, rival.toAgentId);
+  if (!suspect?.alive) return;
+  const suspicious: AgentId[] = [];
+  for (const t of close.slice(0, 6)) {
+    const mourner = await loadAgent(tx, t.fromAgentId);
+    if (!mourner?.alive || mourner._id === suspect._id) continue;
+    await learnBelief(tx, mourner, {
+      kind: 'suspect',
+      text: suspect.name + ' may have had a hand in the death of ' + dead.name + '.',
+      valence: -1,
+      confidence: 0.35 + 0.3 * (1 - mourner.traits.caution),
+      sourceType: 'inference',
+      subjectAgentId: suspect._id,
+      subjectName: suspect.name,
+      originEventId: deathEventId,
+    });
+    suspicious.push(mourner._id);
+  }
+  if (suspicious.length === 0) return;
+  await emitEvent(tx, {
+    category: 'social',
+    eventType: 'suspicion',
+    actorId: suspicious[0],
+    participantIds: [...suspicious, suspect._id],
+    summary: 'Those closest to ' + dead.name + ' are asking whether ' + suspect.name + ', a known rival, had a hand in it.',
+    salience: 0.65,
+    causationEventId: deathEventId,
+    visibility: 'public',
+  });
 }
 
 // ---------- LLM planning queue ----------

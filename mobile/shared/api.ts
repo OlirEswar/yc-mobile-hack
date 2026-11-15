@@ -10,6 +10,7 @@ import type {
   AskResult,
   AskTurn,
   FocusState,
+  SocietyOverview,
   StoryIntro,
   StorylinePublic,
   Id,
@@ -82,6 +83,10 @@ export type ApiContract = {
   'story:intro': { args: { worldId: Id }; returns: StoryIntro | null };
   /** query. Reactive. Live and recent storylines, highest tension first. With agentId, only theirs. */
   'story:storylines': { args: { worldId: Id; agentId?: Id }; returns: StorylinePublic[] };
+
+  // ----- society -----
+  /** query. Reactive. Organizations, discoveries, structures, famous works and notable people. */
+  'society:overview': { args: { worldId: Id }; returns: SocietyOverview };
 
   // ----- follow mode -----
   /** query. Reactive. Inner monologue, story hooks and storylines of the followed colonist. */

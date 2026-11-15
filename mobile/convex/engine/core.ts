@@ -10,6 +10,7 @@
  *   await emitEvent(tx, {...});
  *   await commitTx(tx);                      // the only write of the world document
  */
+import { SOCIETY_STEP_SPECS } from '../society/steps';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
@@ -96,6 +97,7 @@ export const STEP_SPECS = {
   eavesdrop: { args: ['agentId'], about: 'Listen in on someone at the same location to learn what they believe or hide.' },
   hide: { args: ['resource', 'quantity'], about: 'Stash goods out of sight so others cannot find or take them.' },
   confess: { args: ['beliefKey'], about: 'Publicly admit to something they did or hid.' },
+  ...SOCIETY_STEP_SPECS,
 } as const;
 export type StepType = keyof typeof STEP_SPECS;
 export type Step = { type: StepType; args: string[] };

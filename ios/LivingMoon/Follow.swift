@@ -306,7 +306,7 @@ struct AskPane: View {
     @State private var question = ""
     @State private var pending: String?
     @State private var error: String?
-    @FocusState private var typing: Bool
+    @SwiftUI.FocusState private var typing: Bool
 
     /// Questions drawn from who they are and what they are caught up in.
     private var suggestions: [String] {

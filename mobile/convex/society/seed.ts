@@ -25,6 +25,7 @@ export type SeedSocietyOptions = {
 export async function seedSociety(ctx: MutationCtx, worldId: Id<'worlds'>, agentIds: Id<'agents'>[], options: SeedSocietyOptions = {}): Promise<void> {
   const world = await ctx.db.get(worldId);
   if (!world) return;
+  if (await ctx.db.query('organizations').withIndex('by_world_status', (q) => q.eq('worldId', worldId).eq('status', 'active')).first()) return;
   const tx = beginTx(ctx, world);
   const next = sequence(world.seed ^ 0x50c1e7);
   const people: P[] = [];

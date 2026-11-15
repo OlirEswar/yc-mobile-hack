@@ -86,7 +86,7 @@ export type ApiContract = {
 
   // ----- society -----
   /** query. Reactive. Organizations, discoveries, structures, famous works and notable people. */
-  'society:overview': { args: { worldId: Id }; returns: SocietyOverview };
+  'society/api:overview': { args: { worldId: Id }; returns: SocietyOverview };
 
   // ----- follow mode -----
   /** query. Reactive. Inner monologue, story hooks and storylines of the followed colonist. */

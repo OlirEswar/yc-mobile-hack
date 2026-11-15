@@ -17,7 +17,7 @@ export const SOCIETY_ARG_KINDS: Record<SocietyStepType, Record<string, string>> 
   leave_org: { orgId: 'an organization id you belong to' },
   recruit: { agentId: 'a person present', orgId: 'an organization you belong to' },
   preach: { topic: 'an organization id you belong to, or a cause in a few words' },
-  org_action: { orgId: 'an organization you belong to', action: 'one of ' + ORG_ACTIONS.join(', ') + ' (raid, expel and declare_rules need a leader; declare_rules is for breakaways, rules are chosen from ' + BREAKAWAY_RULE_KEYS.join(', ') + ')' },
+  org_action: { orgId: 'an organization you belong to', action: 'one of ' + ORG_ACTIONS.join(', ') + ' (expel, trade_deal and declare_rules need the leader; declare_rules is for breakaways, rules are chosen from ' + BREAKAWAY_RULE_KEYS.join(', ') + ')' },
   study: { skill: 'one of ' + STUDY_SKILLS.join(', '), ticks: '2 to 18' },
   teach: { agentId: 'a person present who knows less', skill: 'one of ' + STUDY_SKILLS.join(', ') },
   apply_job: { occupation: 'one of ' + OCCUPATIONS.filter((o) => !['resident', 'councilor', 'quartermaster'].includes(o.id)).map((o) => o.id).join(', ') },
@@ -84,7 +84,7 @@ export function validateSocietyArgs(type: string, raw: string[], l: SocietyLooku
       const o = org(args[0], true);
       if (!o) return 'not a member of that organization';
       if (!(ORG_ACTIONS as readonly string[]).includes(args[1])) return 'unknown action';
-      if (['raid', 'expel', 'declare_rules', 'trade_deal'].includes(args[1]) && !o.leader && args[1] !== 'raid') return 'only the leader can do that';
+      if (['expel', 'declare_rules', 'trade_deal'].includes(args[1]) && !o.leader) return 'only the leader can do that';
       if (args[1] === 'declare_rules' && o.kind !== 'breakaway') return 'only a breakaway declares rules';
       if (args[1] === 'work' && o.kind !== 'company') return 'only a company has shifts';
       return { args: [o.id, args[1]], label: args[1].replace('_', ' ') + ' with ' + o.name };

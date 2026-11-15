@@ -6,6 +6,8 @@
  *   DUMP_DAYS=3 DUMP_POWER=drought npx vitest run convex/sim.dump.test.ts
  *
  * DUMP_POWER is one of drought, storm, kill, rumor, whisper. DUMP_MIN sets the salience floor (0.5).
+ * The society layer is seeded (organizations, couples, artists, pets) unless DUMP_SOCIETY=0, and the
+ * dump ends with the colony's almanac. DUMP_SOCIETY=only prints just the society story.
  */
 import { convexTest } from 'convex-test';
 import { test } from 'vitest';
@@ -14,6 +16,8 @@ import type { Id } from './_generated/dataModel';
 import schema from './schema';
 import { agentBySeq, chronicleText, plantRumor, runTicks, smite, startEffect, whisper } from './engine/devtools';
 import { modules } from './test.setup';
+import { seedSociety } from './society/seed';
+import { SOCIETY_STORY_TYPES } from './society/store';
 
 const env = (key: string): string | undefined => (typeof process !== 'undefined' ? process.env[key] : undefined);
 
@@ -24,6 +28,9 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
   const days = Number(env('DUMP_DAYS'));
   const power = env('DUMP_POWER');
   const named = async (name: string) => (await t.run((ctx) => ctx.db.query('agents').collect())).find((a) => a.name === name)!;
+  const society = env('DUMP_SOCIETY') ?? '1';
+  if (society !== '0')
+    await t.run(async (ctx) => seedSociety(ctx, id, (await ctx.db.query('agents').withIndex('by_world_seq', (q) => q.eq('worldId', id)).collect()).map((a) => a._id)));
   await t.run((ctx) => runTicks(ctx, id, 12));
   if (power === 'drought') await t.run((ctx) => startEffect(ctx, id, { type: 'drought', severity: 0.6, ticks: 3 * 144 }));
   if (power === 'storm') await t.run((ctx) => startEffect(ctx, id, { type: 'storm', severity: 0.8, ticks: 24, locationIds: ['solar_farm', 'ice_wells'] }));
@@ -45,5 +52,14 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
     'After ' + days + ' days' + (power ? ' with ' + power : '') + ': ' + world.population.alive + ' alive, ration level ' + world.econ.rationLevel +
       ', water ' + world.prices.water + ' cr, depot ' + Math.round(world.stockpiles.depot.water) + ' water / ' + Math.round(world.stockpiles.depot.food) + ' food\n',
   );
-  console.log(await t.run((ctx) => chronicleText(ctx, id, { minSalience: Number(env('DUMP_MIN') ?? 0.5) })));
+  const text = await t.run((ctx) => chronicleText(ctx, id, { minSalience: Number(env('DUMP_MIN') ?? 0.5) }));
+  console.log(society === 'only' ? text.split('\n').filter((line) => SOCIETY_STORY_TYPES.some((k) => line.includes('[' + k + ' '))).join('\n') : text);
+  if (society === '0') return;
+  const almanac = await t.query(api['society/api'].overview, { worldId: id });
+  console.log('\nThe almanac');
+  for (const o of almanac.organizations) console.log('  ' + o.name + ' (' + o.kind + ', ' + o.status + ', ' + o.memberIds.length + ' members): "' + o.creed + '"' + (o.rules?.length ? ' rules: ' + o.rules.join(', ') : ''));
+  for (const d of almanac.discoveries) console.log('  Discovered ' + d.name + ': ' + d.effect);
+  for (const s of almanac.structures) console.log('  ' + (s.builtTick === undefined ? 'Building ' : 'Built ') + s.name + ' at ' + s.locationId + (s.builtTick === undefined ? ' (' + Math.round(s.progress * 100) + '%)' : ''));
+  for (const w of almanac.works) console.log('  "' + w.title + '", a ' + w.kind + ' by ' + w.creatorName + ', fame ' + w.fame);
+  for (const n of almanac.notables) console.log('  ' + n.name + ', ' + n.for);
 }, 3_600_000);

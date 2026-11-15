@@ -5,7 +5,7 @@
  * through at once. Social status (hidden, 0..100) and the words the player sees for it live here too.
  */
 import type { Doc, Id } from '../_generated/dataModel';
-import { DISCOVERIES } from '../../shared/society';
+import { DISCOVERIES, RANDOM_EVENTS } from '../../shared/society';
 import { TICKS_PER_DAY } from '../../shared/colony';
 import { clamp, rand, round2 } from '../lib/rng';
 import type { ActivityKind } from '../../shared/types';
@@ -52,6 +52,15 @@ export type Meta = {
 };
 
 export const META_KEY = '_society';
+
+/** Event types the society layer emits, for filtering a chronicle down to the society story. */
+export const SOCIETY_STORY_TYPES: string[] = [
+  ...['org_founded', 'org_join', 'org_leave', 'org_recruit', 'recruit_refused', 'org_meeting', 'org_ritual', 'org_raid', 'org_deal', 'org_expel', 'org_election', 'org_leader', 'org_merger', 'org_schism', 'org_collapsed', 'org_aid', 'breakaway_rules', 'preaching', 'prophecy', 'protection_racket', 'racket_sabotage', 'gang_theft', 'raid_foiled', 'crackdown', 'standoff', 'turned_away', 'symbol_adopted'],
+  ...['marriage', 'proposal_refused', 'family_plan', 'family_plan_refused', 'expecting', 'birth', 'came_of_age', 'inheritance', 'child_found', 'child_lost', 'rescue', 'pet_adopted', 'pet_died', 'pet_found', 'pet_inherited', 'guardian'],
+  ...['lesson', 'mastery', 'hired', 'fired', 'poached', 'job_rejected', 'discovery', 'construction_started', 'structure_built', 'art_created', 'performance', 'patronage', 'artistic_rivalry', 'fame'],
+  ...['obsession', 'obsession_fulfilled', 'obsession_broken', 'changed', 'heroism', 'revelation'],
+  ...RANDOM_EVENTS.map((e) => e.key),
+];
 export const DAY = TICKS_PER_DAY;
 /** Ticks from birth to a young adult choosing a career. Accelerated so a child visibly grows up in a demo. */
 export const GROW_UP_TICKS = 3 * TICKS_PER_DAY;

@@ -10,12 +10,14 @@
  * dump ends with the colony's almanac. DUMP_SOCIETY=only prints just the society story.
  */
 import { convexTest } from 'convex-test';
+import { makeFunctionReference } from 'convex/server';
 import { test } from 'vitest';
 import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 import { agentBySeq, chronicleText, plantRumor, runTicks, smite, startEffect, whisper } from './engine/devtools';
 import { modules } from './test.setup';
+import type { SocietyOverview } from '../shared/types';
 import { seedSociety } from './society/seed';
 import { SOCIETY_STORY_TYPES } from './society/store';
 
@@ -55,7 +57,7 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
   const text = await t.run((ctx) => chronicleText(ctx, id, { minSalience: Number(env('DUMP_MIN') ?? 0.5) }));
   console.log(society === 'only' ? text.split('\n').filter((line) => SOCIETY_STORY_TYPES.some((k) => line.includes('[' + k + ' '))).join('\n') : text);
   if (society === '0') return;
-  const almanac = await t.query(api['society/api'].overview, { worldId: id });
+  const almanac: SocietyOverview = await t.query(makeFunctionReference<'query'>('society/api:overview'), { worldId: id });
   console.log('\nThe almanac');
   for (const o of almanac.organizations) console.log('  ' + o.name + ' (' + o.kind + ', ' + o.status + ', ' + o.memberIds.length + ' members): "' + o.creed + '"' + (o.rules?.length ? ' rules: ' + o.rules.join(', ') : ''));
   for (const d of almanac.discoveries) console.log('  Discovered ' + d.name + ': ' + d.effect);

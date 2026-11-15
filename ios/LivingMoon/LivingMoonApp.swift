@@ -17,46 +17,52 @@ struct LivingMoonApp: App {
 
 struct RootView: View {
     @Environment(Game.self) private var game
+    @AppStorage("livingMoon.onboarded") private var onboarded = false
 
     var body: some View {
         @Bindable var game = game
 
-        switch game.phase {
-        case .loading:
-            ProgressView("Waking the colony…").controlSize(.large)
-        case let .failed(message):
-            ContentUnavailableView {
-                Label("The colony could not be reached", systemImage: "moon.zzz")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try again") { Task { await game.boot() } }
-                if game.useLive { Button("Use the offline colony") { game.useLive = false } }
-            }
-        case .ready:
-            TabView(selection: $game.tab) {
-                Tab("Colony", systemImage: "moon.fill", value: .colony) { ColonyView() }
-                Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
-                Tab("Chronicle", systemImage: "book.fill", value: .chronicle) { ChronicleView() }
-            }
-            .tabViewBottomAccessory { TickerView() }
-            // One inspector, one power sheet and one follow cover serve every tab.
-            .sheet(item: Binding(get: { game.colonist(game.selectedID) }, set: { game.selectedID = $0?.id })) { c in
-                InspectSheet(id: c.id)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-            }
-            .sheet(item: $game.activePower) { power in
-                Group {
-                    if power == .arrival { CreatorSheet() } else { PowerSheet(power: power) }
+        if !onboarded {
+            OnboardingView { withAnimation(.smooth(duration: 0.6)) { onboarded = true } }
+                .transition(.opacity)
+        } else {
+            switch game.phase {
+            case .loading:
+                ProgressView("Waking the colony…").controlSize(.large)
+            case let .failed(message):
+                ContentUnavailableView {
+                    Label("The colony could not be reached", systemImage: "moon.zzz")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("Try again") { Task { await game.boot() } }
+                    if game.useLive { Button("Use the offline colony") { game.useLive = false } }
                 }
-                .presentationDetents(power == .arrival || power.believed ? [.large] : [.medium, .large])
+            case .ready:
+                TabView(selection: $game.tab) {
+                    Tab("Colony", systemImage: "moon.fill", value: .colony) { ColonyView() }
+                    Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
+                    Tab("Chronicle", systemImage: "book.fill", value: .chronicle) { ChronicleView() }
+                }
+                .tabViewBottomAccessory { TickerView() }
+                // One inspector, one power sheet and one follow cover serve every tab.
+                .sheet(item: Binding(get: { game.colonist(game.selectedID) }, set: { game.selectedID = $0?.id })) { c in
+                    InspectSheet(id: c.id)
+                        .presentationDetents([.medium, .large])
+                        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                }
+                .sheet(item: $game.activePower) { power in
+                    Group {
+                        if power == .arrival { CreatorSheet() } else { PowerSheet(power: power) }
+                    }
+                    .presentationDetents(power == .arrival || power.believed ? [.large] : [.medium, .large])
+                }
+                .sheet(isPresented: $game.showPatron) { PatronSheet() }
+                .fullScreenCover(isPresented: Binding(get: { game.followingID != nil }, set: { if !$0 { game.unfollow() } })) {
+                    FollowView()
+                }
+                .overlay(alignment: .top) { ToastView() }
             }
-            .sheet(isPresented: $game.showPatron) { PatronSheet() }
-            .fullScreenCover(isPresented: Binding(get: { game.followingID != nil }, set: { if !$0 { game.unfollow() } })) {
-                FollowView()
-            }
-            .overlay(alignment: .top) { ToastView() }
         }
     }
 }

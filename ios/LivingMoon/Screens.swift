@@ -45,11 +45,12 @@ struct ColonyView: View {
             ZStack {
                 MapView()
                 VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        StatChip(label: "People", value: "\(Int(world?.population.alive ?? 0))")
-                        StatChip(label: "Food", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true)
-                        StatChip(label: "Price", value: "\(Int(price))cr", trend: lastPrice.trend, goodWhenUp: false)
-                    }
+                    StatStrip(stats: [
+                        .init(label: "People", symbol: "person.2.fill", value: "\(Int(world?.population.alive ?? 0))"),
+                        .init(label: "Food", symbol: "fork.knife", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true),
+                        .init(label: "Food price", symbol: "creditcard.fill", value: "\(Int(price))cr", trend: lastPrice.trend, goodWhenUp: false),
+                    ])
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     ForEach(world?.activeEffects ?? []) { effect in
                         let sols = max(1, Int(((effect.endTick - (world?.tick ?? 0)) / Clock.ticksPerDay).rounded(.up)))
                         Label(effect.label + " · " + (effect.type == "storm" ? "passing" : "\(sols) sol\(sols == 1 ? "" : "s") left"), systemImage: effect.type == "storm" ? "burst.fill" : "drop.degreesign.slash")
@@ -71,14 +72,6 @@ struct ColonyView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Text(game.stamp)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 6)
-                        .fixedSize()
-                }
-                ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
                             Label("Pause", systemImage: "pause.fill").tag(0.0)
@@ -87,10 +80,20 @@ struct ColonyView: View {
                             Label("8× speed", systemImage: "forward.end.fill").tag(8.0)
                         }
                     } label: {
-                        Image(systemName: game.speed == 0 ? "pause.fill" : game.speed == 1 ? "play.fill" : "forward.fill")
+                        HStack(spacing: 8) {
+                            Image(systemName: game.speed == 0 ? "pause.fill" : game.speed == 1 ? "play.fill" : "forward.fill")
+                                .font(.caption.weight(.bold))
+                            Text(game.stamp)
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                        }
+                        .padding(.horizontal, 6)
+                        .fixedSize()
                     }
-                    .accessibilityLabel("Simulation speed")
+                    .tint(.white)
+                    .accessibilityLabel("\(game.stamp), simulation speed")
                 }
+                ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
@@ -98,6 +101,7 @@ struct ColonyView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                     }
+                    .tint(.white)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -107,25 +111,38 @@ struct ColonyView: View {
     }
 }
 
-struct StatChip: View {
-    var label: String
-    var value: String
-    var trend = 0
-    var goodWhenUp = true
+/// The colony's vital numbers in one glass strip, with a trend arrow when a value moved.
+struct StatStrip: View {
+    struct Stat {
+        var label: String
+        var symbol: String
+        var value: String
+        var trend = 0
+        var goodWhenUp = true
+    }
+
+    var stats: [Stat]
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Text(value).font(.footnote.weight(.semibold).monospacedDigit())
-            if trend != 0 {
-                Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle((trend > 0) == goodWhenUp ? Color.green : .red)
+        HStack(spacing: 12) {
+            ForEach(stats.indices, id: \.self) { i in
+                if i > 0 { Capsule().fill(.white.opacity(0.18)).frame(width: 1, height: 14) }
+                let stat = stats[i]
+                HStack(spacing: 5) {
+                    Image(systemName: stat.symbol).font(.caption2).foregroundStyle(.secondary)
+                    Text(stat.value).font(.footnote.weight(.semibold).monospacedDigit())
+                    if stat.trend != 0 {
+                        Image(systemName: stat.trend > 0 ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle((stat.trend > 0) == stat.goodWhenUp ? Color.green : .red)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(stat.label) \(stat.value)")
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
         .glassEffect()
     }
 }

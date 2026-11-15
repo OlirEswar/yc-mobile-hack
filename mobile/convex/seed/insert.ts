@@ -69,7 +69,7 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
     roles: {},
     vacancies: [],
     llm: {
-      enabled: false,
+      enabled: Boolean(process.env.LLM_API_KEY),
       callsToday: 0,
       budgetPerDay: DEFAULT_LLM_CONFIG.budgetPerDay,
       queued: 0,

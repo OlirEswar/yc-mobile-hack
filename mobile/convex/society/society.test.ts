@@ -194,8 +194,10 @@ describe('society subsystems', () => {
 
   test('art is made, performed to a crowd, and its maker becomes better known', async () => {
     const { t, worldId } = await colony('device-soc-art', { society: false });
-    const { artistId, before } = await inTx(t, worldId, async (tx, people) => {
+    const { artistId, before, worksBefore } = await inTx(t, worldId, async (tx, people) => {
       const [artist, ...rest] = adults(people).sort((x, y) => (y.mind.skills.art ?? 0) - (x.mind.skills.art ?? 0));
+      // seedWorld seeds the society layer, so the best artist already has works of their own.
+      const worksBefore = (await tx.ctx.db.query('works').withIndex('by_creator', (q) => q.eq('creatorId', artist.a._id)).collect()).length;
       await createArtDone(tx, artist.a, 'song');
       for (const p of [artist, ...rest.slice(0, 8)]) {
         p.a.locationId = 'canteen';
@@ -203,7 +205,7 @@ describe('society subsystems', () => {
         p.a.move = undefined;
         touch(tx, p.a);
       }
-      return { artistId: artist.a._id, before: artist.mind.society?.fame ?? 0 };
+      return { artistId: artist.a._id, before: artist.mind.society?.fame ?? 0, worksBefore };
     });
     const out = await inTx(t, worldId, async (tx) => {
       const artist = (await loadAgent(tx, artistId))!;
@@ -211,7 +213,7 @@ describe('society subsystems', () => {
       const works = await tx.ctx.db.query('works').withIndex('by_creator', (q) => q.eq('creatorId', artistId)).collect();
       return { before, after: (await loadMind(tx, artist))!.society?.fame ?? 0, works: works.length };
     });
-    expect(out.works).toBe(1);
+    expect(out.works).toBe(worksBefore + 1);
     expect(out.after).toBeGreaterThan(out.before);
     const text = await t.run((ctx) => chronicleText(ctx, worldId, { minSalience: 0 }));
     expect(text).toMatch(/performed "/);

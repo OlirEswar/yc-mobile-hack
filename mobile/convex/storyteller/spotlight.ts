@@ -7,7 +7,7 @@
 import type { Doc } from '../_generated/dataModel';
 import { admits, rollDay } from '../cognition/budget';
 import { providerConfig } from '../cognition/provider';
-import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind } from '../engine/core';
+import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind, tiesOf } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
@@ -146,11 +146,7 @@ async function nudge(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], n
   const lastBeat = Math.max(last, ...memories.filter((m) => m.salience >= NOTABLE).map((m) => m.tick));
   if (tx.tick - lastBeat < QUIET_TICKS) return;
 
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   const storyOf = (id: string) => live.find((s) => s.participantIds.includes(id as AgentDoc['_id']));
   const candidates: { id: AgentDoc['_id']; story?: StorylineDoc }[] = [];
   for (const s of live.filter((s) => s.participantIds.includes(a._id))) for (const id of s.participantIds) candidates.push({ id, story: s });

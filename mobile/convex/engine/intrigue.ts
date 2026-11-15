@@ -6,7 +6,7 @@
 import { clamp, pick, rand, round2 } from '../lib/rng';
 import { FAILED, act, fail, int, roll, say, units } from './act';
 import { firstName, isLocation, locName, lowerFirst, stormAt } from './conditions';
-import { adjustRelationship, agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, learnBelief, loadAgent, loadMind, touch, touchMind } from './core';
+import { adjustRelationship, agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, learnBelief, loadAgent, loadMind, patchBelief, touch, touchMind } from './core';
 import type { AgentDoc, BeliefDoc, EventId, Tx } from './core';
 import { addDeed, deedCount, grantFavor, ledgerOf } from './ledger';
 import { agentById, statusOf, sway } from './people';
@@ -96,7 +96,8 @@ export async function bribe(tx: Tx, a: AgentDoc, who: string | undefined, qtyArg
   });
   // Whoever paid now holds something over whoever took it.
   const held = await learnBelief(tx, a, { kind: 'corrupt', text: b.name + ' took ' + n + ' credits from ' + a.name + ' ' + FAVOR_WORDS[favor] + '.', valence: -0.4, confidence: 1, sourceType: 'observed', subjectAgentId: b._id, subjectName: b.name, originEventId: eventId, truthEventId: eventId, private: true });
-  await tx.ctx.db.patch(held.beliefId, { acted: tx.tick });
+  const doc = await getBelief(tx, a._id, held.key);
+  if (doc) await patchBelief(tx, doc, { acted: tx.tick });
   return 1;
 }
 

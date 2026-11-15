@@ -7,7 +7,7 @@ import { PANTRY_DAYS, RATIONS } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import { lowerFirst, reserveDays } from './conditions';
 import { simState } from './state';
-import { adjustRelationship, enqueueCognition, learnBelief, loadAgent, loadFactions, loadHousehold, loadMind, touchFaction, emitEvent } from './core';
+import { adjustRelationship, enqueueCognition, heldBeliefs, learnBelief, loadAgent, loadFactions, loadHousehold, loadMind, patchBelief, tieTo, touchFaction, emitEvent } from './core';
 import type { AgentDoc, AgentId, BeliefDoc, EventId, MindDoc, RelationshipDoc, Tx } from './core';
 
 /** Belief kinds that accuse a person of something an investigation can settle. */
@@ -17,26 +17,19 @@ export const ACCUSE_KINDS = new Set(['thief', 'hoarding', 'saboteur', 'corrupt',
 /** Beliefs heavy enough that learning one is worth an LLM rethink. */
 const HEAVY = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect']);
 
-export async function tie(tx: Tx, from: AgentId, to: AgentId): Promise<RelationshipDoc | null> {
-  return await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_to', (q) => q.eq('fromAgentId', from).eq('toAgentId', to))
-    .first();
-}
+export const tie = tieTo;
 
+/** One belief, from the holder's cached beliefs when this Tx has read them, else one indexed read. */
 export async function getBelief(tx: Tx, agentId: AgentId, key: string): Promise<BeliefDoc | null> {
+  const held = tx.beliefs.get(agentId);
+  if (held) return held.find((b) => b.key === key) ?? null;
   return await tx.ctx.db
     .query('beliefs')
     .withIndex('by_agent_key', (q) => q.eq('agentId', agentId).eq('key', key))
     .first();
 }
 
-export async function beliefsOf(tx: Tx, agentId: AgentId): Promise<BeliefDoc[]> {
-  return await tx.ctx.db
-    .query('beliefs')
-    .withIndex('by_agent_key', (q) => q.eq('agentId', agentId))
-    .collect();
-}
+export const beliefsOf = heldBeliefs;
 
 /**
  * Hearsay fades when nobody repeats it: a told or rumored belief loses a fifth of its confidence
@@ -48,7 +41,7 @@ export function effectiveConfidence(b: BeliefDoc, tick: number): number {
   return days <= 0 ? b.confidence : round2(b.confidence * Math.pow(0.8, days));
 }
 
-export const markActed = async (tx: Tx, belief: BeliefDoc): Promise<void> => void (await tx.ctx.db.patch(belief._id, { acted: tx.tick }));
+export const markActed = async (tx: Tx, belief: BeliefDoc): Promise<void> => await patchBelief(tx, belief, { acted: tx.tick });
 
 /** Trust as a 0..1 weight: 0.5 for a stranger. */
 export const trustWeight = (r: RelationshipDoc | null): number => ((r?.trust ?? 0) + 1) / 2;

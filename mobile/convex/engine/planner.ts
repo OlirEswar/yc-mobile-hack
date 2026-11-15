@@ -34,6 +34,7 @@ import {
   setPlan,
   touch,
   touchMind,
+  tiesOf,
 } from './core';
 import type { AgentDoc, BeliefDoc, EventId, Tx } from './core';
 import { desireChoices, onStrike } from './desires';
@@ -61,11 +62,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   const p = personalTick(a, tx.tick);
   const lunch = p >= LUNCH[0] && p < LUNCH[1];
   const shift = p >= SHIFT_START && p < SHIFT_END && !lunch;
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   const c: Ctx = {
     tx,
     a,

@@ -14,7 +14,7 @@ import { clamp, pick, randInt, round2 } from '../lib/rng';
 import { PRIMARY_SKILL } from '../seed/build';
 import { ROSTER_DEAD, ROSTER_TRANSIT } from '../seed/insert';
 import { addStock, firstName, locName, stock } from '../engine/conditions';
-import { adjustRelationship, agentIndex, agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, killAgent, learnBelief, loadAgent, loadMind, setPlan, touch, touchMind } from '../engine/core';
+import { adjustRelationship, agentIndex, agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, killAgent, learnBelief, loadAgent, loadMind, setPlan, touch, touchMind, tiesOf } from '../engine/core';
 import type { AgentDoc, EventId, MindDoc, Tx } from '../engine/core';
 import { eventWeight } from './craft';
 import { insertPerson, inheritance, petGrief, birth } from './family';
@@ -407,7 +407,7 @@ const RUNS: Record<string, Run> = {
   },
   async old_feud(tx) {
     for (const p of await sample(tx, 8, 'feud', (a) => a.activity !== 'sleeping')) {
-      const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', p.a._id)).order('desc').take(10);
+      const ties = await tiesOf(tx, p.a._id, 10);
       const t = ties.find((x) => x.toAlive && x.affinity < -0.35);
       const b = t ? await loadAgent(tx, t.toAgentId) : null;
       if (!b?.alive || b.move) continue;
@@ -676,7 +676,7 @@ async function react(tx: Tx, meta: Meta, e: Doc<'events'>): Promise<void> {
         if (!k?.a.alive) continue;
         await experience(tx, k.a, k.m, 'bereaved', e._id);
         if (VIOLENT.test(cause) && k.a.traits.stubbornness > 0.55) {
-          const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', dead._id)).order('desc').take(12);
+          const ties = await tiesOf(tx, dead._id, 12);
           const rival = ties.filter((t) => t.toAlive && t.affinity < -0.15).sort((x, y) => x.affinity - y.affinity)[0];
           if (rival && rival.toAgentId !== k.a._id) await startObsession(tx, k.a, k.m, { kind: 'revenge', target: rival.toAgentId, text: 'making ' + rival.toName + ' pay for ' + firstName(dead.name) }, e._id);
         }

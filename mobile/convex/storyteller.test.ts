@@ -132,7 +132,10 @@ test('the director attaches events by cast, raises tension, records beats, escal
 test('the director spots emergent storylines: a grudge between rivals and a crisis rooted in a god power', async () => {
   const t = newTest();
   const { worldId, agents } = await colony(t);
-  const [, , c, d, e] = agents;
+  // Two colonists from different households, so no seeded family warmth softens the feud.
+  const [, , c] = agents;
+  const d = agents.find((x) => x.householdId !== c.householdId)!;
+  const e = agents.find((x) => x._id !== c._id && x._id !== d._id)!;
   await inTx(t, worldId, async (tx) => {
     const [x, y] = [(await loadAgent(tx, c._id))!, (await loadAgent(tx, d._id))!];
     await adjustRelationship(tx, x, y, { affinity: -0.8 });
@@ -263,12 +266,6 @@ test('the followed colonist thinks with the LLM: a thought job on a quiet moment
   expect(calls[0].body.messages[1].content).toContain('skims water');
   expect(await thoughtsOf(t, f._id)).toMatchObject([{ source: 'llm', mood: 'anxious', text: expect.stringContaining('Dmitri') }]);
 
-  // A fresh rule plan for the followed colonist goes to the LLM in the focus lane.
-  await inTx(t, worldId, async (tx) => {
-    const a = (await loadAgent(tx, f._id))!;
-    tx.tick += 1;
-    await setPlan(tx, a, { intent: 'Back to the counting.', source: 'routine', steps: [encodeStep('work', 6)], labels: ['Work the depot counter'] });
-  });
   const plan = mockModel({
     intent: 'Ines slips a second tank into the cold store before the count, because her brother cannot wait.',
     goal: null,
@@ -276,7 +273,11 @@ test('the followed colonist thinks with the LLM: a thought job on a quiet moment
     speech: null,
     thought: 'Hide it now. Count it later. Smile at whoever walks in.',
   });
-  await tick(t, worldId, async () => {}, 0);
+  // A fresh rule plan for the followed colonist, made in the tick as the planner would, goes to the LLM in the focus lane.
+  await tick(t, worldId, async (tx) => {
+    const a = (await loadAgent(tx, f._id))!;
+    await setPlan(tx, a, { intent: 'Back to the counting.', source: 'routine', steps: [encodeStep('work', 6)], labels: ['Work the depot counter'] });
+  });
   const planJob = await t.run((ctx) => ctx.db.query('cognitionJobs').filter((q) => q.and(q.eq(q.field('agentId'), f._id), q.eq(q.field('kind'), 'plan'))).first());
   expect(planJob).toMatchObject({ lane: 'focus', status: 'queued' });
   await settle(t);

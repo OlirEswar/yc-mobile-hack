@@ -8,7 +8,7 @@ import type { Id } from '../_generated/dataModel';
 import { DISCOVERY_BY_KEY, FIELD_LOCATIONS, STRUCTURE_BY_KEY } from '../../shared/society';
 import { clamp, pick, round2 } from '../lib/rng';
 import { firstName, isLocation, locName, stormAt } from '../engine/conditions';
-import { emitEvent, encodeStep, enqueueCognition, loadAgent, touch, touchMind } from '../engine/core';
+import { emitEvent, encodeStep, enqueueCognition, loadAgent, touch, touchMind, tiesOf } from '../engine/core';
 import type { AgentDoc, EventId, MindDoc, Tx } from '../engine/core';
 import { getBelief } from '../engine/social';
 import { availableDiscoveries } from './craft';
@@ -196,7 +196,7 @@ async function fittingObsession(tx: Tx, a: AgentDoc, mind: MindDoc): Promise<Obs
       return { kind: 'discovery', target: d.key, text: 'discovering ' + d.name.toLowerCase() };
     }
   }
-  const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id)).order('desc').take(10);
+  const ties = await tiesOf(tx, a._id, 10);
   const rival = ties.find((t) => t.toAlive && t.affinity < -0.4);
   if (rival && a.traits.empathy < 0.5) return { kind: 'revenge', target: rival.toAgentId, text: 'getting even with ' + rival.toName };
   const crush = ties.find((t) => t.toAlive && t.affinity > 0.45 && t.kind !== 'family');

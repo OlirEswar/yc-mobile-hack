@@ -200,8 +200,12 @@ describe('simulation', () => {
       await commitTx(tx);
       return a;
     });
-    await t.run((ctx) => runTicks(ctx, worldId, 10));
-    const events = await eventsOf(t, worldId);
+    // Step until the plan's last step lands: the seeded hauler has goals of her own and replans once it is done.
+    let events = await eventsOf(t, worldId);
+    for (let i = 0; i < 10 && !events.some((e) => e.eventType === 'petition' && e.actorId === hauler._id); i++) {
+      await t.run((ctx) => runTicks(ctx, worldId, 1));
+      events = await eventsOf(t, worldId);
+    }
     expect(events.some((e) => e.eventType === 'trade' && e.actorId === hauler._id)).toBe(true);
     expect(events.some((e) => e.eventType === 'petition' && e.actorId === hauler._id)).toBe(true);
     const mind = (await t.run((ctx) => ctx.db.get(hauler.mindId!)))!;

@@ -6,7 +6,7 @@
 import { clamp, rand, round2 } from '../lib/rng';
 import { FAILED, act, fail, roll, say } from './act';
 import { firstName, locName } from './conditions';
-import { adjustRelationship, agentsAt, emitEvent, enqueueCognition, learnBelief, loadAgent, loadMind, touch, touchMind } from './core';
+import { adjustRelationship, agentsAt, emitEvent, enqueueCognition, learnBelief, loadAgent, loadMind, patchBelief, touch, touchMind, tiesOf } from './core';
 import type { AgentDoc, AgentId, Tx } from './core';
 import { addDeed, debtsTo, ledgerOf } from './ledger';
 import { repay } from './livelihood';
@@ -19,11 +19,7 @@ const TROUBLED = new Set(['grieving', 'afraid', 'shaken', 'humiliated', 'betraye
 
 /** Current romantic partners of a colonist (ties of kind romance they hold). */
 export async function partnersOf(tx: Tx, id: AgentId): Promise<AgentId[]> {
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, id, 16);
   return ties.filter((t) => t.kind === 'romance' && t.toAlive).map((t) => t.toAgentId);
 }
 
@@ -62,7 +58,7 @@ export async function confide(tx: Tx, a: AgentDoc, who: string | undefined, key:
     // Someone who loves to talk and does not much care may not keep it to themselves.
     if (b.traits.sociability - b.traits.empathy > 0.15 || rand(tx.world.seed, tx.tick, b.seq, 'loose') < 0.15) {
       const held = await getBelief(tx, b._id, secret!.kind + ':' + a._id);
-      if (held) await tx.ctx.db.patch(held._id, { private: false });
+      if (held) await patchBelief(tx, held, { private: false });
     }
     return 3;
   }

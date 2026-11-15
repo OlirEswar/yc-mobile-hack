@@ -11,7 +11,7 @@ import { FARM_WATER_FLOOR, PRODUCTION } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import { ROSTER_WORKING, locChar } from '../seed/insert';
 import { addStock, droughtSeverity, locName, stock, stormAt } from '../engine/conditions';
-import { agentIndex, emitEvent, enqueueCognition, learnBelief, loadAgent, loadHousehold, loadMind, touch, touchHousehold, touchMind } from '../engine/core';
+import { agentIndex, emitEvent, enqueueCognition, learnBelief, loadAgent, loadHousehold, loadMind, touch, touchHousehold, touchMind, tiesOf } from '../engine/core';
 import type { AgentDoc, EventId, MindDoc, Tx } from '../engine/core';
 import { allAgents } from '../engine/state';
 import { orgsOf } from './orgs';
@@ -343,7 +343,7 @@ async function structuresAt(tx: Tx) {
 
 /** Who a statue honours: the builder's most admired person, or a famous name. */
 async function honoree(tx: Tx, a: AgentDoc): Promise<AgentDoc | null> {
-  const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id)).order('desc').take(10);
+  const ties = await tiesOf(tx, a._id, 10);
   const best = ties.filter((t) => t.affinity > 0.3).sort((x, y) => y.affinity - x.affinity)[0];
   return best ? await loadAgent(tx, best.toAgentId) : null;
 }

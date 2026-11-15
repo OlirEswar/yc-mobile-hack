@@ -14,6 +14,7 @@
  */
 import type { Doc } from '../_generated/dataModel';
 import { emitEvent, enqueueCognition, loadAgent, loadMind, touchMind } from '../engine/core';
+import { getBelief } from '../engine/social';
 import type { AgentId, EventId, Tx } from '../engine/core';
 import { clamp, round2 } from '../lib/rng';
 import { announcement, storyProse, who } from './prose';
@@ -126,9 +127,7 @@ async function patternOf(tx: Tx, e: Doc<'events'>, kind: StoryKind, cause: Doc<'
         .withIndex('by_from_to', (q) => q.eq('fromAgentId', from).eq('toAgentId', to))
         .first();
     const [there, back] = [await tie(actorId, otherId), await tie(otherId, actorId)];
-    const owed = Math.max(there?.obligation ?? 0, back?.obligation ?? 0);
-    if (isHostile(e) && owed >= 0.2) return 'debt';
-    if (kind === 'debt' && owed >= 0.35) return 'debt';
+    if ((isHostile(e) || kind === 'debt') && (await owes(tx, actorId, otherId))) return 'debt';
     if (isHostile(e) && (Math.min(there?.affinity ?? 0, back?.affinity ?? 0) <= -0.35 || e.salience >= 0.65)) {
       return kind === 'crime' || kind === 'secret' || kind === 'org' ? kind : 'grudge';
     }
@@ -142,6 +141,14 @@ async function patternOf(tx: Tx, e: Doc<'events'>, kind: StoryKind, cause: Doc<'
   if (kind === 'power') return e.salience >= 0.6 ? kind : null;
   if (kind === 'grudge' || kind === 'debt' || kind === 'romance') return null;
   return e.salience >= 0.55 ? kind : null;
+}
+
+/**
+ * Whether either of the two has a real debt to the other: the lender's debt belief, which a loan
+ * writes and the seed authors. Obligation alone is not a debt, since family and friends carry it too.
+ */
+async function owes(tx: Tx, a: AgentId, b: AgentId): Promise<boolean> {
+  return !!(await getBelief(tx, a, 'debt:' + b)) || !!(await getBelief(tx, b, 'debt:' + a));
 }
 
 function keyOf(kind: StoryKind, e: Doc<'events'>): string {

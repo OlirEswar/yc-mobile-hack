@@ -9,7 +9,21 @@ import type { QueryCtx } from '../_generated/server';
 import type { StorylinePublic, StorylineStatus } from '../../shared/types';
 
 export type StorylineDoc = Doc<'storylines'>;
-export type StoryKind = 'grudge' | 'debt' | 'romance' | 'secret' | 'crime' | 'power' | 'crisis';
+export type StoryKind =
+  | 'grudge'
+  | 'debt'
+  | 'romance'
+  | 'secret'
+  | 'crime'
+  | 'power'
+  | 'crisis'
+  // the society layer (docs/STORY_SPEC.md 8)
+  | 'org'
+  | 'family'
+  | 'invention'
+  | 'art'
+  | 'obsession'
+  | 'omen';
 
 export const LIVE_STATUSES = ['climax', 'rising', 'brewing'] as const;
 export const MAX_BEATS = 12;
@@ -58,10 +72,16 @@ export function describeStoryline(s: StorylineDoc): string {
 // ---------- reading events ----------
 
 const PATTERNS: [StoryKind, RegExp][] = [
+  ['obsession', /obsess/],
   ['secret', /secret|confess|eavesdrop|blackmail|confide|expos|affair/],
   ['debt', /borrow|loan|debt|repay|default/],
-  ['romance', /court|romance|flirt|love|tryst/],
   ['crime', /theft|steal|stole|missing|investigat|arrest|smuggl|bribe|sabotag|hoard|stockpil/],
+  ['omen', /quake|signal|outbreak|disease|epidemic|reactor|festival|ice_strike|lucky|escaped|random_event/],
+  ['family', /birth|born|child|grow_up|grew_up|coming_of_age|propos|marri|wedding|pet_|_pet/],
+  ['invention', /discover|invent|experiment|structure|built|construct|research|breakthrough/],
+  ['art', /mural|song|poem|sculpt|holo|perform|masterpiece|famous_work|artwork|create_art|play_staged/],
+  ['org', /org_|organization|schism|raid|recruit|preach|expel|ritual|breakaway|guild|cult|gang|militia|troupe|company_/],
+  ['romance', /court|romance|flirt|love|tryst/],
   ['power', /council|petition|rally|strike|leadership|faction|seat|ration_cut|ration_change|recall|vote/],
   ['grudge', /threat|accus|smear|lie|fight|feud|insult|suspicion|grudge/],
 ];
@@ -73,10 +93,10 @@ export function kindOfEvent(e: Doc<'events'>): StoryKind | null {
   return null;
 }
 
-const HOSTILE = /threat|accus|smear|lie|fight|feud|insult|suspicion|blackmail|sabotag|theft|steal|arrest|expos|strike/;
+const HOSTILE = /threat|accus|smear|lie|fight|feud|insult|suspicion|blackmail|sabotag|theft|steal|arrest|expos|strike|raid|schism|expel/;
 const EASING = /reconcil|repay|apolog|forgiv|comfort|gift|friendship|help|treatment/;
 /** Events that close a storyline when it is at its climax. */
-const CLOSING = /reconcil|repay|confess|arrest|death|leadership_change|council_seat|apolog|forgiv/;
+const CLOSING = /reconcil|repay|confess|arrest|death|leadership_change|council_seat|apolog|forgiv|wedding|marri|fulfil|collaps|disband|built|discover/;
 
 export const isHostile = (e: Doc<'events'>): boolean => HOSTILE.test(e.eventType);
 export const isEasing = (e: Doc<'events'>): boolean => EASING.test(e.eventType);
@@ -93,3 +113,13 @@ export function clip(text: string, max: number): string {
 }
 
 export const firstName = (name: string): string => name.split(' ')[0];
+
+/** A proper name an event's facts carry (an organization, a work, a structure), if any. */
+export function factName(e: Doc<'events'>): string | undefined {
+  const facts = e.facts && typeof e.facts === 'object' ? (e.facts as Record<string, unknown>) : {};
+  for (const key of ['orgName', 'organization', 'workTitle', 'title', 'structureName', 'discoveryName', 'petName', 'name']) {
+    const value = facts[key];
+    if (typeof value === 'string' && value.length > 1 && value.length <= 40) return value;
+  }
+  return undefined;
+}

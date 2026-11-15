@@ -149,6 +149,8 @@ export async function startStep(tx: Tx, a: AgentDoc, encoded: string, label?: st
       return repairStart(tx, a, x);
     case 'mourn':
       return mourn(tx, a, x);
+    default:
+      return fail(tx, a, 'Did not know how to ' + step.type);
   }
 }
 

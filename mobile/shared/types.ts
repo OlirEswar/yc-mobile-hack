@@ -149,6 +149,8 @@ export type WorldEventPublic = {
   causationEventId?: Id;
   /** True when the event deserves a banner in the wide view. */
   banner: boolean;
+  /** Storyline this event is a beat of, if any. */
+  storylineId?: Id;
   visibility: 'public' | 'local' | 'private';
 };
 
@@ -173,6 +175,25 @@ export type AgentDetail = AgentLite & {
   lastThought?: ThoughtPublic;
   /** Set when the agent is dead. */
   death?: { tick: Tick; cause: string };
+  /** The character's story: who they are in a line, what they want and fear, their arc. Never their secret. */
+  persona?: PersonaPublic;
+  /** Live storylines this colonist is part of, by id (see story:storylines). */
+  storylineIds?: Id[];
+};
+
+export type ArcStage = 'setup' | 'rising' | 'crisis' | 'climax' | 'resolution';
+
+export type PersonaPublic = {
+  /** Short tag shown under the name, e.g. "the quartermaster who keeps two ledgers". */
+  epithet: string;
+  want: string;
+  fear: string;
+  flaw: string;
+  /** How they talk. */
+  voice: string;
+  arc: { stage: ArcStage; note: string };
+  /** True for the ~20 authored key characters. */
+  key: boolean;
 };
 
 export type EffectType = 'drought' | 'storm';
@@ -222,7 +243,89 @@ export type WorldPublic = {
   treasury?: number;
   /** Raw regolith waiting at the quarry and at the works. Feeds parts; not a tradeable resource. */
   regolith?: { quarry: number; workshop: number };
+  /** True while the tick loop fast-forwards through the followed colonist's routine. */
+  focusWarp?: boolean;
 };
+
+// ---------- Story ----------
+
+export type StorylineStatus = 'brewing' | 'rising' | 'climax' | 'resolved' | 'fizzled';
+
+export type StoryBeat = { tick: Tick; text: string; eventId?: Id };
+
+export type StorylinePublic = {
+  id: Id;
+  title: string;
+  /** One or two sentences: what is at stake. */
+  premise: string;
+  status: StorylineStatus;
+  tension: number; // 0..1
+  participantIds: Id[];
+  /** Newest last, capped. */
+  beats: StoryBeat[];
+  origin: 'seed' | 'emergent' | 'player';
+  createdTick: Tick;
+  lastBeatTick: Tick;
+};
+
+export type KeyCharacterCard = {
+  agentId: Id;
+  name: string;
+  spriteId: SpriteId;
+  epithet: string;
+  /** Why the player should care, one sentence. */
+  hook: string;
+  factionId?: string;
+};
+
+/** A tutorial card. The client advances when the named player action happens (or on tap). */
+export type TutorialStep = {
+  id: string;
+  title: string;
+  body: string;
+  advanceOn: 'tap' | 'follow_starter' | 'read_thoughts' | 'ask_question' | 'switch_character' | 'use_power' | 'open_chronicle' | 'open_storylines';
+  /** Agent the step is about, when it points at someone. */
+  agentId?: Id;
+};
+
+export type StoryIntro = {
+  title: string;
+  /** Short paragraphs: the place and the moment. */
+  setting: string[];
+  history: { era: string; text: string }[];
+  /** What is at stake right now, one sentence each. */
+  tensions: string[];
+  keyCharacters: KeyCharacterCard[];
+  /** The colonist the player starts by following. */
+  starterAgentId: Id;
+  tutorial: TutorialStep[];
+};
+
+/** One line of a colonist's inner monologue. */
+export type ThoughtLine = {
+  id: Id;
+  tick: Tick;
+  text: string;
+  mood?: string;
+  source: 'llm' | 'rules';
+};
+
+/** A reason to switch the camera to someone else. */
+export type StoryHook = { agentId: Id; name: string; reason: string; storylineId?: Id };
+
+/** Everything the follow view needs beyond agents:get. Reactive. */
+export type FocusState = {
+  agentId: Id;
+  thoughts: ThoughtLine[]; // newest first
+  hooks: StoryHook[];
+  storylines: StorylinePublic[];
+  /** True while the world is fast-forwarding through the followed colonist's routine. */
+  warping: boolean;
+};
+
+export type AskTurn = { id: Id; tick: Tick; question: string; answer: string };
+
+export type AskResult = { ok: true; turn: AskTurn } | { ok: false; code: 'unauthorized' | 'not_found' | 'dead' | 'rate_limited' | 'unavailable' | 'invalid'; message: string };
 
 export type SyncUpdates = {
   version: number;

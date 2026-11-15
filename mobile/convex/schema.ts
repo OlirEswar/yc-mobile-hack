@@ -64,6 +64,23 @@ export const effectV = v.object({
   eventId: v.optional(v.id('events')),
 });
 
+export const personaV = v.object({
+  epithet: str,
+  want: str,
+  need: str,
+  fear: str,
+  flaw: str,
+  voice: str,
+  /** A true fact about them that others can discover. kind maps to a belief kind (e.g. embezzler, affair, saboteur). */
+  secret: v.optional(v.object({ kind: str, text: str, exposedAtTick: v.optional(num) })),
+  /** Preferred ways to meet needs, most preferred first: work, grow, trade, charm, borrow, beg, scavenge, smuggle, steal, scheme. */
+  strategies: v.array(str),
+  arc: v.object({ stage: str, note: str }),
+  key: v.boolean(),
+  /** For key characters: why the player should care, one sentence. */
+  hook: v.optional(str),
+});
+
 export const llmConfigV = v.object({
   budgetPerDay: num,
   maxConcurrent: num,
@@ -133,6 +150,10 @@ export default defineSchema({
     lastBannerTick: num,
     lastDailyDay: num,
     lastPriceTick: num,
+    /** Set by the story director while the tick loop should fast-forward the followed colonist's routine. */
+    focusWarp: v.optional(v.boolean()),
+    /** The colonist the story introduction starts the player on. */
+    starterAgentId: v.optional(v.id('agents')),
     /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
     sim: v.optional(
       v.object({
@@ -255,6 +276,8 @@ export default defineSchema({
     llmCooldownUntilTick: num,
     thefts: num,
     nextGoalSeq: num,
+    /** The character's story (docs/STORY_SPEC.md 3.1). Absent on worlds seeded before iteration 2. */
+    persona: v.optional(personaV),
   }).index('by_agent', ['agentId']),
 
   relationships: defineTable({
@@ -369,6 +392,47 @@ export default defineSchema({
   })
     .index('by_world_status', ['worldId', 'status', 'priority'])
     .index('by_agent_status', ['agentId', 'status']),
+
+  /** Live and finished storylines (docs/STORY_SPEC.md 4). Seeded at Sol 1 and created by the director. */
+  storylines: defineTable({
+    worldId: v.id('worlds'),
+    /** Stable key for seeded storylines and for deduping emergent ones. */
+    key: str,
+    title: str,
+    premise: str,
+    status: str,
+    tension: num,
+    participantIds: v.array(v.id('agents')),
+    beats: v.array(v.object({ tick: num, text: str, eventId: v.optional(v.id('events')) })),
+    origin: str,
+    createdTick: num,
+    lastBeatTick: num,
+    resolvedTick: v.optional(num),
+    /** Director bookkeeping (what it is waiting for, what it last nudged). */
+    state: v.optional(v.any()),
+  })
+    .index('by_world_status', ['worldId', 'status'])
+    .index('by_world_key', ['worldId', 'key']),
+
+  /** Inner monologue lines (docs/STORY_SPEC.md 5). */
+  thoughts: defineTable({
+    worldId: v.id('worlds'),
+    agentId: v.id('agents'),
+    tick: num,
+    text: str,
+    mood: v.optional(str),
+    source: str,
+  }).index('by_agent_tick', ['agentId', 'tick']),
+
+  /** The player's questions to colonists and their answers. Never read by the simulation. */
+  conversations: defineTable({
+    worldId: v.id('worlds'),
+    sessionId: v.id('sessions'),
+    agentId: v.id('agents'),
+    tick: num,
+    question: str,
+    answer: str,
+  }).index('by_session_agent', ['sessionId', 'agentId']),
 
   sessions: defineTable({
     deviceId: str,

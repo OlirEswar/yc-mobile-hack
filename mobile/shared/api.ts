@@ -7,6 +7,11 @@ import type { Speed } from './colony';
 import type {
   AgentDetail,
   AgentLite,
+  AskResult,
+  AskTurn,
+  FocusState,
+  StoryIntro,
+  StorylinePublic,
   Id,
   InterventionCommand,
   InterventionResult,
@@ -71,6 +76,20 @@ export type ApiContract = {
   };
   /** query. The cause chain through one event: its ancestors from the root, then the event, then its direct effects. */
   'chronicle:chain': { args: { worldId: Id; eventId: Id }; returns: WorldEventPublic[] };
+
+  // ----- story -----
+  /** query. The introduction for this world: setting, history, key characters, starter and tutorial. */
+  'story:intro': { args: { worldId: Id }; returns: StoryIntro | null };
+  /** query. Reactive. Live and recent storylines, highest tension first. With agentId, only theirs. */
+  'story:storylines': { args: { worldId: Id; agentId?: Id }; returns: StorylinePublic[] };
+
+  // ----- follow mode -----
+  /** query. Reactive. Inner monologue, story hooks and storylines of the followed colonist. */
+  'focus:state': { args: { worldId: Id; agentId: Id }; returns: FocusState | null };
+  /** query. Reactive. The player's questions to this colonist and their answers, oldest first. */
+  'focus:conversation': { args: { sessionToken: string; agentId: Id }; returns: AskTurn[] };
+  /** action. Ask the colonist a question. They answer in character; it never changes the world. */
+  'focus:ask': { args: { sessionToken: string; worldId: Id; agentId: Id; question: string }; returns: AskResult };
 
   // ----- billing -----
   /** query. Reactive. True once the Whop payment.succeeded webhook has marked this session premium. */

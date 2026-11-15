@@ -74,6 +74,28 @@ export const STEP_SPECS = {
   mourn: { args: ['agentId'], about: 'Grieve for someone who died.' },
   flee: { args: ['locationId'], about: 'Run to a safer location.' },
   wait: { args: ['ticks'], about: 'Do nothing for a while.' },
+  // ----- iteration 2: ways to get by and ways to make trouble (docs/STORY_SPEC.md 3.2) -----
+  grow: { args: ['ticks'], about: 'Tend a private grow rack at Hydroponics or home. Turns a little water into food over time.' },
+  scavenge: { args: ['locationId'], about: 'Search an exposed surface site for salvage: parts, sometimes something valuable. Risky in storms.' },
+  beg: { args: ['agentId', 'resource'], about: 'Ask someone at the same location for food, water or credits. They decide.' },
+  borrow: { args: ['agentId', 'resource', 'quantity'], about: 'Borrow from someone at the same location. Creates a debt they remember.' },
+  repay: { args: ['agentId'], about: 'Pay back what is owed to someone at the same location.' },
+  barter: { args: ['agentId', 'giveResource', 'giveQuantity', 'wantResource', 'wantQuantity'], about: 'Offer a direct swap of goods with someone at the same location.' },
+  bribe: { args: ['agentId', 'quantity', 'favor'], about: 'Offer credits for a favor: "silence", "vote", "ration" or "look_away".' },
+  blackmail: { args: ['agentId', 'beliefKey'], about: 'Threaten to reveal what a held belief says about someone unless they pay or comply.' },
+  lie: { args: ['agentId', 'subjectId', 'kind'], about: 'Tell someone a made-up story about a third person (kind: thief, hoarding, saboteur, corrupt, affair, coward).' },
+  confide: { args: ['agentId', 'beliefKey?'], about: 'Share a secret or private worry with someone trusted. Deepens the bond; the secret may travel.' },
+  court: { args: ['agentId'], about: 'Flirt with or court someone at the same location.' },
+  comfort: { args: ['agentId'], about: 'Console someone who is grieving, afraid or desperate.' },
+  threaten: { args: ['agentId'], about: 'Intimidate someone at the same location. Raises their fear; may provoke them.' },
+  sabotage: { args: ['locationId'], about: 'Secretly damage equipment at a location. May be witnessed.' },
+  smuggle: { args: ['resource', 'quantity'], about: 'Trade off the books with shuttle crews at the Landing Pad, at better prices and real risk.' },
+  rally: { args: ['topic'], about: 'Gather supporters in the plaza for a cause: "strike", "rations_open", "recall_chair" or "trade".' },
+  strike: { args: ['ticks'], about: 'Refuse to work, publicly, as a protest.' },
+  reconcile: { args: ['agentId'], about: 'Apologise to or make peace with someone at the same location.' },
+  eavesdrop: { args: ['agentId'], about: 'Listen in on someone at the same location to learn what they believe or hide.' },
+  hide: { args: ['resource', 'quantity'], about: 'Stash goods out of sight so others cannot find or take them.' },
+  confess: { args: ['beliefKey'], about: 'Publicly admit to something they did or hid.' },
 } as const;
 export type StepType = keyof typeof STEP_SPECS;
 export type Step = { type: StepType; args: string[] };

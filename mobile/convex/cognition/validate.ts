@@ -226,6 +226,8 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
       if (!who || who.alive) return 'can only mourn the dead';
       return { args: [who.id], label: 'Mourn ' + who.name };
     }
+    default:
+      return 'not supported yet';
   }
 }
 

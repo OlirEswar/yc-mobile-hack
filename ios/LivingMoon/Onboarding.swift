@@ -63,42 +63,64 @@ private struct OnboardingBackdrop: View {
     }
 }
 
-/// A dark glass sphere with a warm, slowly shifting underside and a fine rim highlight.
+/// A real Liquid Glass lens. The moon and two soft lights sit behind it, so the glass bends them at its rim.
 struct Orb: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { timeline in
-            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            let s = Float(sin(t * 0.6)) * 0.06, c = Float(cos(t * 0.45)) * 0.06
-            ZStack {
-                Circle()
-                    .fill(Color.amber.opacity(0.35))
-                    .blur(radius: 70)
-                    .offset(y: 40)
-                Circle()
-                    .fill(MeshGradient(
-                        width: 3, height: 3,
-                        points: [
-                            [0, 0], [0.5, 0], [1, 0],
-                            [0, 0.55 + s], [0.5 + c, 0.52 + c], [1, 0.55 - s],
-                            [0, 1], [0.5 - s, 1], [1, 1],
-                        ],
-                        colors: [
-                            Color(red: 0.13, green: 0.15, blue: 0.26), Color(red: 0.2, green: 0.23, blue: 0.36), Color(red: 0.12, green: 0.14, blue: 0.24),
-                            Color(red: 0.3, green: 0.34, blue: 0.48), Color(red: 0.52, green: 0.55, blue: 0.66), Color(red: 0.28, green: 0.31, blue: 0.45),
-                            Color(red: 0.92, green: 0.48, blue: 0.2), Color(red: 0.06, green: 0.03, blue: 0.04), Color(red: 0.88, green: 0.4, blue: 0.16),
-                        ]))
-                    .overlay(alignment: .top) {
-                        Ellipse()
-                            .fill(LinearGradient(colors: [.white.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
-                            .scaleEffect(x: 0.7, y: 0.32, anchor: .top)
-                            .padding(.top, 4)
-                    }
-                    .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05), Color.amber.opacity(0.5)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+        GeometryReader { geo in
+            let d = min(geo.size.width, geo.size.height)
+            TimelineView(.animation(paused: reduceMotion)) { timeline in
+                let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+                let drift = CGFloat(sin(t * 0.3)) * d * 0.025
+                ZStack {
+                    Circle()
+                        .fill(Color.amber.opacity(0.5))
+                        .frame(width: d * 0.7, height: d * 0.7)
+                        .blur(radius: d * 0.16)
+                        .offset(x: -d * 0.14, y: d * 0.24)
+                    Circle()
+                        .fill(Color.earth.opacity(0.32))
+                        .frame(width: d * 0.5, height: d * 0.5)
+                        .blur(radius: d * 0.14)
+                        .offset(x: -d * 0.2, y: -d * 0.18)
+                    MoonSurface()
+                        .frame(width: d * 0.5, height: d * 0.5)
+                        .opacity(0.55)
+                        .offset(x: d * 0.22 + drift, y: -d * 0.2 - drift * 0.6)
+                    Circle()
+                        .fill(.clear)
+                        .frame(width: d, height: d)
+                        .glassEffect(.clear, in: .circle)
+                        .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.04), Color.amber.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// A lit grey moon with a soft terminator, a few maria and craters.
+private struct MoonSurface: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let w = size.width
+            let disc = Circle().path(in: CGRect(origin: .zero, size: size))
+            ctx.fill(disc, with: .radialGradient(Gradient(colors: [Color(white: 0.95), Color(white: 0.66), Color(white: 0.16)]),
+                                                 center: CGPoint(x: w * 0.36, y: w * 0.32), startRadius: 0, endRadius: w * 0.82))
+            ctx.clip(to: disc)
+            let maria: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [(0.22, 0.3, 0.3, 0.22), (0.5, 0.42, 0.26, 0.2), (0.34, 0.6, 0.2, 0.16)]
+            for (x, y, mw, mh) in maria {
+                ctx.fill(Ellipse().path(in: CGRect(x: w * x, y: w * y, width: w * mw, height: w * mh)), with: .color(.black.opacity(0.1)))
+            }
+            let craters: [(CGFloat, CGFloat, CGFloat)] = [(0.62, 0.22, 0.07), (0.28, 0.72, 0.06), (0.7, 0.62, 0.09), (0.46, 0.84, 0.05), (0.18, 0.5, 0.045)]
+            for (x, y, r) in craters {
+                let rect = CGRect(x: w * (x - r), y: w * (y - r), width: w * r * 2, height: w * r * 2)
+                ctx.fill(Circle().path(in: rect), with: .color(.black.opacity(0.16)))
+                ctx.stroke(Circle().path(in: rect.offsetBy(dx: w * 0.006, dy: w * 0.006)), with: .color(.white.opacity(0.18)), lineWidth: 1)
+            }
+        }
     }
 }
 
@@ -189,6 +211,13 @@ private extension View {
             .fontWeight(.semibold)
     }
 
+    func bodyCopy() -> some View {
+        font(.body)
+            .foregroundStyle(.secondary)
+            .lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// A content surface: standard fill and hairline, no glass (glass is for controls).
     func surface(_ radius: CGFloat = 28) -> some View {
         background(Color.white.opacity(0.05), in: .rect(cornerRadius: radius))
@@ -204,24 +233,23 @@ private struct WelcomeStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
                 DotMatrixText(text: "100", dot: 4, gap: 2)
                 Text("colonists.\nNone of them yours.")
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 28)
             Title(lead: "A hundred lives.\n", accent: "One unseen hand.")
             Text("A moon colony that works, loves and schemes on its own. You only nudge it.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .bodyCopy()
                 .padding(.top, 12)
             Button("Begin", action: next)
                 .primaryAction()
                 .padding(.top, 32)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
     }
 }
 
@@ -264,10 +292,10 @@ private struct TryPowerStep: View {
         VStack(alignment: .leading, spacing: 0) {
             Title(lead: "Try being the\n", accent: "unseen force.")
             Text("Pick a power and watch what happens. Nothing here is saved.")
-                .foregroundStyle(.secondary)
-                .padding(.top, 8)
+                .bodyCopy()
+                .padding(.top, 12)
             colony
-                .padding(.top, 24)
+                .padding(.top, 28)
             Spacer(minLength: 16)
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
@@ -275,9 +303,9 @@ private struct TryPowerStep: View {
                         Button { play(demo) } label: {
                             VStack(spacing: 6) {
                                 Image(systemName: demo.power.symbol).font(.title3)
-                                Text(demo.power.title).font(.caption.weight(.semibold))
+                                Text(demo.power.title).font(.footnote.weight(.semibold))
                             }
-                            .frame(maxWidth: .infinity, minHeight: 64)
+                            .frame(maxWidth: .infinity, minHeight: 72)
                         }
                         .buttonStyle(.glass)
                         .tint(active == demo.power ? (demo.power.believed ? .earth : .amber) : nil)
@@ -285,13 +313,13 @@ private struct TryPowerStep: View {
                     }
                 }
             }
-            Button(active == nil ? "Try a power first" : "Continue", action: next)
+            Button("Continue", action: next)
                 .primaryAction()
-                .disabled(active == nil)
-                .padding(.top, 12)
+                .padding(.top, 16)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Skip", action: next) } }
         .sensoryFeedback(.impact(weight: .light), trigger: shown)
     }
@@ -326,7 +354,7 @@ private struct TryPowerStep: View {
                                 .frame(width: 30, height: 30)
                                 .foregroundStyle(i == 0 ? (demo.power.believed ? Color.earth : .amber) : .secondary)
                                 .background(.white.opacity(0.06), in: .circle)
-                            Text(demo.chain[i].1).font(.subheadline)
+                            Text(demo.chain[i].1).font(.callout)
                             Spacer(minLength: 0)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -335,8 +363,8 @@ private struct TryPowerStep: View {
                 .frame(minHeight: 128, alignment: .top)
             } else {
                 Text("The colony is quiet. For now.")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 128)
             }
         }
@@ -383,6 +411,7 @@ private struct PickPlanStep: View {
                     ForEach(OnboardingView.Plan.allCases, id: \.self) { Text($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.large)
                 hero
                 VStack(spacing: 0) {
                     ForEach(perks.indices, id: \.self) { i in
@@ -397,7 +426,7 @@ private struct PickPlanStep: View {
                                 .monospacedDigit()
                                 .contentTransition(.numericText())
                         }
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 16)
                         if i < perks.count - 1 { Divider().overlay(.white.opacity(0.08)) }
                     }
                 }
@@ -409,25 +438,27 @@ private struct PickPlanStep: View {
                     .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 24)
+            .padding(.top, 8)
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 10) {
+            VStack(spacing: 14) {
                 Button(pass ? "Continue · $4.99" : "Start for free") {
                     if pass { checkout = true } else { next() }
                 }
                 .primaryAction()
-                HStack(spacing: 16) {
+                HStack(spacing: 20) {
                     Button("Restore Purchase") {}
                     Button("Terms") {}
                     Button("Privacy") {}
                 }
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
+            .padding(.top, 8)
             .padding(.bottom, 4)
         }
         .sheet(isPresented: $checkout) {
@@ -450,17 +481,17 @@ private struct PickPlanStep: View {
                     .background(.white.opacity(0.12), in: .capsule)
             }
             Spacer()
-            HStack(alignment: .bottom, spacing: 8) {
-                Text("$").font(.title2.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 8) {
+                Text("$").font(.title.weight(.semibold)).foregroundStyle(.white.opacity(0.75))
                 DotMatrixText(text: pass ? "4.99" : "0", dot: 6, gap: 3)
             }
             Text(pass ? "Deeper minds, bigger colonies, three histories." : "The whole game. A colony of 60.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-                .padding(.top, 12)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.top, 14)
         }
-        .padding(22)
-        .frame(height: 230)
+        .padding(24)
+        .frame(height: 210)
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: 34).fill(Color(white: 0.04))
@@ -557,7 +588,7 @@ private struct SaveStep: View {
             Spacer()
             Title(lead: "Keep your\n", accent: "colony.")
             Text("Sign in to pick up Shackleton on any device. Your colonists keep living while you're away.")
-                .foregroundStyle(.secondary)
+                .bodyCopy()
                 .padding(.top, 12)
             VStack(spacing: 12) {
                 SignInWithAppleButton(.continue) { request in
@@ -578,7 +609,7 @@ private struct SaveStep: View {
             .padding(.top, 32)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Not Now", action: next) } }
     }
 }
@@ -630,14 +661,14 @@ private struct ReadyStep: View {
                 .padding(.vertical, 8)
             }
             .surface()
-            .padding(.top, 24)
+            .padding(.top, 28)
             Button("Enter Shackleton", action: onFinish)
                 .primaryAction()
                 .disabled(!finished)
                 .padding(.top, 24)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
         .navigationBarBackButtonHidden()
         .sensoryFeedback(.success, trigger: finished)
         .task {

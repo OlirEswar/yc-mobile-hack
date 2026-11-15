@@ -1,45 +1,59 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useGame } from '../game/store';
 import { WorldView } from '../render/WorldView';
-import { buyPremium, useGame } from '../game/store';
-import { colors, fonts, space } from './theme';
+import { ChronicleView } from './ChronicleView';
+import { ColonyHud } from './ColonyHud';
+import { CreatorSheet } from './CreatorSheet';
+import { FollowHud } from './FollowHud';
+import { InspectSheet } from './InspectSheet';
+import { PatronSheet } from './PatronSheet';
+import { PeopleView } from './PeopleView';
+import { PickerSheet, PowerLayer } from './PowerSheet';
+import { TabBar } from './TabBar';
+import { Toast } from './Toast';
+import { colors, space } from './theme';
 
+/**
+ * The game shell. The map stays mounted underneath everything; the Colony tab overlays the god-mode
+ * HUD on it, People and Chronicle cover it, and follow mode swaps the HUD for the follow card.
+ * One inspector, one power layer and one patron sheet serve every tab.
+ */
 export function GameScreen() {
-  const world = useGame((s) => s.world);
-  const premium = useGame((s) => s.premium);
-  const checkingOut = useGame((s) => s.checkingOut);
+  const tab = useGame((s) => s.tab);
+  const followId = useGame((s) => s.followAgentId);
+  const selectedId = useGame((s) => s.selectedAgentId);
+  const power = useGame((s) => s.power);
+  const panel = useGame((s) => s.panel);
+  const [tabBarHeight, setTabBarHeight] = useState(0);
+  const [patron, setPatron] = useState(false);
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.root}>
       <WorldView />
-      <View style={styles.debug} pointerEvents="none">
-        <Text style={styles.text}>tick {world?.tick ?? '-'} v{world?.version ?? '-'}</Text>
-      </View>
-      {premium ? (
-        <View style={[styles.pass, styles.passOwned]} pointerEvents="none">
-          <Text style={[styles.passText, { color: colors.gold }]}>Colony Pass</Text>
-        </View>
+      {followId ? (
+        <FollowHud id={followId} />
       ) : (
-        <Pressable style={styles.pass} onPress={buyPremium} disabled={checkingOut}>
-          <Text style={styles.passText}>{checkingOut ? 'Opening checkout…' : 'Unlock Colony Pass · $4.99'}</Text>
-        </Pressable>
+        <>
+          {tab === 'colony' ? <ColonyHud onPatron={() => setPatron(true)} bottomInset={tabBarHeight} /> : null}
+          {tab === 'people' ? <PeopleView bottomInset={tabBarHeight} /> : null}
+          {tab === 'chronicle' ? <ChronicleView bottomInset={tabBarHeight} /> : null}
+          <TabBar onHeight={setTabBarHeight} />
+          {selectedId && !power && panel === 'none' ? <InspectSheet id={selectedId} /> : null}
+        </>
       )}
+      <PowerLayer />
+      {panel === 'creator' ? <CreatorSheet /> : null}
+      <PickerSheet />
+      {patron ? <PatronSheet onClose={() => setPatron(false)} /> : null}
+      {!followId && tab !== 'colony' ? <Toast style={[styles.toast, { top: insets.top + 56 }]} /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.space },
-  debug: { position: 'absolute', top: 60, left: 12 },
-  text: { color: colors.text, fontFamily: fonts.label, fontSize: 12 },
-  pass: {
-    position: 'absolute',
-    top: 56,
-    right: 12,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    backgroundColor: colors.panel,
-    borderWidth: 2,
-    borderColor: colors.accent,
-  },
-  passOwned: { borderColor: colors.gold },
-  passText: { color: colors.accent, fontFamily: fonts.label, fontSize: 12 },
+  toast: { position: 'absolute', left: space.lg, right: space.lg },
 });

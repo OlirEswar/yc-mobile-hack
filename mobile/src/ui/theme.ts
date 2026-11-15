@@ -26,6 +26,10 @@ export const colors = {
   violet: '#b98cff',
   pink: '#ff7ab8',
   gold: '#ffd24a',
+  /** What the player did. */
+  amber: '#fab85c',
+  /** What a colonist merely believes (earthlight). */
+  earth: '#78bdfa',
 } as const;
 
 export const categoryColor: Record<EventCategory, string> = {

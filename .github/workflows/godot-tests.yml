@@ -20,10 +20,14 @@ jobs:
       - name: Install Godot
         run: game/tools/install_godot.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Check art is on palette
         run: |
-          sudo apt-get install -y -qq python3-pil
-          git ls-files 'game/*.png' | xargs python3 art/tools/pixel_cleanup.py check
+          pip install -q pillow
+          git ls-files 'game/assets/*.png' game/icon.png | xargs python3 art/tools/pixel_cleanup.py check
 
       - name: Scenes are up to date with their builders
         run: |

@@ -85,3 +85,37 @@ Rules that keep the merge trivial:
   consequences.
 - LLM planning runs in Convex actions from a bounded, prioritised job queue. Output is
   schema-validated and committed through a mutation, or dropped in favour of rule-based plans.
+
+## Backend engine: who owns what (continuation)
+
+The backend is built on `mobile/convex/engine/core.ts`, which holds the primitives every writer
+shares: the `Tx` (one mutation, one world version), `emitEvent`, `learnBelief`,
+`adjustRelationship`, `setPlan`, `interrupt`, `killAgent`, `enqueueCognition`, and
+`STEP_SPECS`, the table of legal plan steps. Read it before writing backend code.
+
+| Owner | Branch | Owns |
+|---|---|---|
+| Simulation | `capy/lw-sim-engine` | `convex/sim.ts`, `convex/world.ts`, `convex/engine/**` (may add to `core.ts`), `convex/lib/constants.ts` |
+| Powers and read API | `capy/lw-sim-powers` | `convex/interventions.ts`, `convex/sync.ts`, `convex/chronicle.ts`, `convex/powers/**` |
+| LLM cognition | `capy/lw-sim-llm` | `convex/cognition.ts`, `convex/cognition/**` |
+| Art | `capy/lw-art` | `mobile/assets/game/**`, `mobile/tools/art/**`, `shared/mapLayout.ts`, the import in `src/art/index.ts` |
+
+All four start from `capy/lw-sim` and are merged back into it. Backend tests run in memory with
+`npm test` (vitest and convex-test, see `convex/core.test.ts`), so nobody but the integrator
+deploys to the shared Convex dev deployment.
+
+How the three backend parts meet:
+
+- The simulation executes every step in `STEP_SPECS` and decides whether it succeeds. Powers and
+  the LLM never write outcomes; they change conditions (an effect, a belief, a goal, a plan) and the
+  tick engine plays them out.
+- Standing conditions live in `world.activeEffects` (`drought`, `storm`), `world.damage` and
+  `world.stockpiles`. The powers write them; the simulation reads them every tick and ends them.
+  `world.causes[type]` holds the event id of a standing condition so later events can name it as
+  their cause.
+- A rumor or whisper is a belief planted with `learnBelief`. It spreads when the simulation runs a
+  `talk` step whose topic is that belief's key. Goals planted by a whisper carry
+  `source: 'divine'` and a `drive` equal to the preset key.
+- The simulation asks for LLM reasoning with `enqueueCognition` and carries on with rule-based
+  plans. The cognition layer answers by calling `setPlan` (source `llm`) through a mutation, only
+  if the mind's `stateVersion` has not moved since the job was queued.

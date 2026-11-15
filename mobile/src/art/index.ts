@@ -7,7 +7,7 @@
  *   real art:    import { MANIFEST as ART } from '../../assets/game/manifest';
  */
 import type { AssetManifest } from '../../shared/assets';
-import { PLACEHOLDER_MANIFEST as ART } from '../dev/placeholderArt/manifest';
+import { MANIFEST as ART } from '../../assets/game/manifest';
 
 export const MANIFEST: AssetManifest = ART;
 

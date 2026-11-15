@@ -8,7 +8,7 @@ import { clamp, round2 } from '../lib/rng';
 import { lowerFirst, reserveDays } from './conditions';
 import { simState } from './state';
 import { adjustRelationship, enqueueCognition, learnBelief, loadAgent, loadFactions, loadHousehold, loadMind, touchFaction, emitEvent } from './core';
-import type { AgentDoc, AgentId, BeliefDoc, EventId, RelationshipDoc, Tx } from './core';
+import type { AgentDoc, AgentId, BeliefDoc, EventId, MindDoc, RelationshipDoc, Tx } from './core';
 
 /** Belief kinds that accuse a person of something an investigation can settle. */
 export const ACCUSABLE = new Set(['thief', 'hoarding', 'saboteur', 'corrupt', 'suspect', 'untrustworthy', 'smuggler', 'liar', 'briber', 'blackmailer', 'affair']);
@@ -116,10 +116,14 @@ export type SpreadOutcome =
   | { kind: 'doubted'; belief: BeliefDoc }
   | { kind: 'defended'; belief: BeliefDoc };
 
+/** Social status as 0..1 (minds.society.status is 0..100). Strangers to the society layer count as middling. */
+export const statusOf = (mind: MindDoc | null): number => (mind?.society?.status ?? 40) / 100;
+
 /**
  * The speaker passes one belief to the listener. How much the listener takes on depends on their
  * trust in the speaker, their own scepticism, how many retellings the idea has been through, and
- * whether it attacks someone they love (then they defend them instead).
+ * whether it attacks someone they love (then they defend them instead). Word from someone of higher
+ * standing carries further.
  */
 export async function spreadBelief(tx: Tx, speaker: AgentDoc, listener: AgentDoc, belief: BeliefDoc): Promise<SpreadOutcome> {
   const toSpeaker = await tie(tx, listener._id, speaker._id);
@@ -131,7 +135,8 @@ export async function spreadBelief(tx: Tx, speaker: AgentDoc, listener: AgentDoc
     }
   }
   const sceptic = listener.traits.caution * 0.35 + listener.traits.stubbornness * 0.25;
-  let confidence = effectiveConfidence(belief, tx.tick) * (0.35 + 0.65 * trustWeight(toSpeaker)) * (1 - sceptic) * Math.pow(0.93, belief.hops);
+  const standing = statusOf(await loadMind(tx, speaker)) - statusOf(await loadMind(tx, listener));
+  let confidence = effectiveConfidence(belief, tx.tick) * (0.35 + 0.65 * trustWeight(toSpeaker)) * (1 - sceptic) * (1 + standing * 0.5) * Math.pow(0.93, belief.hops);
   if (belief.subjectAgentId && belief.valence < 0) {
     const cleared = await getBelief(tx, listener._id, 'innocent:' + belief.subjectAgentId);
     if (cleared && cleared.confidence > 0.4) confidence *= 0.3;

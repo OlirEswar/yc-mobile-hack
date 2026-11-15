@@ -4,11 +4,10 @@
  * the society layer, read only here) that makes some voices carry further.
  */
 import { agentsAt, loadAgent, loadMind } from './core';
-import type { AgentDoc, AgentId, MindDoc, RelationshipDoc, Tx } from './core';
-import { presentWith, tie } from './social';
+import type { AgentDoc, AgentId, RelationshipDoc, Tx } from './core';
+import { presentWith, statusOf, tie } from './social';
 
-/** Social status as 0..1 (minds.society.status is 0..100). Strangers to the society layer count as middling. */
-export const statusOf = (mind: MindDoc | null): number => (mind?.society?.status ?? 40) / 100;
+export { statusOf };
 
 /** The named person if present, or for "any" (or no id) the best match present by score. */
 export async function partyFor(tx: Tx, a: AgentDoc, who: string | undefined, score: (b: AgentDoc, r: RelationshipDoc | null) => number = () => 0): Promise<AgentDoc | null> {

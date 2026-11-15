@@ -7,7 +7,9 @@ import schema from './schema';
 import { blockedRoutes } from './engine/conditions';
 import { beginTx, commitTx, encodeStep, loadAgent, setPlan } from './engine/core';
 import { agentBySeq, plantRumor, runTicks, startEffect } from './engine/devtools';
+import { cadence, warpCadence } from './engine/loop';
 import { advance } from './engine/step';
+import { WARP_MAX_TICKS, WARP_STEP_BUDGET } from './lib/constants';
 import { modules } from './test.setup';
 
 const DAY = 144;
@@ -246,6 +248,29 @@ describe('simulation', () => {
     console.log('three-tick invocation, worst of 8:', worst, 'average reads', Math.round(samples.reduce((s, x) => s + x.reads, 0) / samples.length));
     expect(worst.reads).toBeLessThan(4000);
     expect(worst.writes).toBeLessThan(1500);
+  }, 600_000);
+
+  test('a focus-warp invocation runs more ticks within the step budget and stays affordable', async () => {
+    expect(warpCadence(1).ticks).toBeGreaterThan(cadence(1).ticks);
+    expect(warpCadence(16).ticks).toBe(WARP_MAX_TICKS);
+    const { t, worldId } = await colony('device-warp');
+    await runHours(t, worldId, 4);
+    const samples: { reads: number; writes: number; ticks: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      samples.push(
+        await t.run(async (raw) => {
+          const { ctx, stats } = counting(raw);
+          const tx = beginTx(ctx, (await ctx.db.get(worldId))!);
+          const { ticks } = await advance(tx, WARP_MAX_TICKS, { stepBudget: WARP_STEP_BUDGET });
+          await commitTx(tx);
+          return { ...stats, ticks };
+        }),
+      );
+    }
+    console.log('focus-warp invocation:', samples);
+    expect(samples.every((s) => s.ticks >= 1 && s.ticks <= WARP_MAX_TICKS)).toBe(true);
+    expect(Math.max(...samples.map((s) => s.reads))).toBeLessThan(12000);
+    expect(Math.max(...samples.map((s) => s.writes))).toBeLessThan(4000);
   }, 600_000);
 });
 

@@ -44,7 +44,7 @@ export async function bribe(tx: Tx, a: AgentDoc, who: string | undefined, qtyArg
   const greed = (1 - b.traits.empathy) * 0.35 + bm.values.wealth * 0.4 + b.traits.ambition * 0.15;
   const scruple = bm.values.harmony * 0.25 + (b.occupation === 'security' ? 0.15 : 0) + b.traits.caution * 0.1;
   const tempting = Math.min(0.5, n / (b.inv.credits + 30));
-  const takes = greed + tempting + (toA?.affinity ?? 0) * 0.15 - scruple + (rand(tx.world.seed, tx.tick, b.seq, 'greed') - 0.5) * 0.35 > 0.35;
+  const takes = greed + tempting + (toA?.affinity ?? 0) * 0.15 + (statusOf(am) - statusOf(bm)) * 0.2 - scruple + (rand(tx.world.seed, tx.tick, b.seq, 'greed') - 0.5) * 0.35 > 0.35;
   act(tx, a, 'talking', 'Pressing ' + n + ' credits into ' + b.name + "'s hand", b._id, line('bribe.offer', r, { you: b.name, n }));
   addDeed(am, 'briber');
   touchMind(tx, am);

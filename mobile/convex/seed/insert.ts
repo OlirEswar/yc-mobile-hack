@@ -148,6 +148,7 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
       lastLevyDay: 0,
       markup: a.markup,
       failStreak: 0,
+      memo: {},
     });
     agentIds.push(id);
     loc += locChar(a.home);

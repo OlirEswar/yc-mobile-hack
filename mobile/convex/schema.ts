@@ -162,6 +162,9 @@ export default defineSchema({
     pantry: v.object({ food: num, water: num }),
     rationDue: v.object({ food: num, water: num }),
     rationDay: num,
+    /** A member is already on the way to collect rations or shop until this tick. */
+    claimUntilTick: v.optional(num),
+    lastEmptyDay: v.optional(num),
     /** Set when someone took from the pantry unseen, until a member notices. */
     missing: v.optional(v.object({ food: num, water: num, eventId: v.id('events') })),
   }).index('by_world', ['worldId']),
@@ -212,6 +215,9 @@ export default defineSchema({
     lastLevyDay: num,
     markup: v.optional(num),
     failStreak: num,
+    moodUntilTick: v.optional(num),
+    /** Small per-agent timers and counters (last theft tick, last ask tick and so on). */
+    memo: v.record(str, num),
   })
     .index('by_world_seq', ['worldId', 'seq'])
     .index('by_world_due', ['worldId', 'dueTick'])

@@ -5,7 +5,7 @@
 import type { Id } from '../_generated/dataModel';
 import { PANTRY_DAYS, RATIONS } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
-import { reserveDays } from './conditions';
+import { lowerFirst, reserveDays } from './conditions';
 import { simState } from './state';
 import { adjustRelationship, enqueueCognition, learnBelief, loadAgent, loadFactions, loadHousehold, loadMind, touchFaction, emitEvent } from './core';
 import type { AgentDoc, AgentId, BeliefDoc, EventId, RelationshipDoc, Tx } from './core';
@@ -88,7 +88,7 @@ export async function truthAbout(tx: Tx, kind: string, subject: AgentDoc): Promi
   const mind = await loadMind(tx, subject);
   const secret = mind?.persona?.secret;
   if (secret && secret.kind === kind) {
-    return secret.exposedAtTick !== undefined ? { truth: true, detail: 'it is already common knowledge', settled: true } : { truth: true, detail: secret.text.charAt(0).toLowerCase() + secret.text.slice(1).replace(/\.$/, '') };
+    return secret.exposedAtTick !== undefined ? { truth: true, detail: 'it is already common knowledge', settled: true } : { truth: true, detail: lowerFirst(secret.text, subject.name).replace(/\.$/, '') };
   }
   const deeds = mind?.ledger?.deeds[kind] ?? 0;
   if (DEED_DETAIL[kind]) return deeds > 0 ? { truth: true, detail: DEED_DETAIL[kind](deeds) } : { truth: false, detail: 'nothing to show they ever did' };

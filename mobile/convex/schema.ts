@@ -95,6 +95,8 @@ export const ledgerV = v.object({
   deeds: v.record(str, num),
   /** Favours bought from this colonist with a bribe or extorted by blackmail. */
   favors: v.array(v.object({ forId: v.id('agents'), kind: str, until: num })),
+  /** Tick until which the planner will not try a move again, by key (e.g. "bribe:<agentId>"), so a refusal is not repeated every tick. */
+  cooldowns: v.optional(v.record(str, num)),
 });
 
 export const llmConfigV = v.object({

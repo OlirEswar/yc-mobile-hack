@@ -13,7 +13,6 @@ import { repay } from './livelihood';
 import { statusOf } from './people';
 import { learnSecret, secretOf } from './secrets';
 import { beliefsOf, getBelief, presentWith, tie } from './social';
-import { simState } from './state';
 import { line } from './text';
 
 const TROUBLED = new Set(['grieving', 'afraid', 'shaken', 'humiliated', 'betrayed', 'parched', 'starving', 'ailing', 'lonely', 'anxious', 'sombre']);
@@ -94,7 +93,7 @@ export async function court(tx: Tx, a: AgentDoc, who: string | undefined): Promi
   const bPartners = (await partnersOf(tx, b._id)).filter((id) => id !== a._id);
   const r = roll(tx, a, 'court');
   const charm = ((am.skills.persuasion ?? 40) / 100) * 0.2 + statusOf(am) * 0.1;
-  const taken = bPartners.length > 0 ? 0.35 - (1 - bm.values.harmony) * 0.2 - (1 - b.traits.caution) * 0.1 : 0;
+  const taken = bPartners.length > 0 ? 0.5 - (1 - bm.values.harmony) * 0.3 - (1 - b.traits.caution) * 0.1 : 0;
   const warmth = (ba?.affinity ?? 0) * 0.6 + b.traits.sociability * 0.15 + charm + rand(tx.world.seed, tx.tick, b.seq, 'spark') * 0.35 - taken + (already ? 0.4 : 0);
   act(tx, a, 'talking', (already ? 'Spending time with ' : 'Flirting with ') + b.name + ' at ' + locName(a.locationId), b._id, line('court.flirt', r, { you: b.name }));
   a.needs.social = Math.max(0, a.needs.social - 30);
@@ -123,7 +122,10 @@ export async function court(tx: Tx, a: AgentDoc, who: string | undefined): Promi
     await emitEvent(tx, { category: 'social', eventType: 'courtship', actorId: a._id, participantIds: [b._id], locationId: a.locationId, summary: a.name + ' and ' + b.name + ' stole an hour together at ' + locName(a.locationId) + '.', salience: 0.2 });
     return 2;
   }
-  if (fromA.affinity < 0.55 || fromB.affinity < 0.5) {
+  // Courtship builds over several meetings before it becomes a romance.
+  const admirer = await learnBelief(tx, b, { kind: 'admirer', text: a.name + ' has been courting ' + b.name + '.', valence: 0.3, confidence: 0.35, sourceType: 'observed', subjectAgentId: a._id, subjectName: a.name, private: true });
+  const smitten = (await getBelief(tx, b._id, admirer.key))?.confidence ?? 0;
+  if (fromA.affinity < 0.5 || fromB.affinity < 0.45 || smitten < 0.65) {
     await emitEvent(tx, { category: 'social', eventType: 'courtship', actorId: a._id, participantIds: [b._id], locationId: a.locationId, summary: a.name + ' has been finding reasons to be wherever ' + b.name + ' is, and ' + firstName(b.name) + ' does not seem to mind.', salience: 0.3, witnesses });
     return 2;
   }
@@ -154,7 +156,7 @@ export async function court(tx: Tx, a: AgentDoc, who: string | undefined): Promi
   for (const id of witnesses) {
     const w = await loadAgent(tx, id);
     const toB = w ? await tie(tx, w._id, b._id) : null;
-    if (w && toB && toB.affinity >= 0.5 && toB.kind !== 'family' && w.traits.stubbornness > 0.4) await jealousy(tx, w, b, a, eventId);
+    if (w && toB && toB.affinity >= 0.65 && toB.kind !== 'family' && w.traits.stubbornness > 0.5 && (await partnersOf(tx, w._id)).length === 0) await jealousy(tx, w, b, a, eventId);
   }
   return 2;
 }
@@ -232,7 +234,6 @@ export async function threaten(tx: Tx, a: AgentDoc, who: string | undefined): Pr
   const menace = a.traits.ambition * 0.3 + (1 - a.traits.empathy) * 0.2 + statusOf(am) * 0.2;
   const grit = b.traits.stubbornness * 0.5 + (1 - b.traits.caution) * 0.3 + rand(tx.world.seed, tx.tick, b.seq, 'grit') * 0.3;
   const witnesses = (await agentsAt(tx, a.locationId, { exclude: [a._id, b._id] })).slice(0, 8);
-  const sim = await simState(tx);
   if (grit > menace + 0.35) {
     say(tx, b, a._id, line('threaten.defiant', r, { you: a.name }));
     const hurtA = Math.round(8 + rand(tx.world.seed, tx.tick, b.seq, 'blow') * 15);
@@ -255,7 +256,6 @@ export async function threaten(tx: Tx, a: AgentDoc, who: string | undefined): Pr
       visibility: 'public',
       witnesses,
     });
-    sim.cases.push({ eventId, suspectId: a._id, locationId: a.locationId, tick: tx.tick });
     for (const id of witnesses.slice(0, 4)) {
       const w = await loadAgent(tx, id);
       if (w) await learnBelief(tx, w, { kind: 'untrustworthy', text: a.name + ' starts fights.', valence: -0.8, confidence: 0.7, sourceType: 'observed', subjectAgentId: a._id, subjectName: a.name, originEventId: eventId, truthEventId: eventId });
@@ -267,7 +267,7 @@ export async function threaten(tx: Tx, a: AgentDoc, who: string | undefined): Pr
   b.needs.safety = Math.min(100, b.needs.safety + 35);
   touch(tx, b);
   await adjustRelationship(tx, b, a, { fear: 0.35, affinity: -0.25, trust: -0.2 });
-  const { eventId } = await emitEvent(tx, {
+  await emitEvent(tx, {
     category: 'social',
     eventType: 'threat',
     actorId: a._id,
@@ -286,8 +286,6 @@ export async function threaten(tx: Tx, a: AgentDoc, who: string | undefined): Pr
     await repay(tx, b, a._id);
     act(tx, a, 'talking', 'Leaning on ' + b.name, b._id, line(context, r, { you: b.name, res: owed.res }));
   }
-  // The cautious and the decent take a threat to security.
-  if (b.traits.caution > 0.6 && (bm?.values.harmony ?? 0) > 0.5) sim.cases.push({ eventId, suspectId: a._id, locationId: a.locationId, tick: tx.tick });
   return 2;
 }
 

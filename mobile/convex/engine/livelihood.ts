@@ -5,7 +5,7 @@
  */
 import { LOCATIONS } from '../../shared/colony';
 import { BASE_PRICES } from '../lib/constants';
-import { clamp, pick, rand, round1, round2 } from '../lib/rng';
+import { pick, rand, round1, round2 } from '../lib/rng';
 import { FAILED, act, fail, isRes, isTraded, roll, say, units } from './act';
 import type { Res } from './act';
 import { droughtSeverity, firstName, isLocation, locName, scarcityCause, stormAt } from './conditions';
@@ -14,7 +14,6 @@ import type { AgentDoc, Tx } from './core';
 import { addDebt, addDeed, debtsTo, ledgerOf } from './ledger';
 import { partyFor } from './people';
 import { getBelief, tie } from './social';
-import { simState } from './state';
 import { line } from './text';
 
 const value = (tx: Tx, res: Res): number => (res === 'credits' ? 1 : tx.world.prices[res]);
@@ -77,7 +76,7 @@ export async function scavengeStart(tx: Tx, a: AgentDoc, loc: string): Promise<n
 
 export async function scavengeDone(tx: Tx, a: AgentDoc, loc: string): Promise<void> {
   const storm = stormAt(tx.world, loc);
-  const risk = 0.04 + storm * 0.5 + (1 - a.traits.caution) * 0.04 + (tx.world.damage[loc] ?? 0) * 0.1;
+  const risk = 0.02 + storm * 0.5 + (1 - a.traits.caution) * 0.04 + (tx.world.damage[loc] ?? 0) * 0.1;
   if (roll(tx, a, 'scav-hurt') < risk) {
     const hurt = Math.round(15 + roll(tx, a, 'scav-wound') * 20 + storm * 30);
     a.health = Math.max(0, a.health - hurt);
@@ -101,7 +100,7 @@ export async function scavengeDone(tx: Tx, a: AgentDoc, loc: string): Promise<vo
     return;
   }
   const r = roll(tx, a, 'scav-find');
-  if (r < 0.04 + a.traits.curiosity * 0.03) {
+  if (r < 0.01 + a.traits.curiosity * 0.015) {
     const find = FINDS[Math.floor(roll(tx, a, 'scav-which') * FINDS.length)];
     a.inv.parts += find.parts;
     a.inv.medicine += find.medicine;
@@ -421,7 +420,6 @@ export async function smuggle(tx: Tx, a: AgentDoc, resArg: string | undefined, q
       originEventId: eventId,
       truthEventId: eventId,
     });
-    if (w.occupation === 'security') (await simState(tx)).cases.push({ eventId, suspectId: a._id, locationId: 'landing_pad', tick: tx.tick });
   }
   return 2;
 }

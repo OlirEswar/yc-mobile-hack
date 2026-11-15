@@ -54,6 +54,7 @@ export async function rally(tx: Tx, a: AgentDoc, topicArg: string | undefined): 
   sim.rallies = (sim.rallies ?? []).filter((x) => tx.tick - x.tick < TICKS_PER_DAY);
   if (sim.strike && topic === 'strike') return fail(tx, a, 'The crews are already out on strike');
   let cause = sim.rallies.find((x) => x.topic === topic);
+  if (cause && cause.supporters.length >= RALLY_QUORUM) return fail(tx, a, 'The plaza already forced the issue today');
   const r = roll(tx, a, 'rally');
   act(tx, a, 'talking', 'Rallying the plaza for ' + CAUSE[topic], undefined, line('rally.call', r));
   const joined: AgentDoc[] = [];
@@ -90,7 +91,6 @@ export async function rally(tx: Tx, a: AgentDoc, topicArg: string | undefined): 
   }
   cause.supporters.push(...joined.map((w) => w._id));
   if (cause.supporters.length >= RALLY_QUORUM) {
-    sim.rallies = sim.rallies.filter((x) => x !== cause);
     const organizer = (await loadAgent(tx, cause.organizerId)) ?? a;
     await quorum(tx, organizer, topic, cause.supporters.length, fresh ? eventId : cause.eventId);
   }

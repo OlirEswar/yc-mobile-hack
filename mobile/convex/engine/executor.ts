@@ -42,7 +42,7 @@ import {
   touchHousehold,
   touchMind,
 } from './core';
-import type { AgentDoc, AgentId, EventId, HouseholdDoc, Tx } from './core';
+import type { AgentDoc, EventId, HouseholdDoc, Tx } from './core';
 import { simState } from './state';
 import {
   getBelief,
@@ -61,7 +61,7 @@ import { accuseLine, beliefLine, denyLine, reply, smallTalk, workLabel } from '.
 import { comfort, confide, court, reconcile, threaten } from './bonds';
 import { rally, strikeStart } from './collective';
 import { blackmail, bribe, confess, eavesdrop, lie, sabotage, unmaskLiar } from './intrigue';
-import { deedCount, owesFavor, settleStrategy, stashTotal } from './ledger';
+import { owesFavor, settleStrategy, stashTotal } from './ledger';
 import { barter, beg, borrow, fromStash, growDone, growStart, hide, repay, scavengeDone, scavengeStart, smuggle } from './livelihood';
 import { exposeSecret } from './secrets';
 
@@ -869,6 +869,7 @@ async function steal(tx: Tx, a: AgentDoc, target: string, res: string, qty: numb
     act(tx, a, 'stealing', 'Caught reaching into ' + where, guard._id, 'I was only looking!');
     say(tx, guard, a._id, 'Put it back, ' + firstName(a.name) + '. Now.');
     a.mood = 'humiliated';
+    if (mind) settleStrategy(tx, mind, false);
     const { eventId } = await emitEvent(tx, {
       category: 'social',
       eventType: 'theft_foiled',
@@ -1048,7 +1049,19 @@ async function investigateDone(tx: Tx, a: AgentDoc, who: string): Promise<void> 
 }
 
 const kindPhrase = (kind: string): string =>
-  ({ thief: 'has been stealing', hoarding: 'is hoarding supplies', saboteur: 'sabotaged the drills', corrupt: 'is skimming credits', suspect: 'had a hand in the death', untrustworthy: 'cannot be trusted' })[kind] ?? 'is what people say';
+  ({
+    thief: 'has been stealing',
+    hoarding: 'is hoarding supplies',
+    saboteur: 'sabotaged equipment',
+    corrupt: 'takes bribes',
+    suspect: 'had a hand in the death',
+    untrustworthy: 'cannot be trusted',
+    smuggler: 'trades off the books',
+    liar: 'spreads lies',
+    briber: 'buys people off',
+    blackmailer: 'blackmails people',
+    affair: 'is having an affair',
+  })[kind] ?? 'is hiding something';
 
 async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined): Promise<number> {
   const b = await presentWith(tx, a, who);

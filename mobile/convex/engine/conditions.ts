@@ -10,6 +10,8 @@ import type { AgentDoc, EventId, Tx, WorldDoc } from './core';
 export const isLocation = (id: string): id is LocationId => (LOCATION_IDS as readonly string[]).includes(id);
 export const locName = (id: string): string => (isLocation(id) ? LOCATIONS[id].name : id);
 export const firstName = (name: string): string => name.split(' ')[0];
+/** Lower-cases the first letter so a sentence can continue into it, unless it starts with a name. */
+export const lowerFirst = (text: string, name: string): string => (text.startsWith(firstName(name)) || /^[A-Z][a-z]+ [A-Z]/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1));
 
 /** Ticks since the agent's personal day began: 0 is waking time, 96 bedtime. */
 export function personalTick(a: AgentDoc, tick: number): number {

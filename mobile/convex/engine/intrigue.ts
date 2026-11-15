@@ -5,7 +5,7 @@
  */
 import { clamp, pick, rand, round2 } from '../lib/rng';
 import { FAILED, act, fail, int, roll, say, units } from './act';
-import { firstName, isLocation, locName, stormAt } from './conditions';
+import { firstName, isLocation, locName, lowerFirst, stormAt } from './conditions';
 import { adjustRelationship, agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, learnBelief, loadAgent, loadMind, touch, touchMind } from './core';
 import type { AgentDoc, BeliefDoc, EventId, Tx } from './core';
 import { addDeed, deedCount, grantFavor, ledgerOf } from './ledger';
@@ -95,7 +95,8 @@ export async function bribe(tx: Tx, a: AgentDoc, who: string | undefined, qtyArg
     visibility: 'private',
   });
   // Whoever paid now holds something over whoever took it.
-  await learnBelief(tx, a, { kind: 'corrupt', text: b.name + ' took ' + n + ' credits from ' + a.name + ' ' + FAVOR_WORDS[favor] + '.', valence: -0.4, confidence: 1, sourceType: 'observed', subjectAgentId: b._id, subjectName: b.name, originEventId: eventId, truthEventId: eventId, private: true });
+  const held = await learnBelief(tx, a, { kind: 'corrupt', text: b.name + ' took ' + n + ' credits from ' + a.name + ' ' + FAVOR_WORDS[favor] + '.', valence: -0.4, confidence: 1, sourceType: 'observed', subjectAgentId: b._id, subjectName: b.name, originEventId: eventId, truthEventId: eventId, private: true });
+  await tx.ctx.db.patch(held.beliefId, { acted: tx.tick });
   return 1;
 }
 
@@ -141,6 +142,7 @@ export async function blackmail(tx: Tx, a: AgentDoc, who: string | undefined, ke
   else if (nerve + noise > stakes + 0.15) outcome = 'refuse';
   else outcome = demand >= 5 ? 'pay' : 'comply';
   const what = belief.text.replace(/\.$/, '');
+  const that = lowerFirst(what, b.name);
   let summary: string;
   if (outcome === 'pay' || outcome === 'comply') {
     if (outcome === 'pay') {
@@ -160,12 +162,12 @@ export async function blackmail(tx: Tx, a: AgentDoc, who: string | undefined, ke
     say(tx, b, a._id, line('blackmail.pay', r, { you: a.name }));
     b.mood = 'afraid';
     await adjustRelationship(tx, b, a, { affinity: -0.4, trust: -0.4, fear: 0.4 });
-    summary = outcome === 'pay' ? a.name + ' made ' + b.name + ' pay ' + demand + ' credits to keep quiet about it: "' + what + '"' : b.name + ', with no credits to give, agreed to do ' + a.name + "'s bidding rather than have it come out that " + what.charAt(0).toLowerCase() + what.slice(1) + '.';
+    summary = outcome === 'pay' ? a.name + ' made ' + b.name + ' pay ' + demand + ' credits to keep quiet about it: "' + what + '"' : b.name + ', with no credits to give, agreed to do ' + a.name + "'s bidding rather than have it come out that " + that + '.';
   } else if (outcome === 'refuse') {
     say(tx, b, a._id, line('blackmail.refuse', r, { you: a.name }));
     b.mood = 'angry';
     await adjustRelationship(tx, b, a, { affinity: -0.5, trust: -0.5 });
-    summary = b.name + ' told ' + a.name + ' to do their worst when ' + firstName(a.name) + ' threatened to tell everyone that ' + what.charAt(0).toLowerCase() + what.slice(1) + '.';
+    summary = b.name + ' told ' + a.name + ' to do their worst when ' + firstName(a.name) + ' threatened to tell everyone that ' + that + '.';
     // A refused blackmailer either backs down or makes good on the threat.
     if (a.traits.stubbornness + a.traits.ambition * 0.5 > 0.7) a.q = [encodeStep('accuse', b._id, belief.key), ...a.q].slice(0, 24);
   } else {
@@ -269,7 +271,7 @@ export async function eavesdrop(tx: Tx, a: AgentDoc, who: string | undefined): P
   let eventId: EventId | undefined;
   if (roll(tx, a, 'overhear') < odds) {
     const secret = await secretOf(tx, b);
-    if (secret && roll(tx, a, 'secret') < 0.55) {
+    if (secret && !(await getBelief(tx, a._id, secret.kind + ':' + b._id)) && roll(tx, a, 'secret') < 0.55) {
       ({ eventId } = await emitEvent(tx, {
         category: 'social',
         eventType: 'secret_overheard',
@@ -357,8 +359,6 @@ export async function sabotage(tx: Tx, a: AgentDoc, loc: string | undefined): Pr
     causationEventId: eventId,
     visibility: 'public',
   });
-  const sim = await simState(tx);
-  sim.cases.push({ eventId, suspectId: seen.length ? a._id : undefined, locationId: loc, tick: tx.tick });
   for (const w of seen) {
     const learned = await learnBelief(tx, w, { kind: 'saboteur', text: a.name + ' wrecked equipment at ' + locName(loc) + ' on purpose.', valence: -1, confidence: 0.9, sourceType: 'observed', subjectAgentId: a._id, subjectName: a.name, originEventId: eventId, truthEventId: eventId });
     await adjustRelationship(tx, w, a, { trust: -0.4, affinity: -0.25 });
@@ -390,7 +390,7 @@ export async function confess(tx: Tx, a: AgentDoc, key: string | undefined): Pro
     actorId: a._id,
     participantIds: witnesses,
     locationId: a.locationId,
-    summary: a.name + ' stood up at ' + locName(a.locationId) + ' and confessed: ' + what.charAt(0).toLowerCase() + what.slice(1),
+    summary: a.name + ' stood up at ' + locName(a.locationId) + ' and confessed: ' + lowerFirst(what, a.name),
     salience: 0.75,
     visibility: 'public',
   });

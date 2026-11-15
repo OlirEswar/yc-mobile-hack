@@ -73,6 +73,15 @@ export function grantFavor(tx: Tx, mind: MindDoc, forId: AgentId, kind: string, 
 export const owesFavor = (mind: MindDoc | null, forId: string, kind: string, tick: number): boolean =>
   !!mind?.ledger?.favors.some((f) => f.forId === forId && f.kind === kind && f.until > tick);
 
+/** Holds off a move (keyed by kind and target) for a while. Expired keys are dropped as new ones arrive. */
+export function cool(tx: Tx, mind: MindDoc, key: string, ticks: number): void {
+  const ledger = ledgerOf(mind);
+  const live = Object.entries(ledger.cooldowns ?? {}).filter(([, until]) => until > tx.tick);
+  ledger.cooldowns = Object.fromEntries([...live, [key, tx.tick + ticks]]);
+}
+
+export const cooling = (mind: MindDoc, key: string, tick: number): boolean => (mind.ledger?.cooldowns?.[key] ?? 0) > tick;
+
 export const stashTotal = (mind: MindDoc | null): number => {
   const s = mind?.ledger?.stash;
   return s ? s.food + s.water + s.parts + s.medicine + s.credits : 0;

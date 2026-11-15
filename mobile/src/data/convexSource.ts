@@ -25,6 +25,8 @@ const fn = {
   feed: query('chronicle:feed'),
   chain: query('chronicle:chain'),
   apply: mutation('interventions:apply'),
+  billingStatus: query('billing:status'),
+  createCheckout: makeFunctionReference<'action', ApiContract['billing:createCheckout']['args'], ApiContract['billing:createCheckout']['returns']>('billing:createCheckout'),
 };
 
 export function createConvexSource(url: string): WorldSource {
@@ -102,6 +104,13 @@ export function createConvexSource(url: string): WorldSource {
     },
     chain(eventId) {
       return client.query(fn.chain, { worldId, eventId });
+    },
+    subscribePremium(onPremium) {
+      return watch(() => client.watchQuery(fn.billingStatus, { sessionToken }), (status) => onPremium(status.premium));
+    },
+    async createCheckout() {
+      const { purchaseUrl } = await client.action(fn.createCheckout, { sessionToken });
+      return purchaseUrl;
     },
     apply(intervention, commandId) {
       return client.mutation(fn.apply, { ...intervention, commandId, worldId, sessionToken });

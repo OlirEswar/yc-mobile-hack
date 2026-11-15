@@ -46,6 +46,10 @@ export interface WorldSource {
   feed(args: FeedArgs): Promise<WorldEventPublic[]>;
   /** chronicle:chain */
   chain(eventId: Id): Promise<WorldEventPublic[]>;
+  /** billing:status, reactive. */
+  subscribePremium(onPremium: (premium: boolean) => void): Unsubscribe;
+  /** billing:createCheckout. Returns the Whop checkout URL. */
+  createCheckout(): Promise<string>;
   /** interventions:apply. The caller supplies the commandId so a retry is idempotent. */
   apply(intervention: Intervention, commandId: string): Promise<InterventionResult>;
   dispose(): void;

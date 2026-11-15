@@ -632,6 +632,13 @@ export function createMockSource(): WorldSource {
       notify();
       return result;
     },
+    subscribePremium(onPremium) {
+      onPremium(false);
+      return () => {};
+    },
+    async createCheckout() {
+      throw new Error('Checkout needs the live Convex backend');
+    },
     dispose() {
       if (timer) clearTimeout(timer);
       worldListeners.clear();

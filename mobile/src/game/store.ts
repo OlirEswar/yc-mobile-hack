@@ -6,6 +6,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
@@ -42,6 +43,9 @@ export type GameState = {
   phase: 'loading' | 'ready' | 'error';
   loadError?: string;
   sourceKind: 'mock' | 'convex';
+  /** Bought the Colony Pass through Whop. Kept current by billing:status. */
+  premium: boolean;
+  checkingOut: boolean;
   world: WorldPublic | null;
   /** Bumps whenever any colonist record changes. Read colonists with getAgent / listAgents. */
   agentsRev: number;
@@ -68,6 +72,8 @@ export type GameState = {
 let state: GameState = {
   phase: 'loading',
   sourceKind: 'mock',
+  premium: false,
+  checkingOut: false,
   world: null,
   agentsRev: 0,
   eventsRev: 0,
@@ -119,6 +125,7 @@ let nextLocalId = 1;
 let savedPose: CameraPose | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let unsubscribeWorld: (() => void) | undefined;
+let unsubscribePremium: (() => void) | undefined;
 let pendingCommand: { intervention: Intervention; commandId: string } | null = null;
 
 export const getAgent = (id: Id | null | undefined): AgentLite | undefined => (id ? agents.get(id) : undefined);
@@ -341,6 +348,7 @@ export async function boot() {
   set({ phase: 'loading', loadError: undefined });
   try {
     unsubscribeWorld?.();
+    unsubscribePremium?.();
     source?.dispose();
     agents.clear();
     slots.length = 0;
@@ -359,11 +367,25 @@ export async function boot() {
     const recent = await source.feed({ limit: 60, minSalience: 0 });
     mergeEvents([...recent].reverse(), false);
     unsubscribeWorld = source.subscribeWorld(onWorld, (error) => apiError('world:get', error));
+    unsubscribePremium = source.subscribePremium((premium) => set({ premium }));
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(beat, 15000);
     set({ phase: 'ready' });
   } catch (error) {
     set({ phase: 'error', loadError: apiError('bootstrap', error) });
+  }
+}
+
+/** Opens a Whop checkout for the Colony Pass. The webhook flips `premium` once payment succeeds. */
+export async function buyPremium() {
+  if (!source || state.premium || state.checkingOut) return;
+  set({ checkingOut: true });
+  try {
+    await WebBrowser.openBrowserAsync(await source.createCheckout());
+  } catch (error) {
+    showToast('error', apiError('billing:createCheckout', error));
+  } finally {
+    set({ checkingOut: false });
   }
 }
 

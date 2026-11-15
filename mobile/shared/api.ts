@@ -72,6 +72,12 @@ export type ApiContract = {
   /** query. The cause chain through one event: its ancestors from the root, then the event, then its direct effects. */
   'chronicle:chain': { args: { worldId: Id; eventId: Id }; returns: WorldEventPublic[] };
 
+  // ----- billing -----
+  /** query. Reactive. True once the Whop payment.succeeded webhook has marked this session premium. */
+  'billing:status': { args: { sessionToken: string }; returns: { premium: boolean } };
+  /** action. Creates a Whop checkout tagged with this session and returns the hosted checkout URL. */
+  'billing:createCheckout': { args: { sessionToken: string }; returns: { purchaseUrl: string } };
+
   // ----- god powers -----
   /** mutation. Validated and idempotent on commandId. */
   'interventions:apply': { args: InterventionCommand; returns: InterventionResult };

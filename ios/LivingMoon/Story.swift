@@ -473,6 +473,7 @@ struct StorylineDetail: View {
                 Section("Chapters") { BeatTimeline(beats: s.beats.reversed()) }
             }
             .navigationTitle(s.title)
+            .navigationBarTitleDisplayMode(.inline)
         } else {
             ContentUnavailableView("This storyline has ended", systemImage: "book.closed")
         }

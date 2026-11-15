@@ -500,7 +500,12 @@ struct ThoughtLine: Codable, Identifiable, Hashable {
     var text: String
     var mood: String?
     var source: String
+
+    /// A thought the player planted with focus:plant.
+    var planted: Bool { source == "planted" }
 }
+
+struct PlantResult: Decodable { var ok: Bool; var message: String? }
 
 /// A reason to switch the camera to someone else.
 struct StoryHook: Codable, Hashable, Identifiable {

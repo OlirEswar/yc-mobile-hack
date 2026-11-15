@@ -39,6 +39,7 @@ protocol WorldSource: AnyObject {
     func society() async -> SocietyOverview?
     /// focus:ask. They answer in character; it never changes the world.
     func ask(_ agentId: Id, question: String) async throws -> AskResult
+    func plant(_ agentId: Id, text: String) async throws -> PlantResult
     func apply(_ intervention: Intervention, commandId: String) async throws -> InterventionResult
     func checkoutURL() async throws -> URL
     func stop()

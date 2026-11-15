@@ -29,7 +29,7 @@ struct FollowView: View {
                     topBar
                     if !keyboard {
                         hooks
-                        if let line = thoughts.first { ThoughtBubble(line: line) }
+                        if let line = thoughts.first { ThoughtBubble(line: line).onTapGesture { pane = .mind } }
                         CoachCard()
                     }
                     if let toast = game.toast {
@@ -79,6 +79,11 @@ struct FollowView: View {
                     .glassEffect(.regular.tint(Color.earth.opacity(0.3)))
                     .transition(.opacity)
             }
+            Button { game.togglePause() } label: {
+                Image(systemName: game.speed == 0 ? "play.fill" : "pause.fill").font(.subheadline.weight(.bold)).frame(width: 22, height: 22)
+            }
+            .buttonStyle(.glass)
+            .accessibilityLabel(game.speed == 0 ? "Resume" : "Pause")
             Menu {
                 Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
                     Label("Pause", systemImage: "pause.fill").tag(0.0)
@@ -143,7 +148,7 @@ struct FollowView: View {
             Group {
                 switch pane {
                 case .now: now(c)
-                case .mind: MindPane(thoughts: thoughts)
+                case .mind: MindPane(colonist: c, thoughts: thoughts, storylines: focus?.storylines ?? [], ties: detail?.relationships ?? [])
                 case .ask: AskPane(colonist: c, persona: detail?.persona, storylines: focus?.storylines ?? [], ties: detail?.relationships ?? [], conversation: conversation)
                 case .story: StoryPane(detail: detail, storylines: focus?.storylines ?? game.storylines.filter { $0.participantIds.contains(c.id) })
                 }
@@ -212,7 +217,7 @@ struct FollowView: View {
             Text(where_(c, partner: partner, nearby: nearby.count)).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 0)
             Menu {
-                ForEach([Power.whisper, .supplyDrop, .rumor, .endLife]) { p in
+                ForEach([Power.supplyDrop, .rumor, .endLife]) { p in
                     Button(p.title, systemImage: p.symbol) {
                         game.powerTarget = c.id
                         power = p
@@ -251,7 +256,7 @@ struct ThoughtBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "bubble.middle.bottom.fill").font(.caption).foregroundStyle(Color.earth).padding(.top, 3)
+            Image(systemName: line.planted ? "sparkles" : "bubble.middle.bottom.fill").font(.caption).foregroundStyle(line.planted ? Color.amber : Color.earth).padding(.top, 3)
             Text(line.text)
                 .font(.callout.italic())
                 .fontDesign(.serif)
@@ -266,31 +271,101 @@ struct ThoughtBubble: View {
 }
 
 struct MindPane: View {
+    @Environment(Game.self) private var game
+    var colonist: AgentLite
     var thoughts: [ThoughtLine]
+    var storylines: [StorylinePublic]
+    var ties: [RelationshipPublic]
+
+    @State private var idea = ""
+    @State private var planting = false
+    @State private var error: String?
+
+    /// Ideas drawn from the people and stories around them.
+    private var suggestions: [String] {
+        var list: [String] = []
+        if let foe = ties.filter({ $0.toAgentAlive && $0.affinity < -0.15 }).min(by: { $0.affinity < $1.affinity }) {
+            list.append("\(foe.toAgentName.split(separator: " ")[0]) is working against you")
+        }
+        if let friend = ties.filter({ $0.toAgentAlive && $0.affinity > 0.3 }).max(by: { $0.affinity < $1.affinity }) {
+            list.append("\(friend.toAgentName.split(separator: " ")[0]) is hiding something from you")
+        }
+        if let other = storylines.first?.participantIds.first(where: { $0 != colonist.id }).flatMap({ game.colonist($0) }) {
+            list.append("Tonight is the night to confront \(other.first)")
+        }
+        list += ["You deserve more than this", "Someone is lying to the whole colony"]
+        return Array(list.prefix(4))
+    }
 
     var body: some View {
-        if thoughts.isEmpty {
-            Text("Their mind is quiet for now. Thoughts come with every decision and every surprise.")
-                .font(.footnote).foregroundStyle(.secondary)
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(thoughts.enumerated()), id: \.element.id) { i, t in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(t.text)
-                                .font(i == 0 ? .body.italic() : .subheadline.italic())
-                                .fontDesign(.serif)
-                                .foregroundStyle(i == 0 ? .primary : .secondary)
-                            Text([Clock.time(t.tick), t.mood].compactMap { $0 }.joined(separator: " · "))
-                                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+        VStack(spacing: 8) {
+            if thoughts.isEmpty {
+                Text("Their mind is quiet for now. Thoughts come with every decision and every surprise.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(thoughts.enumerated()), id: \.element.id) { i, t in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    if t.planted { Image(systemName: "sparkles").font(.caption).foregroundStyle(Color.amber) }
+                                    Text(t.text)
+                                        .font(i == 0 ? .body.italic() : .subheadline.italic())
+                                        .fontDesign(.serif)
+                                        .foregroundStyle(t.planted ? Color.amber : i == 0 ? .primary : .secondary)
+                                }
+                                Text(([Clock.time(t.tick), t.mood] + [t.planted ? "your whisper" : nil]).compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                            }
+                            .opacity(i == 0 || t.planted ? 1 : max(0.45, 1 - Double(i) * 0.08))
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        .opacity(i == 0 ? 1 : max(0.45, 1 - Double(i) * 0.08))
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.smooth, value: thoughts.first?.id)
+                }
+            }
+            if let error { Text(error).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
+            if !planting {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(suggestions, id: \.self) { s in
+                            Button(s) { plant(s) }
+                                .font(.caption)
+                                .buttonStyle(.glass)
+                                .controlSize(.small)
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(.smooth, value: thoughts.first?.id)
+                .scrollIndicators(.hidden)
             }
+            HStack(spacing: 8) {
+                TextField("Plant a thought in \(colonist.first)'s head…", text: $idea)
+                    .submitLabel(.send)
+                    .onSubmit { plant(idea) }
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .glassEffect(.regular.tint(Color.amber.opacity(0.12)), in: .capsule)
+                Button { plant(idea) } label: {
+                    if planting { ProgressView().controlSize(.small) } else { Image(systemName: "sparkles").font(.headline) }
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .disabled(idea.trimmingCharacters(in: .whitespaces).count < 3 || planting)
+            }
+        }
+    }
+
+    private func plant(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 3, !planting else { return }
+        idea = ""
+        error = nil
+        planting = true
+        Task {
+            do { try await game.plant(colonist.id, t) } catch { self.error = error.localizedDescription }
+            planting = false
         }
     }
 }

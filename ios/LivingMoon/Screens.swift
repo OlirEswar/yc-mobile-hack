@@ -94,6 +94,10 @@ struct ColonyView: View {
                     .tint(.white)
                     .accessibilityLabel("\(game.stamp), simulation speed")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(game.speed == 0 ? "Resume" : "Pause", systemImage: game.speed == 0 ? "play.fill" : "pause.fill") { game.togglePause() }
+                        .tint(.white)
+                }
                 if game.intro != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Story so far", systemImage: "book.pages") { game.showIntro = true }.tint(.white)

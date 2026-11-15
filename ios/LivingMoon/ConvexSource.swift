@@ -99,6 +99,10 @@ final class ConvexSource: WorldSource {
         try await client.action("focus:ask", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "question": question])
     }
 
+    func plant(_ agentId: Id, text: String) async throws -> PlantResult {
+        try await client.action("focus:plant", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "text": text])
+    }
+
     /// One value from a query. ConvexMobile only exposes reactive queries.
     private func first<T: Decodable>(_ path: String, _ args: [String: ConvexEncodable?], as type: T.Type) async throws -> T {
         for try await value in client.subscribe(to: path, with: args, yielding: type).values { return value }

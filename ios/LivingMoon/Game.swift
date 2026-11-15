@@ -295,6 +295,14 @@ final class Game: SourceSink {
     }
 
     /// Asks the colonist a question. Returns the answer, or throws a message to show.
+    func plant(_ id: Id, _ text: String) async throws {
+        guard let source else { throw SourceError.unsupported("Not connected.") }
+        let result: PlantResult
+        do { result = try await source.plant(id, text: text) } catch { throw SourceError.unsupported(unsupported(error, "reach their thoughts")) }
+        guard result.ok else { throw SourceError.unsupported(result.message ?? "The thought doesn't take.") }
+        didAct(.use_power)
+    }
+
     func ask(_ id: Id, _ question: String) async throws -> AskTurn {
         guard let source else { throw SourceError.unsupported("Not connected.") }
         let result: AskResult
@@ -321,6 +329,17 @@ final class Game: SourceSink {
         toastTask = Task {
             try? await Task.sleep(for: .seconds(kind == .error ? 6 : 3.6))
             if !Task.isCancelled { withAnimation { toast = nil } }
+        }
+    }
+
+    @ObservationIgnored private var resumeSpeed = 1.0
+
+    func togglePause() {
+        if speed > 0 {
+            resumeSpeed = speed
+            setSpeed(0)
+        } else {
+            setSpeed(resumeSpeed)
         }
     }
 

@@ -786,6 +786,18 @@ final class MockSource: WorldSource {
         return .answered(turn)
     }
 
+    func plant(_ agentId: Id, text: String) async throws -> PlantResult {
+        guard let a = agents[agentId]?.lite, a.alive else { return PlantResult(ok: false, message: "No thought reaches the dead.") }
+        try await Task.sleep(for: .milliseconds(600))
+        let idea = text.prefix(1).uppercased() + text.dropFirst()
+        thoughts[agentId] = Array(([ThoughtLine(id: newId("t"), tick: tick, text: "\(idea)… where did that come from?", mood: a.mood, source: "planted")] + (thoughts[agentId] ?? [])).prefix(30))
+        notify()
+        try await Task.sleep(for: .milliseconds(1500))
+        think(agentId, "I can't shake it. \(idea). Maybe I've been blind.")
+        notify()
+        return PlantResult(ok: true, message: nil)
+    }
+
     func society() async -> SocietyOverview? {
         func key(_ slug: String) -> Id { keyIds[slug]! }
         func members(_ faction: String) -> [Id] { all.filter { $0.factionId == faction }.map(\.lite.id) }

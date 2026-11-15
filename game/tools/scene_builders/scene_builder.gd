@@ -17,15 +17,23 @@ static func save_scene(root: Node, path: String) -> Error:
 	return save_resource(packed, path)
 
 
-## Saves any Resource (TileSet, Theme, material...) to path.
+## Saves any Resource (TileSet, Theme, material...) to path. When the result
+## differs from the file on disk only in the random node unique_ids Godot assigns
+## on every save, the old file is kept so rebuilding leaves git clean.
 static func save_resource(resource: Resource, path: String) -> Error:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+	var previous := FileAccess.get_file_as_string(path) if FileAccess.file_exists(path) else ""
 	var err := ResourceSaver.save(resource, path)
 	if err != OK:
 		push_error("could not save %s: %s" % [path, error_string(err)])
+		return err
+	var ids := RegEx.create_from_string(" unique_id=\\d+")
+	if previous and ids.sub(previous, "", true) == ids.sub(FileAccess.get_file_as_string(path), "", true):
+		FileAccess.open(path, FileAccess.WRITE).store_string(previous)
+		print("unchanged ", path)
 	else:
 		print("saved ", path)
-	return err
+	return OK
 
 
 static func _own(node: Node, owner: Node) -> void:

@@ -11,6 +11,8 @@
 import type * as admin from "../admin.js";
 import type * as agents from "../agents.js";
 import type * as billing from "../billing.js";
+import type * as cognition from "../cognition.js";
+import type * as engine_core from "../engine/core.js";
 import type * as engine_loop from "../engine/loop.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -35,6 +37,8 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   agents: typeof agents;
   billing: typeof billing;
+  cognition: typeof cognition;
+  "engine/core": typeof engine_core;
   "engine/loop": typeof engine_loop;
   http: typeof http;
   "lib/auth": typeof lib_auth;

@@ -37,6 +37,8 @@ export type PowerDraft = {
   canRetry?: boolean;
 };
 
+export type Tab = 'colony' | 'people' | 'chronicle';
+
 export type AgentPicker = { title: string; aliveOnly: boolean; onPick: (id: Id) => void };
 
 export type GameState = {
@@ -54,7 +56,8 @@ export type GameState = {
   selectedAgentId: Id | null;
   selectedLocationId: LocationId | null;
   followAgentId: Id | null;
-  panel: 'none' | 'chronicle' | 'creator';
+  tab: Tab;
+  panel: 'none' | 'creator';
   /** Event whose cause chain the chronicle shows, if any. */
   chronicleEventId: Id | null;
   power: PowerDraft | null;
@@ -80,6 +83,7 @@ let state: GameState = {
   selectedAgentId: null,
   selectedLocationId: null,
   followAgentId: null,
+  tab: 'colony',
   panel: 'none',
   chronicleEventId: null,
   power: null,
@@ -411,7 +415,7 @@ export function clearSelection() {
 export function jumpToAgent(id: Id) {
   const agent = getAgent(id);
   if (!agent) return;
-  set({ panel: 'none', picker: null });
+  set({ tab: 'colony', panel: 'none', picker: null });
   if (state.followAgentId) {
     if (agent.alive) return follow(id);
     unfollow();
@@ -421,7 +425,7 @@ export function jumpToAgent(id: Id) {
   if (at) flyTo(at.x, at.y, Math.max(scene.zoom.value, 1.25));
 }
 export function jumpToLocation(id: LocationId) {
-  set({ panel: 'none', picker: null });
+  set({ tab: 'colony', panel: 'none', picker: null });
   if (state.followAgentId) unfollow();
   selectLocation(id);
   const c = LOCATION_LAYOUT[id].center;
@@ -437,7 +441,7 @@ export function follow(id: Id) {
   bannerQueue = [];
   scene.selectedSlot.value = getSlot(id);
   setFollowSlot(getSlot(id));
-  set({ followAgentId: id, selectedAgentId: id, selectedLocationId: null, banner: null, power: null, panel: 'none' });
+  set({ tab: 'colony', followAgentId: id, selectedAgentId: id, selectedLocationId: null, banner: null, power: null, panel: 'none' });
   source?.setFocus(id).catch((error) => apiError('session:setFocus', error));
 }
 export function unfollow() {
@@ -511,12 +515,13 @@ export async function skipToNotable() {
 
 // ---------- panels ----------
 export function openChronicle(eventId: Id | null = null) {
-  set({ panel: 'chronicle', chronicleEventId: eventId, power: null, picker: null });
+  set({ tab: 'chronicle', panel: 'none', chronicleEventId: eventId, power: null, picker: null });
 }
+export const setTab = (tab: Tab) => set({ tab, picker: null });
 export function openCreator() {
-  set({ panel: 'creator', power: null, picker: null });
+  set({ tab: 'colony', panel: 'creator', power: null, picker: null });
 }
-export const closePanel = () => set({ panel: 'none', chronicleEventId: null });
+export const closePanel = () => set({ panel: 'none' });
 export const openPicker = (picker: AgentPicker) => set({ picker });
 export const closePicker = () => set({ picker: null });
 export const toggleDev = () => set({ devOpen: !state.devOpen });
@@ -531,6 +536,7 @@ export function startPower(type: PowerType, agentId?: Id) {
   if (state.followAgentId && !agentId) unfollow();
   pendingCommand = null;
   set({
+    tab: 'colony',
     panel: 'none',
     picker: null,
     power: {

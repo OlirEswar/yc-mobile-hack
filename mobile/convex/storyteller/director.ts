@@ -132,7 +132,7 @@ async function place(tx: Tx, live: Working[], e: Doc<'events'>): Promise<void> {
     const inCast = involvedIn(e).filter((id) => s.participantIds.includes(id)).length;
     const topic = onTopic(s, e, kind);
     const chained = cause?.storylineId === s._id && (inCast > 0 || topic || e.salience >= 0.5);
-    if (!chained && !(inCast > 0 && topic) && !(inCast >= 2 && kind && e.salience >= 0.45)) continue;
+    if (!chained && !(inCast > 0 && topic) && !(inCast >= 2 && (kind || isEasing(e) || isHostile(e)) && e.salience >= 0.45)) continue;
     const score = (chained ? 3 : 0) + inCast + (topic ? 1 : 0) + (e.actorId && s.participantIds.includes(e.actorId) ? 1 : 0);
     if (score > bestScore) {
       best = w;

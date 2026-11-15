@@ -43,6 +43,15 @@ enum Power: String, CaseIterable, Identifiable {
     var believed: Bool { self == .whisper || self == .rumor }
 }
 
+/// A high-tension storyline beat, shown as a banner over the wide view.
+struct StoryBanner: Identifiable, Equatable {
+    let id: String
+    var storylineId: Id
+    var title: String
+    var text: String
+    var tension: Double
+}
+
 struct Toast: Identifiable, Equatable {
     enum Kind { case ok, info, error }
     let id = UUID()
@@ -55,7 +64,7 @@ struct Toast: Identifiable, Equatable {
 @MainActor
 final class Game: SourceSink {
     enum Phase: Equatable { case loading, ready, failed(String) }
-    enum Tab: Hashable { case colony, people, chronicle }
+    enum Tab: Hashable { case colony, people, stories, chronicle }
 
     static let convexURL = "https://utmost-hyena-958.convex.cloud"
     private static let liveKey = "livingMoon.useLiveBackend"
@@ -67,7 +76,8 @@ final class Game: SourceSink {
     private var index: [Id: Int] = [:]
     private(set) var events: [WorldEventPublic] = []
     var premium = false
-    var useLive = UserDefaults.standard.bool(forKey: liveKey) {
+    /// The live deployment by default; the offline mock stays behind the menu toggle.
+    var useLive = UserDefaults.standard.object(forKey: liveKey) as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(useLive, forKey: Self.liveKey)
             Task { await boot() }
@@ -87,11 +97,25 @@ final class Game: SourceSink {
     var skipping = false
     var backendNote: String?
 
+    /// The world's introduction, when the backend has one.
+    private(set) var intro: StoryIntro?
+    var showIntro = false
+    /// Live and recent storylines, highest tension first.
+    private(set) var storylines: [StorylinePublic] = []
+    var banner: StoryBanner?
+    var storylineID: Id?
+    /// Index of the current tutorial card; past the end once finished or skipped.
+    private(set) var tutorialIndex = 0
+
     /// When the current world tick arrived, so the map can interpolate between ticks.
     @ObservationIgnored private(set) var tickArrivedAt = Date()
     @ObservationIgnored private var source: WorldSource?
     @ObservationIgnored private var heartbeatTimer: Timer?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var bannerTask: Task<Void, Never>?
+    @ObservationIgnored private var storylinesCancel: (() -> Void)?
+    /// Last beat tick seen per storyline, so only new beats raise a banner.
+    @ObservationIgnored private var beatTicks: [Id: Double]?
 
     var isLive: Bool { source?.isLive ?? false }
 
@@ -107,6 +131,12 @@ final class Game: SourceSink {
         backendNote = nil
         selectedID = nil
         followingID = nil
+        intro = nil
+        showIntro = false
+        storylines = []
+        banner = nil
+        beatTicks = nil
+        storylinesCancel?()
         let next: WorldSource = useLive ? ConvexSource(url: Self.convexURL) : MockSource()
         source = next
         do {
@@ -116,6 +146,8 @@ final class Game: SourceSink {
                 _ = MainActor.assumeIsolated { Task { await self?.source?.heartbeat() } }
             }
             phase = .ready
+            storylinesCancel = next.watchStorylines(agentId: nil) { [weak self] in self?.received(storylines: $0) }
+            await loadIntro(from: next)
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -126,6 +158,69 @@ final class Game: SourceSink {
         let id = UUID().uuidString.lowercased()
         UserDefaults.standard.set(id, forKey: Self.deviceKey)
         return id
+    }
+
+    // MARK: Story
+
+    private func worldKey(_ name: String) -> String { "livingMoon.\(name).\(source?.worldId ?? "none")" }
+
+    private func loadIntro(from source: WorldSource) async {
+        guard let loaded = await source.intro(), source === self.source else { return }
+        intro = loaded
+        tutorialIndex = UserDefaults.standard.integer(forKey: worldKey("tutorial"))
+        if !UserDefaults.standard.bool(forKey: worldKey("introSeen")) { showIntro = true }
+    }
+
+    /// Closes the introduction. With begin set, starts following the starter character.
+    func finishIntro(begin: Bool) {
+        UserDefaults.standard.set(true, forKey: worldKey("introSeen"))
+        showIntro = false
+        guard begin, let starter = intro?.starterAgentId else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.follow(starter) }
+    }
+
+    var tutorialStep: TutorialStep? {
+        guard let steps = intro?.tutorial, steps.indices.contains(tutorialIndex), !showIntro else { return nil }
+        return steps[tutorialIndex]
+    }
+
+    /// Advances the tutorial when the player does what the current card asks.
+    func didAct(_ action: TutorialAction) {
+        guard let step = tutorialStep, step.action == action else { return }
+        advanceTutorial()
+    }
+
+    func advanceTutorial() {
+        withAnimation(.smooth) { tutorialIndex += 1 }
+        UserDefaults.standard.set(tutorialIndex, forKey: worldKey("tutorial"))
+    }
+
+    func skipTutorial() {
+        withAnimation(.smooth) { tutorialIndex = intro?.tutorial.count ?? 0 }
+        UserDefaults.standard.set(tutorialIndex, forKey: worldKey("tutorial"))
+    }
+
+    func storyline(_ id: Id?) -> StorylinePublic? { id.flatMap { id in storylines.first { $0.id == id } } }
+
+    private func received(storylines next: [StorylinePublic]) {
+        storylines = next
+        let ticks = Dictionary(next.map { ($0.id, $0.lastBeatTick) }, uniquingKeysWith: max)
+        defer { beatTicks = ticks }
+        guard let seen = beatTicks else { return }
+        let fresh = next.filter { $0.live && $0.tension >= 0.6 && $0.lastBeatTick > (seen[$0.id] ?? -1) }
+        guard let top = fresh.max(by: { $0.tension < $1.tension }), let beat = top.beats.last else { return }
+        bannerTask?.cancel()
+        withAnimation(.smooth) { banner = StoryBanner(id: top.id + "/\(beat.tick)", storylineId: top.id, title: top.title, text: beat.text, tension: top.tension) }
+        bannerTask = Task {
+            try? await Task.sleep(for: .seconds(7))
+            if !Task.isCancelled { withAnimation(.smooth) { banner = nil } }
+        }
+    }
+
+    func openStoryline(_ id: Id) {
+        banner = nil
+        storylineID = id
+        tab = .stories
     }
 
     // MARK: SourceSink
@@ -181,6 +276,39 @@ final class Game: SourceSink {
         return try await source.chain(eventId)
     }
 
+    func focusStream(_ id: Id) -> AsyncStream<FocusState?> {
+        AsyncStream { continuation in
+            guard let source else { return continuation.finish() }
+            let cancel = source.watchFocus(id) { continuation.yield($0) }
+            continuation.onTermination = { _ in Task { @MainActor in cancel() } }
+        }
+    }
+
+    func conversationStream(_ id: Id) -> AsyncStream<[AskTurn]> {
+        AsyncStream { continuation in
+            guard let source else { return continuation.finish() }
+            let cancel = source.watchConversation(id) { continuation.yield($0) }
+            continuation.onTermination = { _ in Task { @MainActor in cancel() } }
+        }
+    }
+
+    /// Asks the colonist a question. Returns the answer, or throws a message to show.
+    func ask(_ id: Id, _ question: String) async throws -> AskTurn {
+        guard let source else { throw SourceError.unsupported("Not connected.") }
+        let result: AskResult
+        do { result = try await source.ask(id, question: question) } catch { throw SourceError.unsupported(unsupported(error, "ask them")) }
+        switch result {
+        case let .answered(turn):
+            didAct(.ask_question)
+            return turn
+        case let .refused(_, message):
+            throw SourceError.unsupported(message)
+        }
+    }
+
+    /// True while the backend fast-forwards through the followed colonist's routine.
+    var warping: Bool { followingID != nil && world?.focusWarp == true }
+
     // MARK: Actions
 
     func show(_ kind: Toast.Kind, _ text: String) {
@@ -199,10 +327,15 @@ final class Game: SourceSink {
     }
 
     func follow(_ id: Id) {
-        guard colonist(id)?.alive == true else { return }
+        guard colonist(id)?.alive == true, id != followingID else { return }
+        let starter = intro?.starterAgentId
+        let switching = followingID != nil
         tab = .colony
+        selectedID = nil
         followingID = id
         Task { await source?.setFocus(id) }
+        if id == starter { didAct(.follow_starter) }
+        if switching || (starter != nil && id != starter) { didAct(.switch_character) }
     }
 
     func unfollow() {
@@ -233,6 +366,7 @@ final class Game: SourceSink {
             let r = try await source.apply(intervention, commandId: commandId)
             guard r.ok else { return r.message ?? "The colony refused." }
             show(.ok, resultText(intervention, r))
+            didAct(.use_power)
             if let created = r.createdAgentId { selectedID = created }
             return nil
         } catch {

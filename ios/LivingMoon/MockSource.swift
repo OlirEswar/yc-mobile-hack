@@ -6,6 +6,7 @@ import Foundation
 @MainActor
 final class MockSource: WorldSource {
     let isLive = false
+    let worldId = "mock-world"
 
     private struct Faction { let id: String; let name: String }
     private static let factions = [

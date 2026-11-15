@@ -867,7 +867,7 @@ struct ChainRow: View {
                 .foregroundStyle(event.byPlayer ? event.tint : .secondary)
                 Text(event.summary)
                 if let cause {
-                    Label("because " + cause.summary.prefix(1).lowercased() + cause.summary.dropFirst(), systemImage: "arrow.turn.down.right")
+                    Label("because " + cause.summary, systemImage: "arrow.turn.down.right")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }

@@ -5,14 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#05060c",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.olireswar.ycmobilehack"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.olireswar.ycmobilehack",
+      "infoPlist": {
+        "CFBundleDisplayName": "Living World",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#05060c",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -21,7 +26,19 @@
       "package": "com.olireswar.ycmobilehack"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#05060c",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 140
+        }
+      ]
+    ]
   }
 }

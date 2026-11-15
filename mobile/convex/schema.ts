@@ -64,6 +64,29 @@ export const effectV = v.object({
   eventId: v.optional(v.id('events')),
 });
 
+export const personaV = v.object({
+  summary: str,
+  interests: v.array(str),
+  speechStyle: str,
+  habits: v.array(str),
+});
+
+export const avatarProfileV = v.object({
+  name: str,
+  spriteId: str,
+  ageBand: str,
+  occupation: str,
+  homeLocationId: str,
+  traits: traitsV,
+  values: valuesV,
+  backstory: str,
+  summary: str,
+  interests: v.array(str),
+  speechStyle: str,
+  habits: v.array(str),
+  goals: v.array(v.object({ kind: str, description: str })),
+});
+
 export const llmConfigV = v.object({
   budgetPerDay: num,
   maxConcurrent: num,
@@ -133,7 +156,11 @@ export default defineSchema({
     lastBannerTick: num,
     lastDailyDay: num,
     lastPriceTick: num,
-  }).index('by_device', ['deviceId']),
+    /** Join code for friends, set once the host opens the world to multiplayer. */
+    inviteCode: v.optional(str),
+  })
+    .index('by_device', ['deviceId'])
+    .index('by_invite', ['inviteCode']),
 
   /** Agent ids by seq. Read only when an event fans out to many witnesses. */
   worldIndex: defineTable({
@@ -212,7 +239,11 @@ export default defineSchema({
     lastLevyDay: num,
     markup: v.optional(num),
     failStreak: num,
+    /** Set when this colonist is a player's avatar. */
+    ownerSessionId: v.optional(v.id('sessions')),
+    ownerName: v.optional(str),
   })
+    .index('by_owner', ['ownerSessionId'])
     .index('by_world_seq', ['worldId', 'seq'])
     .index('by_world_due', ['worldId', 'dueTick'])
     .index('by_world_version', ['worldId', 'updatedAtVersion']),
@@ -234,6 +265,10 @@ export default defineSchema({
     llmCooldownUntilTick: num,
     thefts: num,
     nextGoalSeq: num,
+    /** Who a player's avatar is modelled on, for the LLM prompts. */
+    persona: v.optional(personaV),
+    /** The player's latest wish for their avatar, until it is replaced. */
+    directive: v.optional(v.object({ text: str, tick: num })),
   }).index('by_agent', ['agentId']),
 
   relationships: defineTable({
@@ -359,7 +394,33 @@ export default defineSchema({
     /** Set by the Whop payment.succeeded webhook once this install buys the Colony Pass. */
     premium: v.optional(v.boolean()),
     premiumPaymentId: v.optional(str),
+    /** Display name shown to the other players in a shared world. */
+    playerName: v.optional(str),
+    /** The session's own world while it is a guest in a friend's world. */
+    homeWorldId: v.optional(v.id('worlds')),
+    joinedAt: v.optional(num),
   })
     .index('by_device', ['deviceId'])
-    .index('by_token', ['token']),
+    .index('by_token', ['token'])
+    .index('by_world', ['worldId']),
+
+  /** The player's character profile, built from their sources. One per session. */
+  personas: defineTable({
+    sessionId: v.id('sessions'),
+    profile: v.optional(avatarProfileV),
+    profileSource: v.optional(str),
+    directives: v.array(v.object({ text: str, tick: num, worldId: v.id('worlds') })),
+    /** Recent synthesize calls, for the rate limit. */
+    synthTimes: v.array(num),
+    updatedAt: num,
+  }).index('by_session', ['sessionId']),
+
+  /** Digested "about me" material. Scrubbed of emails, phone numbers and links before insert. */
+  personaSources: defineTable({
+    sessionId: v.id('sessions'),
+    kind: str,
+    label: str,
+    text: str,
+    addedAt: num,
+  }).index('by_session', ['sessionId']),
 });

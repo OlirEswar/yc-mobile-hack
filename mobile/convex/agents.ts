@@ -125,6 +125,7 @@ export const get = query({
         ? { tick: mind.lastThought.tick, trigger: mind.lastThought.trigger, intent: mind.lastThought.intent, source: mind.lastThought.source as 'llm' | 'rules' }
         : undefined,
       death: mind.death,
+      persona: mind.persona,
     };
   },
 });

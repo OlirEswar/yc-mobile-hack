@@ -176,6 +176,7 @@ final class MockSource: WorldSource {
         }
         agents[key("ines")]!.detail.householdName = "Okafor household"
         agents[key("teo")]!.detail.householdName = "Okafor household"
+        agents[key("ines")]!.detail.plan = PlanPublic(intent: "Get water to Teo before anyone counts the flasks.", source: "llm", goalId: nil, steps: [PlanStep(label: "Collect the ration", status: "running"), PlanStep(label: "Bring Teo water", status: "pending"), PlanStep(label: "Find a steadier supply", status: "pending"), PlanStep(label: "Skim on shift", status: "pending")], cursor: 0)
         agents[key("ines")]!.detail.goals.insert(GoalPublic(id: newId("g"), kind: "protect_person", description: "Keep Teo breathing until the shuttle", priority: 0.95, source: "personality", status: "active", targetAgentId: key("teo"), targetAgentName: "Teo Okafor", createdAtTick: 0), at: 0)
         agents[key("dmitri")]!.detail.beliefs.insert(BeliefPublic(id: newId("b"), text: "Someone on the ice crew is skimming the reserve.", confidence: 0.7, sourceType: "inference", learnedAtTick: 0), at: 0)
 
@@ -301,7 +302,7 @@ final class MockSource: WorldSource {
         guard let line = laterBeats[slug]?.removeFirst() else { return }
         let ids = line.participants.compactMap { keyIds[$0] }
         storyBeat(slug, line.text, actor: ids.first, participants: Array(ids.dropFirst()), at: ids.first.flatMap { agents[$0]?.lite.locationId }, tension: line.tension)
-        if let focus = focusId, let actor = ids.first, focus != actor, !ids.contains(focus) {
+        if let focus = focusId, let actor = ids.first, !ids.contains(focus), storylines.contains(where: { $0.id == storylineIds[slug] && $0.participantIds.contains(focus) }) {
             offerHook(to: focus, about: actor, line.text.replacingOccurrences(of: ".", with: ""))
         }
     }
@@ -310,6 +311,12 @@ final class MockSource: WorldSource {
     private func runScript(_ id: Id) {
         let beat = MockStory.script[scriptIndex]
         scriptIndex += 1
+        if var plan = agents[id]!.detail.plan, plan.steps.count == 4 {
+            let cursor = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4][scriptIndex]
+            for i in plan.steps.indices { plan.steps[i].status = i < cursor ? "done" : i == cursor ? "running" : "pending" }
+            plan.cursor = Double(cursor)
+            agents[id]!.detail.plan = plan
+        }
         let me = agents[id]!.lite
         switch beat {
         case let .walk(to, why, thought):
@@ -348,7 +355,7 @@ final class MockSource: WorldSource {
             return "\(first)? We get along. Up here that's not nothing, but it's not trust either."
         }
         if q.contains("long dark") || q.contains("winter") { return key?.longDark ?? "Everyone lost someone. I lost a bunk-mate and most of my faith in the council." }
-        if q.contains("afraid") || q.contains("fear") || q.contains("scare") { return "Honestly? " + persona.fear + ". I don't say it out loud much." }
+        if q.contains("afraid") || q.contains("fear") || q.contains("scare") { return "What scares me? " + lower(persona.fear) + ". That's the one that wakes me at night. I don't say it out loud much." }
         if q.contains("want") || q.contains("hope") || q.contains("dream") { return "I want to " + lower(persona.want) + ". Everything else is noise." }
         if q.contains("secret") || q.contains("hiding") || q.contains("lie") { return "Everyone up here hides something. " + persona.flaw + ", if you want my worst. That's all you're getting." }
         if q.contains("trust") || q.contains("friend") || q.contains("love") {
@@ -569,7 +576,7 @@ final class MockSource: WorldSource {
             if tick >= a.busyUntilTick { decide(id) }
         }
         if Int(tick) % 9 == 0 { advanceSomeStoryline() }
-        let routine = focusId.flatMap { agents[$0]?.lite.activity }.map { $0 == "sleeping" || $0 == "resting" || $0 == "working" } ?? false
+        let routine = focusId.flatMap { agents[$0]?.lite.activity }.map { $0 == "sleeping" || $0 == "resting" } ?? false
         if routine != warping {
             warping = routine
             schedule()
@@ -627,6 +634,7 @@ final class MockSource: WorldSource {
             guard amount > 0, amount <= 500 else { return fail("Amount must be between 1 and 500.") }
             agents[agentId]!.detail.inventory[resource.rawValue, default: 0] += amount
             agents[agentId]!.lite.mood = "astonished"
+            think(agentId, "\(Int(amount)) \(resource.rawValue) in my locker that wasn't there this morning. Nobody up here gives anything away. So who wants what from me?")
             agents[agentId]!.detail.lastThought = ThoughtPublic(tick: tick, trigger: "found \(Int(amount)) \(resource.rawValue) in their locker", intent: "Work out where it came from, and what to do with it.", source: "rules")
             touch(agentId)
             emit(.intervention, "grant", actor: agentId, at: a.lite.locationId, "\(a.lite.name) found \(Int(amount)) \(resource.rawValue) that nobody can account for.", salience: 0.7)
@@ -660,6 +668,7 @@ final class MockSource: WorldSource {
             agents[agentId]!.detail.lastThought = ThoughtPublic(tick: tick, trigger: "a thought arrived from nowhere", intent: "Act on the idea: \"\(text)\"", source: "llm")
             agents[agentId]!.detail.goals.insert(GoalPublic(id: newId("g"), kind: about != nil ? "investigate" : "custom", description: text, priority: 0.5 + strength * 0.45, source: "divine", status: "active", targetAgentId: about?.id, targetAgentName: about?.name, createdAtTick: tick), at: 0)
             agents[agentId]!.lite.mood = "unsettled"
+            think(agentId, "Where did that come from? \(text) I can't shake it.")
             touch(agentId)
             emit(.intervention, "whisper", actor: agentId, participants: [about?.id].compactMap { $0 }, at: a.lite.locationId, "A voice whispered to \(a.lite.name): \"\(text)\"", salience: 0.6, visibility: "private", banner: false)
             return InterventionResult(ok: true, affectedAgentIds: [agentId])

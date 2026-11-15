@@ -22,7 +22,7 @@ struct FollowView: View {
 
     var body: some View {
         ZStack {
-            MapView(focus: game.followingID, focusAnchor: 0.34)
+            MapView(focus: game.followingID, focusAnchor: 0.47)
             if let c = game.colonist(game.followingID) {
                 VStack(spacing: 10) {
                     topBar
@@ -312,7 +312,9 @@ struct AskPane: View {
     private var suggestions: [String] {
         var list: [String] = []
         if persona != nil { list += ["What are you afraid of?", "What do you want most?"] }
-        if let s = storylines.first { list.append("What's going on with \(s.title.lowercased().replacingOccurrences(of: "the ", with: ""))?") }
+        if let other = storylines.first?.participantIds.first(where: { $0 != colonist.id }).flatMap({ game.colonist($0) }) {
+            list.append("What's going on between you and \(other.first)?")
+        }
         if let friend = ties.filter({ $0.toAgentAlive && $0.affinity > 0.3 }).max(by: { $0.affinity < $1.affinity }) {
             list.append("What does \(friend.toAgentName.split(separator: " ")[0]) mean to you?")
         }
@@ -425,7 +427,6 @@ struct StoryPane: View {
                     line("Flaw", p.flaw)
                     line("Arc", p.arc.note)
                 }
-                ForEach(LifeLines.of(detail), id: \.self) { Text($0).font(.footnote) }
                 ForEach(storylines.filter(\.live)) { s in
                     Button { game.unfollow(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { game.openStoryline(s.id) } } label: {
                         VStack(alignment: .leading, spacing: 4) {
@@ -441,6 +442,7 @@ struct StoryPane: View {
                     }
                     .buttonStyle(.plain)
                 }
+                ForEach(LifeLines.of(detail), id: \.self) { Text($0).font(.footnote) }
                 if detail?.persona == nil && storylines.isEmpty {
                     Text("Nothing is known about their story yet.").font(.footnote).foregroundStyle(.secondary)
                 }

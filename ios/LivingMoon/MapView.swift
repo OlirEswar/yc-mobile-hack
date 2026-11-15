@@ -152,7 +152,9 @@ struct MapView: View {
                 p = CGPoint(x: glide.from.x + (p.x - glide.from.x) * e, y: glide.from.y + (p.y - glide.from.y) * e)
             }
             lastCenter.point = p
-            return Camera(k: k, origin: CGPoint(x: s.width / 2 - p.x * k, y: s.height * focusAnchor - p.y * k))
+            let x = min(0, max(s.width - MapLayout.size.width * k, s.width / 2 - p.x * k))
+            let y = min(0, max(s.height - MapLayout.size.height * k, s.height * focusAnchor - p.y * k))
+            return Camera(k: k, origin: CGPoint(x: x, y: y))
         }
         let k = fit(s) * zoom * pinch
         var c = CGPoint(x: center.x - drag.width / k, y: center.y - drag.height / k)
@@ -244,8 +246,9 @@ struct MapView: View {
 
         let seconds = date.timeIntervalSinceReferenceDate
         let frame = Int(seconds * 8) % CharacterArt.framesPerDirection
-        let placed = game.agents.filter(\.alive).map { ($0, Placement.position(of: $0, at: tick)) }.sorted { $0.1.point.y < $1.1.point.y }
         let marked = focus ?? game.selectedID
+        let placed = game.agents.filter(\.alive).map { ($0, Placement.position(of: $0, at: tick)) }
+            .sorted { ($0.0.id == marked ? 1 : 0, $0.1.point.y) < ($1.0.id == marked ? 1 : 0, $1.1.point.y) }
         let feet = CharacterArt.feet, fsize = CharacterArt.frame
         for (a, pos) in placed {
             let p = pos.point
@@ -302,15 +305,18 @@ struct MapView: View {
         }
 
         let partner = game.colonist(marked)?.interactingWithId
-        for (a, pos) in placed where (a.id == marked || a.id == partner) && a.speech != nil {
+        var bubbles: [CGRect] = []
+        for (a, pos) in placed.reversed() where (a.id == marked || a.id == partner) && a.speech != nil {
             let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y - feet.y - 6) * cam.k)
             let text = Text(a.speech!).font(.caption).foregroundStyle(.black)
             let resolved = ctx.resolve(text)
-            let s = resolved.measure(in: CGSize(width: 200, height: 80))
-            let bubble = CGRect(x: p.x - s.width / 2 - 8, y: p.y - s.height - 12, width: s.width + 16, height: s.height + 10)
+            let s = resolved.measure(in: CGSize(width: 160, height: 80))
+            var bubble = CGRect(x: p.x - s.width / 2 - 8, y: p.y - s.height - 12, width: s.width + 16, height: s.height + 10)
+            while let hit = bubbles.first(where: { $0.intersects(bubble) }) { bubble.origin.y = hit.minY - bubble.height - 6 }
+            bubbles.append(bubble)
             var tail = Path()
             tail.move(to: CGPoint(x: p.x - 5, y: bubble.maxY - 1))
-            tail.addLine(to: CGPoint(x: p.x, y: bubble.maxY + 6))
+            tail.addLine(to: CGPoint(x: p.x, y: max(bubble.maxY + 6, p.y - 4)))
             tail.addLine(to: CGPoint(x: p.x + 5, y: bubble.maxY - 1))
             ctx.fill(tail, with: .color(.white.opacity(0.95)))
             ctx.fill(Path(roundedRect: bubble, cornerRadius: 10), with: .color(.white.opacity(0.95)))

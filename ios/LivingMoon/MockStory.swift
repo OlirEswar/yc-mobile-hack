@@ -31,7 +31,7 @@ enum MockStory {
     static let keys: [Key] = [
         Key(slug: "ines", name: "Ines Okafor", spriteId: "miner_2", occupation: "ice_miner", home: .habitat_a, factionId: "union",
             background: "Born on the rim the year the colony was founded. Lost her mother in the Long Dark and has raised her brother Teo since.",
-            persona: PersonaPublic(epithet: "the ice miner skimming water for her sick brother", want: "Keep Teo alive until a shuttle brings real medicine", fear: "Burying Teo the way she buried their mother", flaw: "Lies first and does the arithmetic later", voice: "Clipped, dry, protective; jokes when she is scared", arc: .init(stage: "rising", note: "Her skimming is about to be noticed."), key: true),
+            persona: PersonaPublic(epithet: "the ice miner skimming water for her sick brother", want: "Keep Teo alive until a shuttle brings real medicine", fear: "Burying Teo beside their mother", flaw: "Lies first and does the arithmetic later", voice: "Clipped, dry, protective; jokes when she is scared", arc: .init(stage: "rising", note: "Her skimming is about to be noticed."), key: true),
             hook: "She has been stealing meltwater from the drill line, and the depot numbers no longer add up.",
             longDark: "I was fifteen. The heaters went, then the lights, then Mum. Everyone says the reactor. I say somebody signed off on a reactor they knew was tired.",
             post: nil),
@@ -92,7 +92,7 @@ enum MockStory {
     }
 
     static let storylines: [Seeded] = [
-        Seeded(slug: "water", title: "Water for Teo", premise: "Ines is stealing meltwater to keep her brother breathing. Every flask she skims is one the depot will miss.", participants: ["ines", "teo", "asha"], tension: 0.5,
+        Seeded(slug: "water", title: "Water for Teo", premise: "Ines is stealing meltwater to keep her brother breathing. Every flask she skims is one the depot will miss.", participants: ["ines", "teo", "asha"], tension: 0.4,
                beats: ["Teo's inhaler ran dry two sols early.", "Ines filled her first flask off the drill line."],
                later: [Line(storyline: "water", text: "Asha told Teo the antivirals are spoken for.", participants: ["asha", "teo"], tension: 0.08),
                        Line(storyline: "water", text: "Teo coughed blood in the Med Bay and asked Asha not to tell his sister.", participants: ["teo", "asha"], tension: 0.12)]),
@@ -100,7 +100,7 @@ enum MockStory {
                beats: ["Dmitri found the water reserve forty litres short."],
                later: [Line(storyline: "ledger", text: "Dmitri moved the Long Dark ledger from the depot to his bunk.", participants: ["dmitri"], tension: 0.1),
                        Line(storyline: "ledger", text: "Marit asked Dmitri, in front of witnesses, when the reserve was last audited.", participants: ["marit", "dmitri"], tension: 0.14)]),
-        Seeded(slug: "strike", title: "The Strike Vote", premise: "Kofi needs one more vote to shut the works until the council opens the reserve. Marit needs the reserve sealed before he gets it.", participants: ["kofi", "marit"], tension: 0.55,
+        Seeded(slug: "strike", title: "The Strike Vote", premise: "Kofi needs one more vote to shut the works until the council opens the reserve. Marit needs the reserve sealed before he gets it.", participants: ["kofi", "marit"], tension: 0.45,
                beats: ["Kofi called a union meeting at the Airlock Canteen.", "Marit drafted an order to seal the reserve."],
                later: [Line(storyline: "strike", text: "Kofi won over two quarry hands with a promise of open ledgers.", participants: ["kofi"], tension: 0.1),
                        Line(storyline: "strike", text: "Marit offered the union a seat on the ration board if they called off the vote.", participants: ["marit", "kofi"], tension: 0.12)]),

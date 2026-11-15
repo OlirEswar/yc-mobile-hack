@@ -68,7 +68,6 @@ struct StoryIntroView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            backdrop
             ScrollView {
                 VStack(alignment: .leading, spacing: 44) {
                     hero
@@ -84,6 +83,7 @@ struct StoryIntroView: View {
             .scrollIndicators(.hidden)
             actions
         }
+        .background { backdrop }
         .preferredColorScheme(.dark)
         .sheet(item: $card) { c in CharacterCardSheet(card: c) { follow in
             card = nil
@@ -93,15 +93,15 @@ struct StoryIntroView: View {
         .onAppear { withAnimation(.smooth(duration: 1.4).delay(0.2)) { shown = true } }
     }
 
+    /// The colony's ground art, dimmed. Overlays so the image never widens the layout.
     private var backdrop: some View {
-        ZStack {
-            Color.black
-            if let ground = Art.image(MapLayout.ground) {
-                ground.resizable().scaledToFill().opacity(0.28).blur(radius: 2)
+        Color.black
+            .overlay {
+                if let ground = Art.image(MapLayout.ground) { ground.resizable().scaledToFill().opacity(0.28).blur(radius: 2) }
             }
-            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.85), .black], startPoint: .top, endPoint: .bottom)
-        }
-        .ignoresSafeArea()
+            .overlay { LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.85), .black], startPoint: .top, endPoint: .bottom) }
+            .clipped()
+            .ignoresSafeArea()
     }
 
     private func reveal<Content: View>(_ content: Content) -> some View {

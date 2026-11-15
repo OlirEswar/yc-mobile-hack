@@ -260,7 +260,7 @@ async function rallyCrews(c: Ctx): Promise<Choice | null> {
   const hatesChair = chair && chair !== a._id ? -(c.ties.find((t) => t.toAgentId === chair)?.affinity ?? 0) : 0;
   let topic: string | null = null;
   const hardship = tx.world.econ.rationLevel > 0 || tx.world.econ.wagesUnpaid > 0 || c.drought > 0;
-  if (a.factionId === 'union' && (leads || c.drives.has('union')) && !sim.strike && g > 0.45) topic = g > 0.6 && (hardship || leads) ? 'strike' : hardship || reserveRatio(tx.world) > BONUS_AT ? 'rations_open' : null;
+  if (a.factionId === 'union' && (leads || c.drives.has('union')) && !sim.strike && g > 0.3) topic = g > 0.6 && (hardship || leads) ? 'strike' : hardship || reserveRatio(tx.world) > BONUS_AT ? 'rations_open' : null;
   if (!topic && hatesChair > 0.45 && a.standing > 2 && (c.drives.has('power') || leads)) topic = 'recall_chair';
   if (!topic || cooling(c.mind, 'rally', tx.tick)) return null;
   if ((sim.rallies ?? []).some((x) => x.topic === topic && x.supporters.length >= RALLY_QUORUM && tx.tick - x.tick < TICKS_PER_DAY)) return null;

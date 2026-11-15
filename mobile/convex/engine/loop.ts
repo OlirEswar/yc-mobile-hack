@@ -6,7 +6,7 @@ import type { Doc } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { TICK_MS_AT_1X } from '../../shared/colony';
-import { HEARTBEAT_FRESH_MS } from '../lib/constants';
+import { FOCUS_WARP, HEARTBEAT_FRESH_MS, WARP_MAX_TICKS } from '../lib/constants';
 
 /** Ticks per invocation and the gap between invocations, so nothing is scheduled faster than about once a second. */
 export function cadence(speed: number): { ticks: number; intervalMs: number } {
@@ -14,6 +14,16 @@ export function cadence(speed: number): { ticks: number; intervalMs: number } {
   const tickMs = TICK_MS_AT_1X / speed;
   const ticks = Math.max(1, Math.ceil(1000 / tickMs));
   return { ticks, intervalMs: Math.round(tickMs * ticks) };
+}
+
+/**
+ * Cadence while the world fast-forwards through the followed colonist's routine (world.focusWarp):
+ * FOCUS_WARP times the speed, at most WARP_MAX_TICKS per invocation so a mutation stays small.
+ */
+export function warpCadence(speed: number): { ticks: number; intervalMs: number } {
+  const fast = cadence(Math.max(1, speed) * FOCUS_WARP);
+  if (fast.ticks <= WARP_MAX_TICKS) return fast;
+  return { ticks: WARP_MAX_TICKS, intervalMs: Math.round((fast.intervalMs / fast.ticks) * WARP_MAX_TICKS) };
 }
 
 export function shouldRun(world: Doc<'worlds'>, now: number): boolean {

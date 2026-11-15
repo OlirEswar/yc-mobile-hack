@@ -245,7 +245,7 @@ export async function raiseMoney(c: Ctx): Promise<Choice | null> {
     }
   }
   const site = (['quarry', 'landing_pad', 'solar_farm'] as const).find((l) => stormAt(tx.world, l) === 0);
-  if (site) opts.push({ s: 'scavenge', fit: 0.55, intent: intentLine('money.scavenge', r('m-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).add('scavenge', [site], 'Still scavenging at ' + locName(site)) });
+  if (site && (c.weights.scavenge >= 0.45 || a.traits.curiosity > 0.65)) opts.push({ s: 'scavenge', fit: 0.5, intent: intentLine('money.scavenge', r('m-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).add('scavenge', [site], 'Still scavenging at ' + locName(site)) });
   if (a.inv.water >= 1 || (c.household?.pantry.water ?? 0) >= 3) opts.push({ s: 'grow', fit: 0.45, intent: intentLine('money.grow', r('m-grow'), vars), plan: new Plan(a.locationId).go(a.homeLocationId).add('grow', [12], 'Tending the grow rack at home') });
   const lenderTie = c.ties.filter((t) => t.toAlive && t.trust >= 0.2).sort((x, y) => y.trust - x.trust)[0];
   const lender = lenderTie ? await findable(c, lenderTie.toAgentId) : null;

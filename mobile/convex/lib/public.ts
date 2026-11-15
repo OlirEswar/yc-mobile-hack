@@ -110,5 +110,6 @@ export function toWorldPublic(w: Doc<'worlds'>, factions: Doc<'factions'>[]): Wo
     rationLevel: w.econ.rationLevel as 0 | 1 | 2,
     treasury: Math.round(w.econ.treasury),
     regolith: { quarry: Math.round(w.econ.regolith.quarry), workshop: Math.round(w.econ.regolith.workshop) },
+    focusWarp: w.focusWarp,
   };
 }

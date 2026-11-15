@@ -53,7 +53,9 @@ final class MockSource: WorldSource {
     private var directives: [AvatarDirective] = []
     /// The avatar's latest directive steers its routine for a few hours.
     private var directed: (to: LocationId, text: String, until: Double)?
-    private var playerName = "Player"
+    private var playerName: String?
+    /// As the backend: the chosen name, else the character's first name.
+    private var displayName: String { playerName ?? profile?.first ?? "Player" }
     private var inviteCode: String?
 
     init() { seed() }
@@ -569,7 +571,7 @@ final class MockSource: WorldSource {
         let avatar = avatarId.flatMap { agents[$0]?.lite }
         let hasAnything = !personaSources.isEmpty || profile != nil || avatarId != nil
         sink?.received(avatar: hasAnything ? AvatarPublic(sources: personaSources.map(\.info), profile: profile, profileSource: profileSource, agentId: avatarId, directives: directives) : nil)
-        let me = PlayerPublic(id: "me", name: playerName, isHost: true, isYou: true, online: true, avatarAgentId: avatar?.id, avatarName: avatar?.name)
+        let me = PlayerPublic(id: "me", name: displayName, isHost: true, isYou: true, online: true, avatarAgentId: avatar?.id, avatarName: avatar?.name)
         sink?.received(multiplayer: MultiplayerPublic(worldId: "mock-world", inviteCode: inviteCode, isHost: true, players: [me], maxPlayers: 6))
     }
 
@@ -621,7 +623,7 @@ final class MockSource: WorldSource {
         if let id = avatarId, agents[id]?.lite.alive == true { return avatarFail("\(p.first) is already in the colony.") }
         let made = applyNow(.createCharacter(NewCharacter(name: p.name, spriteId: p.spriteId, ageBand: p.ageBand, occupation: p.occupation, home: p.homeLocationId, traits: p.traits, values: p.values, backstory: p.backstory, credits: 60, food: 6, goal: "")))
         guard made.ok, let id = made.createdAgentId else { return avatarFail(made.message ?? "The shuttle could not land.") }
-        agents[id]!.lite.ownerName = playerName
+        agents[id]!.lite.ownerName = displayName
         agents[id]!.detail.persona = p.persona
         let goals = p.goals.map { GoalPublic(id: newId("g"), kind: $0.kind, description: $0.description, priority: 0.7, source: "personality", status: "active", createdAtTick: tick) }
         agents[id]!.detail.goals.insert(contentsOf: goals, at: 0)

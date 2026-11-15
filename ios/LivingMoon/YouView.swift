@@ -1,6 +1,63 @@
 import AuthenticationServices
 import SwiftUI
 
+// MARK: - Design
+
+/// The You tab's vocabulary: quiet charcoal surfaces on black with generous spacing, and one
+/// luminous module (the avatar, or the setup card before there is one) as the focal point.
+enum YouStyle {
+    static let page: CGFloat = 20
+    static let section: CGFloat = 44
+    static let radius: CGFloat = 28
+    static let violet = Color(red: 0.45, green: 0.38, blue: 0.98)
+    static let coral = Color(red: 0.98, green: 0.45, blue: 0.38)
+    static let teal = Color(red: 0.25, green: 0.78, blue: 0.72)
+}
+
+extension View {
+    /// A content surface: faint fill and a hairline. Glass stays on controls.
+    func youSurface(_ radius: CGFloat = YouStyle.radius) -> some View {
+        background(Color.white.opacity(0.05), in: .rect(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.08)))
+    }
+
+    /// A single-line input in a soft capsule, with room for a trailing button.
+    func capsuleField() -> some View {
+        padding(.leading, 20)
+            .padding(.trailing, 6)
+            .frame(minHeight: 54)
+            .background(Color.white.opacity(0.06), in: .capsule)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+    }
+
+    func primaryButton() -> some View {
+        buttonStyle(.glassProminent)
+            .controlSize(.extraLarge)
+            .foregroundStyle(.black)
+            .fontWeight(.semibold)
+    }
+}
+
+struct SectionHeader: View {
+    var title: String
+    var detail: String? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Spacer()
+            if let detail { Text(detail).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary) }
+        }
+    }
+}
+
+struct ErrorText: View {
+    var text: String
+    var body: some View {
+        Label(text, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red)
+    }
+}
+
 // MARK: - You
 
 /// Your own colonist: import what your apps know about you, build a character from it, drop it into
@@ -9,10 +66,6 @@ struct YouView: View {
     @Environment(Game.self) private var game
     @State private var importing: ImportKind?
     @State private var editing = false
-    @State private var buildName = ""
-    @State private var building = false
-    @State private var spawning = false
-    @State private var error: String?
     @State private var confirmForget = false
 
     enum ImportKind: String, Identifiable {
@@ -20,33 +73,41 @@ struct YouView: View {
         var id: String { rawValue }
     }
 
+    private enum Anchor: Hashable { case sources, character }
+
     private var sources: [PersonaSourcePublic] { game.avatar?.sources ?? [] }
     private var profile: AvatarProfile? { game.avatar?.profile }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let me = game.myAvatar {
-                    AvatarCard(avatar: me, spawning: spawning, respawn: spawn)
-                } else if sources.isEmpty && profile == nil {
-                    intro
-                }
-                sourcesSection
-                characterSection
-                if let error {
-                    Section { Text(error).foregroundStyle(.red) }
-                }
-                PlayersSection()
-                if game.avatar != nil {
-                    Section {
-                        Button("Forget my sources and profile", role: .destructive) { confirmForget = true }
-                    } footer: {
-                        Text("A character already in the colony stays there as an ordinary colonist.")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: YouStyle.section) {
+                        if let me = game.myAvatar {
+                            VStack(spacing: 16) {
+                                AvatarHero(avatar: me)
+                                if me.alive { DirectiveComposer(avatar: me) }
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 28) {
+                                IntroHero()
+                                SetupChecklist(sources: sources.count, hasProfile: profile != nil) { step in
+                                    withAnimation(.smooth) { proxy.scrollTo(step == 0 ? Anchor.sources : Anchor.character, anchor: .top) }
+                                }
+                            }
+                        }
+                        AboutYouSection(sources: sources, importing: $importing).id(Anchor.sources)
+                        CharacterSection(editing: $editing).id(Anchor.character)
+                        FriendsSection()
+                        if game.avatar != nil { forgetFooter }
                     }
+                    .padding(.horizontal, YouStyle.page)
+                    .padding(.top, 4)
+                    .padding(.bottom, 120)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("You")
-            .scrollDismissesKeyboard(.immediately)
             .sheet(item: $importing) { kind in
                 switch kind {
                 case .gmail: GmailImportSheet()
@@ -58,162 +119,345 @@ struct YouView: View {
                 if let profile { ProfileEditor(profile: profile) }
             }
             .confirmationDialog("Forget everything you imported?", isPresented: $confirmForget, titleVisibility: .visible) {
-                Button("Forget", role: .destructive) { run { await game.forgetAvatar() } }
+                Button("Forget", role: .destructive) { Task { _ = await game.forgetAvatar() } }
             } message: { Text("Your sources and your character's profile are deleted.") }
         }
     }
 
-    private var intro: some View {
-        Section {
-            VStack(spacing: 12) {
-                Image(systemName: "person.crop.circle.badge.plus")
-                    .font(.system(size: 54, weight: .light))
-                    .foregroundStyle(Color.amber)
-                Text("Put yourself on the Moon").font(.title2).fontDesign(.serif)
-                Text("Import what your apps already know about you. Living Moon builds a colonist modelled on you who lives, works and chooses the way you would.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+    private var forgetFooter: some View {
+        VStack(spacing: 6) {
+            Button("Forget my sources and profile", role: .destructive) { confirmForget = true }
+                .font(.subheadline.weight(.medium))
+            Text("A character already in the colony stays there as an ordinary colonist.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Before the avatar lands
+
+struct IntroHero: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Moon().frame(width: 112, height: 112)
+            Text("Put yourself on the \(Text("Moon").foregroundStyle(Color.amber))")
+                .font(.title.bold())
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Import what your apps already know about you. Living Moon builds a colonist who lives, works and chooses the way you would.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Three steps to a colonist, with the state of each drawn as a ring.
+struct SetupChecklist: View {
+    var sources: Int
+    var hasProfile: Bool
+    var jump: (Int) -> Void
+
+    private var steps: [(title: String, detail: String, done: Bool)] {
+        [
+            ("Tell it about you", sources == 0 ? "Gmail, your AI, or your own words" : "\(sources) of 6 sources added", sources > 0),
+            ("Build your character", hasProfile ? "Built. Review it below" : sources == 0 ? "One tap once a source is in" : "Ready when you are", hasProfile),
+            ("Land in the colony", "They step off the next shuttle", false),
+        ]
+    }
+
+    var body: some View {
+        let done = steps.filter(\.done).count
+        let current = steps.firstIndex { !$0.done } ?? steps.count
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                StepMark(mark: .progress(Double(done) / Double(steps.count)))
+                Text("Get started").font(.headline)
+                Spacer()
+                Text("\(done)/\(steps.count)").font(.headline.monospacedDigit()).foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+            VStack(spacing: 0) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
+                    Button { jump(i) } label: {
+                        HStack(spacing: 14) {
+                            StepMark(mark: step.done ? .done : i == current ? .current : .waiting)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(step.title)
+                                    .font(.body.weight(i == current ? .semibold : .regular))
+                                    .foregroundStyle(i > current ? .secondary : .primary)
+                                Text(step.detail).font(.footnote).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if i == current && i < 2 {
+                                Image(systemName: "chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 13)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(i == 2)
+                    .accessibilityValue(step.done ? "Done" : i == current ? "Next" : "Not yet")
+                }
+            }
             .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
         }
+        .youSurface()
     }
+}
 
-    private var sourcesSection: some View {
-        Section {
-            ForEach(sources) { s in
-                SourceRow(source: s)
-                    .swipeActions {
-                        Button("Delete", systemImage: "trash", role: .destructive) { run { await game.removeSource(s.id) } }
-                    }
+/// Complete, current, waiting and partial progress share one circular silhouette.
+struct StepMark: View {
+    enum Mark { case done, current, waiting, progress(Double) }
+    var mark: Mark
+
+    var body: some View {
+        ZStack {
+            switch mark {
+            case .done:
+                Circle().fill(Color.amber)
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy)).foregroundStyle(.black)
+            case .current:
+                Circle().strokeBorder(Color.amber, style: StrokeStyle(lineWidth: 2, dash: [3.2, 3.2]))
+            case .waiting:
+                Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1.5)
+            case let .progress(p):
+                Circle().strokeBorder(.white.opacity(0.14), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: max(0.02, p))
+                    .stroke(Color.amber, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(1.25)
             }
+        }
+        .frame(width: 22, height: 22)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - About you
+
+struct AboutYouSection: View {
+    @Environment(Game.self) private var game
+    var sources: [PersonaSourcePublic]
+    @Binding var importing: YouView.ImportKind?
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader(title: "About you", detail: "\(sources.count) of 6")
             if sources.count < 6 {
-                importButton("Import from Gmail", detail: "Senders, subjects and labels, read on this phone", symbol: "envelope.fill", .gmail)
-                importButton("Ask your AI", detail: "What ChatGPT, Claude or Gemini knows about you", symbol: "sparkles", .ai)
-                importButton("Write about yourself", detail: "In your own words", symbol: "pencil.line", .aboutMe)
-            }
-        } header: {
-            Text("About you")
-        } footer: {
-            Text("Everything is summarized on this phone first. Emails, phone numbers and links are removed before anything is kept. Up to 6 sources.")
-        }
-    }
-
-    private func importButton(_ title: String, detail: String, symbol: String, _ kind: ImportKind) -> some View {
-        Button { importing = kind } label: {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).foregroundStyle(.primary)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
-                }
-            } icon: {
-                Image(systemName: symbol).foregroundStyle(Color.amber)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var characterSection: some View {
-        if let profile {
-            Section {
-                ProfileCard(profile: profile, builtBy: game.avatar?.profileSource)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                HStack(spacing: 8) {
-                    Button { editing = true } label: { Text("Edit").frame(maxWidth: .infinity) }
-                        .buttonStyle(.glass)
-                    Button { build() } label: { Text(building ? "Rebuilding…" : "Rebuild").frame(maxWidth: .infinity) }
-                        .buttonStyle(.glass)
-                        .disabled(building || sources.isEmpty)
-                }
-                .controlSize(.large)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                if game.myAvatar == nil {
-                    Button { spawn() } label: {
-                        Label(spawning ? "Landing…" : "Drop into the colony", systemImage: "airplane.arrival").frame(maxWidth: .infinity)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ImportCard(title: "Gmail", detail: "Senders, subjects and labels, read on this phone", symbol: "envelope.fill", colors: [YouStyle.coral, .amber], note: GoogleAuth.isConfigured ? nil : "Needs setup") { importing = .gmail }
+                        ImportCard(title: "Your AI", detail: "What ChatGPT, Claude or Gemini knows about you", symbol: "sparkles", colors: [YouStyle.violet, .earth]) { importing = .ai }
+                        ImportCard(title: "In your words", detail: "A few honest lines about who you are", symbol: "pencil.line", colors: [YouStyle.teal, .earth]) { importing = .aboutMe }
                     }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .disabled(spawning)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    .padding(.horizontal, YouStyle.page)
                 }
-            } header: {
-                Text("Your character")
+                .padding(.horizontal, -YouStyle.page)
+                .scrollClipDisabled()
             }
-        } else {
-            Section {
-                TextField("Name (optional)", text: $buildName)
-                    .textContentType(.name)
-                Button { build() } label: {
-                    HStack {
-                        Text(building ? "Building your character…" : "Build my character")
-                        Spacer()
-                        if building { ProgressView() } else { Image(systemName: "wand.and.stars") }
+            if !sources.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(sources) { s in
+                        SourceRow(source: s) {
+                            Task { error = await game.removeSource(s.id) }
+                        }
                     }
                 }
-                .disabled(building || sources.isEmpty)
-            } header: {
-                Text("Your character")
-            } footer: {
-                Text(sources.isEmpty ? "Add at least one source about yourself first." : "You can edit everything before your character lands.")
             }
+            if let error { ErrorText(text: error) }
+            Text("Everything is summarized on this phone first. Emails, phone numbers and links are removed before anything is kept.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
 
-    private func build() {
-        let name = buildName.trimmingCharacters(in: .whitespaces)
-        building = true
-        run {
-            defer { building = false }
-            return await game.synthesize(name: name.isEmpty ? nil : name)
-        }
-    }
+/// An import option: an expressive banner over a plain reading area.
+struct ImportCard: View {
+    var title: String
+    var detail: String
+    var symbol: String
+    var colors: [Color]
+    var note: String? = nil
+    var action: () -> Void
 
-    private func spawn() {
-        spawning = true
-        run {
-            defer { spawning = false }
-            return await game.spawnAvatar()
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    ZStack {
+                        LinearGradient(colors: colors.map { $0.opacity(0.85) }, startPoint: .topLeading, endPoint: .bottomTrailing)
+                        RadialGradient(colors: [.white.opacity(0.35), .clear], center: .topLeading, startRadius: 0, endRadius: 140)
+                        RadialGradient(colors: [.black.opacity(0.25), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 160)
+                    }
+                    .frame(height: 92)
+                    .overlay {
+                        Image(systemName: symbol)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(colors[0])
+                            .frame(width: 46, height: 46)
+                            .background(.white, in: .rect(cornerRadius: 14))
+                            .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+                    }
+                    .clipShape(.rect(cornerRadius: 18))
+                    if let note {
+                        Text(note)
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.black.opacity(0.45), in: .capsule)
+                            .foregroundStyle(.white)
+                            .padding(8)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline).foregroundStyle(.primary)
+                    Text(detail).font(.footnote).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+            }
+            .padding(6)
+            .frame(width: 214, alignment: .leading)
+            .youSurface(24)
+            .contentShape(.rect(cornerRadius: 24))
         }
-    }
-
-    private func run(_ op: @escaping () async -> String?) {
-        Task {
-            error = nil
-            error = await op()
-        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(detail)
     }
 }
 
 struct SourceRow: View {
     var source: PersonaSourcePublic
+    var remove: () -> Void
 
     private var symbol: String {
         switch source.kind {
         case .gmail: "envelope.fill"
         case .ai_memory: "sparkles"
-        case .about_me: "person.text.rectangle"
+        case .about_me: "pencil.line"
         }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol).foregroundStyle(Color.amber).frame(width: 24).padding(.top, 2)
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.amber)
+                .frame(width: 40, height: 40)
+                .background(Color.white.opacity(0.07), in: .circle)
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(source.label).font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text("\(Int(source.chars)) chars").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Text(source.preview).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                Text(source.label).font(.subheadline.weight(.semibold))
+                Text(source.preview).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
             }
+            Spacer(minLength: 8)
+            Text("\(Int(source.chars))").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+            Button("Remove \(source.label)", systemImage: "xmark", action: remove)
+                .labelStyle(.iconOnly)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.06), in: .circle)
+                .buttonStyle(.plain)
         }
+        .padding(.leading, 12)
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+        .youSurface(24)
+        .contextMenu { Button("Remove", systemImage: "trash", role: .destructive, action: remove) }
     }
 }
 
-// MARK: - Profile
+// MARK: - Your character
+
+struct CharacterSection: View {
+    @Environment(Game.self) private var game
+    @Binding var editing: Bool
+    @State private var name = ""
+    @State private var building = false
+    @State private var spawning = false
+    @State private var error: String?
+
+    var body: some View {
+        let profile = game.avatar?.profile
+        let hasSources = !(game.avatar?.sources.isEmpty ?? true)
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader(title: "Your character", detail: profile == nil ? nil : builtByLabel(game.avatar?.profileSource))
+            if let profile {
+                ProfileCard(profile: profile)
+                HStack(spacing: 10) {
+                    Button { editing = true } label: {
+                        Label("Edit", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity)
+                    }
+                    Button { build() } label: {
+                        Label(building ? "Rebuilding…" : "Rebuild", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                    }
+                    .disabled(building || !hasSources)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                if game.myAvatar == nil {
+                    Button { spawn() } label: {
+                        Label(spawning ? "Landing…" : "Drop into the colony", systemImage: "airplane.arrival").frame(maxWidth: .infinity)
+                    }
+                    .primaryButton()
+                    .disabled(spawning)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text(hasSources ? "Living Moon reads your sources and drafts a colonist: a job, a temperament, a way of talking. You can change anything before they land." : "Add something about yourself first. Your character is drafted from it.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextField("Name in the colony (optional)", text: $name)
+                        .textContentType(.name)
+                        .capsuleField()
+                    Button { build() } label: {
+                        HStack {
+                            if building { ProgressView().tint(.black) } else { Image(systemName: "wand.and.stars") }
+                            Text(building ? "Building…" : "Build my character")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .primaryButton()
+                    .disabled(building || !hasSources)
+                }
+                .padding(20)
+                .youSurface()
+            }
+            if let error { ErrorText(text: error) }
+        }
+    }
+
+    private func build() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        building = true
+        Task {
+            error = await game.synthesize(name: trimmed.isEmpty ? nil : trimmed)
+            building = false
+        }
+    }
+
+    private func spawn() {
+        spawning = true
+        Task {
+            error = await game.spawnAvatar()
+            spawning = false
+        }
+    }
+}
 
 extension AvatarProfile {
     var ageLabel: String { ["young": "Young", "adult": "Adult", "elder": "Elder"][ageBand] ?? ageBand.capitalized }
@@ -222,7 +466,7 @@ extension AvatarProfile {
 func builtByLabel(_ source: String?) -> String {
     switch source {
     case "llm": "Built by AI"
-    case "rules": "Built by offline rules"
+    case "rules": "Built offline"
     case "player": "Edited by you"
     default: "Not built yet"
     }
@@ -234,63 +478,85 @@ func goalKindLabel(_ kind: String) -> String {
 
 struct ProfileCard: View {
     var profile: AvatarProfile
-    var builtBy: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                Avatar(spriteId: profile.spriteId, size: 72)
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 16) {
+                Avatar(spriteId: profile.spriteId, size: 68)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(profile.name).font(.title2).fontDesign(.serif)
+                    Text(profile.name).font(.title2.weight(.semibold))
                     Text("\(occupation(profile.occupation).label) · \(profile.ageLabel) · \(profile.homeLocationId.name)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(builtByLabel(builtBy))
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Color.amber.opacity(0.22)))
-                        .foregroundStyle(Color.amber)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
-            if !profile.summary.isEmpty { Text(profile.summary).font(.subheadline) }
-            if !profile.interests.isEmpty {
-                FlowLayout(spacing: 6) {
-                    ForEach(profile.interests, id: \.self) { Chip(text: $0) }
-                }
-            }
-            if !profile.backstory.isEmpty {
-                Text(profile.backstory).font(.footnote).foregroundStyle(.secondary).italic()
-            }
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                ForEach(TRAIT_KEYS, id: \.self) { key in
-                    GridRow {
-                        Text(key.capitalized).font(.caption).foregroundStyle(.secondary)
-                        ProgressView(value: profile.traits[key] ?? 0.5).tint(.amber)
+            if !profile.summary.isEmpty || !profile.interests.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    if !profile.summary.isEmpty {
+                        Text(profile.summary).font(.body).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !profile.interests.isEmpty {
+                        FlowLayout(spacing: 8) {
+                            ForEach(profile.interests, id: \.self) { Chip(text: $0) }
+                        }
                     }
                 }
             }
-            if !profile.speechStyle.isEmpty {
-                LabeledText(title: "Talks", text: profile.speechStyle)
-            }
-            if !profile.habits.isEmpty {
-                LabeledText(title: "Habits", text: profile.habits.map { "• " + $0 }.joined(separator: "\n"))
-            }
-            if !profile.goals.isEmpty {
-                LabeledText(title: "Wants", text: profile.goals.map { "• " + $0.description }.joined(separator: "\n"))
+            TraitGrid(traits: profile.traits)
+            VStack(alignment: .leading, spacing: 18) {
+                if !profile.speechStyle.isEmpty { DetailRow(symbol: "quote.bubble", title: "Talks", lines: [profile.speechStyle]) }
+                if !profile.habits.isEmpty { DetailRow(symbol: "repeat", title: "Habits", lines: profile.habits) }
+                if !profile.goals.isEmpty { DetailRow(symbol: "scope", title: "Wants", lines: profile.goals.map(\.description)) }
+                if !profile.backstory.isEmpty { DetailRow(symbol: "book.closed", title: "Backstory", lines: [profile.backstory]) }
             }
         }
-        .padding(18)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26))
+        .padding(22)
+        .youSurface()
     }
 }
 
-struct LabeledText: View {
-    var title: String
-    var text: String
+/// Temperament as six small metrics: a readable number, a short label and a thin bar.
+struct TraitGrid: View {
+    var traits: [String: Double]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            Text(text).font(.subheadline)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            ForEach(TRAIT_KEYS, id: \.self) { key in
+                let value = min(1, max(0, traits[key] ?? 0.5))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(Int((value * 100).rounded()))").font(.title3.weight(.semibold).monospacedDigit())
+                    Text(key.capitalized).font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.75)
+                    Capsule()
+                        .fill(.white.opacity(0.08))
+                        .frame(height: 3)
+                        .overlay(alignment: .leading) {
+                            GeometryReader { g in Capsule().fill(Color.amber).frame(width: g.size.width * value) }
+                        }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 16))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(key.capitalized), \(Int((value * 100).rounded())) out of 100")
+            }
+        }
+    }
+}
+
+struct DetailRow: View {
+    var symbol: String
+    var title: String
+    var lines: [String]
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Image(systemName: symbol).font(.subheadline).foregroundStyle(Color.amber).frame(width: 20)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase).tracking(0.6)
+                ForEach(lines, id: \.self) { line in
+                    Text(line).font(.subheadline).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }
@@ -301,15 +567,15 @@ struct Chip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(text).font(.caption.weight(.medium))
+            Text(text).font(.footnote.weight(.medium))
             if let onRemove {
                 Button("Remove \(text)", systemImage: "xmark", action: onRemove)
                     .labelStyle(.iconOnly).font(.caption2.weight(.bold)).buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Capsule().fill(.white.opacity(0.1)))
-        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Capsule().fill(.white.opacity(0.07)))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.1), lineWidth: 1))
     }
 }
 
@@ -508,83 +774,194 @@ struct ProfileEditor: View {
 
 // MARK: - Avatar in the colony
 
-struct AvatarCard: View {
+/// The focal module: the avatar on a dark panel lit from its edges.
+struct AvatarHero: View {
     @Environment(Game.self) private var game
     var avatar: AgentLite
-    var spawning: Bool
-    var respawn: () -> Void
+    @State private var spawning = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack(spacing: 8) {
+                Circle().fill(avatar.alive ? Color.green : Color.gray).frame(width: 7, height: 7)
+                Text(avatar.alive ? "Live in the colony" : "No longer in the colony")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                Spacer()
+                if avatar.alive {
+                    Button { game.selectedID = avatar.id } label: {
+                        Image(systemName: "info").font(.footnote.weight(.bold))
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Inspect \(avatar.first)")
+                }
+            }
+            Avatar(spriteId: avatar.spriteId, alive: avatar.alive, size: 108)
+                .background {
+                    Circle().fill(Color.amber.opacity(avatar.alive ? 0.4 : 0.1)).blur(radius: 30).scaleEffect(1.35)
+                }
+                .padding(.top, 4)
+            VStack(spacing: 8) {
+                Text(avatar.name).font(.title.bold()).multilineTextAlignment(.center)
+                Text(avatar.alive ? avatar.activityLabel : "They died. Your profile is still here.")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if avatar.alive {
+                HStack(spacing: 8) {
+                    HeroPill(symbol: "face.smiling", text: avatar.mood.capitalized)
+                    HeroPill(symbol: avatar.move == nil ? "mappin.and.ellipse" : "figure.walk", text: (avatar.move == nil ? "" : "To ") + avatar.locationId.name)
+                }
+                Button { game.follow(avatar.id) } label: {
+                    Label("Follow \(avatar.first)", systemImage: "scope").frame(maxWidth: .infinity)
+                }
+                .primaryButton()
+                .padding(.top, 4)
+            } else {
+                Button {
+                    spawning = true
+                    Task {
+                        error = await game.spawnAvatar()
+                        spawning = false
+                    }
+                } label: {
+                    Label(spawning ? "Landing…" : "Send a new \(avatar.first)", systemImage: "airplane.arrival").frame(maxWidth: .infinity)
+                }
+                .primaryButton()
+                .disabled(spawning)
+                if let error { ErrorText(text: error) }
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity)
+        .background { LuminousPanel(lit: avatar.alive) }
+        .clipShape(.rect(cornerRadius: 36))
+        .overlay(RoundedRectangle(cornerRadius: 36).strokeBorder(.white.opacity(0.12)))
+    }
+}
+
+/// Near-black body with warm and violet light near the edges and a quiet centre for text.
+struct LuminousPanel: View {
+    var lit = true
+
+    var body: some View {
+        ZStack {
+            Color(white: 0.05)
+            RadialGradient(colors: [Color.amber.opacity(lit ? 0.7 : 0.2), .clear], center: .bottom, startRadius: 0, endRadius: 300)
+                .offset(y: 70)
+            RadialGradient(colors: [YouStyle.violet.opacity(lit ? 0.55 : 0.2), .clear], center: .topLeading, startRadius: 0, endRadius: 300)
+            RadialGradient(colors: [.black.opacity(0.6), .clear], center: .center, startRadius: 10, endRadius: 210)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct HeroPill: View {
+    var symbol: String
+    var text: String
+
+    var body: some View {
+        Label(text, systemImage: symbol)
+            .font(.footnote.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.1), in: .capsule)
+    }
+}
+
+/// "Tell Neel to…": a composer, a few starting ideas, and what you asked before.
+struct DirectiveComposer: View {
+    @Environment(Game.self) private var game
+    var avatar: AgentLite
     @State private var order = ""
     @FocusState private var typing: Bool
     @State private var sending = false
     @State private var error: String?
 
+    private static let ideas = ["Make friends with the medics", "Get rich trading water", "Run for the council", "Explore the colony"]
     private var trimmed: String { order.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var directives: [AvatarDirective] { game.avatar?.directives ?? [] }
 
     var body: some View {
-        Section {
-            HStack(spacing: 14) {
-                Avatar(spriteId: avatar.spriteId, alive: avatar.alive, size: 64)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(avatar.name).font(.title2).fontDesign(.serif)
-                    Text(avatar.alive ? avatar.activityLabel : "Died").font(.subheadline).lineLimit(2)
-                    if avatar.alive {
-                        Text("Feels \(avatar.mood) · \(avatar.move == nil ? "at" : "heading to") \(avatar.locationId.name)").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Tell \(avatar.first) to…", text: $order, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($typing)
+                    .submitLabel(.send)
+                    .padding(.leading, 20)
+                    .padding(.vertical, 16)
+                    .onChange(of: order) {
+                        if order.contains("\n") {
+                            order = order.replacingOccurrences(of: "\n", with: "")
+                            send()
+                        } else if order.count > 140 {
+                            order = String(order.prefix(140))
+                        }
                     }
+                Button(action: send) {
+                    Group {
+                        if sending { ProgressView().tint(.black) } else { Image(systemName: "arrow.up").font(.body.weight(.bold)) }
+                    }
+                    .foregroundStyle(.black)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(trimmed.count >= 3 ? Color.amber : Color.white.opacity(0.18)))
                 }
+                .buttonStyle(.plain)
+                .disabled(trimmed.count < 3 || sending)
+                .padding(7)
+                .accessibilityLabel("Send to \(avatar.first)")
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+            .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 27))
+            .overlay(RoundedRectangle(cornerRadius: 27).strokeBorder(.white.opacity(typing ? 0.2 : 0.08)))
 
-            if avatar.alive {
-                HStack(spacing: 8) {
-                    Button { game.follow(avatar.id) } label: { Text("Follow").frame(maxWidth: .infinity) }
-                        .buttonStyle(.glassProminent)
-                    Button { game.selectedID = avatar.id } label: { Text("Inspect").frame(maxWidth: .infinity) }
-                        .buttonStyle(.glass)
-                }
-                .controlSize(.large)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            if let error { ErrorText(text: error).padding(.horizontal, 6) }
 
-                HStack(alignment: .bottom, spacing: 10) {
-                    TextField("Tell \(avatar.first) to…", text: $order, axis: .vertical)
-                        .lineLimit(1...4)
-                        .focused($typing)
-                        .onChange(of: order) { if order.count > 140 { order = String(order.prefix(140)) } }
-                        .submitLabel(.send)
-                    Button("Send", systemImage: "arrow.up.circle.fill") { send() }
-                        .labelStyle(.iconOnly)
-                        .font(.title2)
-                        .disabled(trimmed.count < 3 || sending)
-                }
-                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-                ForEach(Array((game.avatar?.directives ?? []).enumerated()), id: \.offset) { _, d in
-                    HStack(alignment: .firstTextBaseline) {
-                        Image(systemName: "person.wave.2.fill").font(.caption).foregroundStyle(Color.amber)
-                        Text(d.text).font(.subheadline)
-                        Spacer()
-                        Text(Clock.time(d.tick)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if directives.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Self.ideas, id: \.self) { idea in
+                            Button(idea) { order = idea; typing = true }
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(Color.white.opacity(0.05), in: .capsule)
+                                .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+                                .buttonStyle(.plain)
+                        }
                     }
+                    .padding(.horizontal, YouStyle.page)
                 }
+                .padding(.horizontal, -YouStyle.page)
+                .scrollClipDisabled()
             } else {
-                Button { respawn() } label: {
-                    Label(spawning ? "Landing…" : "Send a new \(avatar.first) to the colony", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("You asked").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase).tracking(0.6)
+                        .padding(.bottom, 4)
+                    ForEach(Array(directives.enumerated()), id: \.offset) { i, d in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(d.text).font(.subheadline).foregroundStyle(i == 0 ? .primary : .secondary)
+                            Spacer(minLength: 8)
+                            Text(Clock.time(d.tick)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 11)
+                        if i < directives.count - 1 { Rectangle().fill(.white.opacity(0.06)).frame(height: 1) }
+                    }
                 }
-                .buttonStyle(.glassProminent)
-                .controlSize(.large)
-                .disabled(spawning)
-                .listRowBackground(Color.clear)
+                .padding(.horizontal, 6)
             }
-        } header: {
-            Text("In the colony")
-        } footer: {
-            if avatar.alive { Text("\(avatar.first) decides how. Tell them what you want in a sentence: \"make friends with the medics\", \"get rich trading water\".") }
         }
     }
 
     private func send() {
         let text = trimmed
-        guard text.count >= 3 else { return }
+        guard text.count >= 3, !sending else { return }
         sending = true
         Task {
             error = await game.direct(text)
@@ -599,7 +976,7 @@ struct AvatarCard: View {
 
 // MARK: - Multiplayer
 
-struct PlayersSection: View {
+struct FriendsSection: View {
     @Environment(Game.self) private var game
     @State private var name = ""
     @State private var code = ""
@@ -610,69 +987,65 @@ struct PlayersSection: View {
     var body: some View {
         let state = game.multiplayer
         let me = state?.players.first { $0.isYou }
-        Section {
-            HStack {
-                TextField("Your name", text: $name)
-                    .textContentType(.nickname)
-                    .submitLabel(.done)
-                    .onSubmit(saveName)
-                if !name.isEmpty && name != me?.name {
-                    Button("Save", action: saveName).buttonStyle(.glass).controlSize(.small)
-                }
-            }
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader(title: "Play with friends", detail: state.map { "\($0.players.count) of \(Int($0.maxPlayers))" })
+            Text("Friends with your code join this world with their own characters. Your characters meet, talk and trade on their own.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
             if let state {
                 if let invite = state.inviteCode {
-                    VStack(spacing: 10) {
-                        Text("Colony code").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(invite)
-                            .font(.system(size: 42, weight: .bold, design: .monospaced))
-                            .tracking(6)
-                            .foregroundStyle(Color.amber)
-                            .textSelection(.enabled)
-                        ShareLink(item: "Join my Moon colony in Living Moon with code \(invite)") {
-                            Label("Share code", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.glass)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                    InviteCodeCard(code: invite)
                 } else if state.isHost {
                     Button { act { await game.invite() } } label: {
-                        Label("Invite friends", systemImage: "person.2.badge.plus")
+                        Label("Invite friends", systemImage: "person.2.badge.plus").frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.glass)
+                    .controlSize(.extraLarge)
+                    .disabled(busy)
                 }
-                ForEach(state.players) { PlayerRow(player: $0) }
-                if !state.isHost {
-                    Button("Leave and return to my colony", systemImage: "arrow.uturn.backward", role: .destructive) { act { await game.leave() } }
+                VStack(spacing: 8) {
+                    ForEach(state.players) { PlayerRow(player: $0) }
                 }
             }
-            if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-        } header: {
-            HStack {
-                Text("Play with friends")
-                Spacer()
-                if let state { Text("\(state.players.count)/\(Int(state.maxPlayers))").monospacedDigit() }
-            }
-        } footer: {
-            Text("Friends with the code join this world with their own characters. Your characters meet, talk and trade on their own.")
-        }
 
-        Section {
-            HStack {
-                TextField("6-character code", text: $code)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .font(.body.monospaced())
-                    .onChange(of: code) {
-                        let clean = String(code.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
-                        if clean != code { code = clean }
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    Text("Name").foregroundStyle(.secondary).frame(width: 46, alignment: .leading)
+                    TextField("How friends see you", text: $name)
+                        .textContentType(.nickname)
+                        .submitLabel(.done)
+                        .onSubmit(saveName)
+                    if name.trimmingCharacters(in: .whitespaces).count >= 2 && name != me?.name {
+                        Button("Save", action: saveName).buttonStyle(.glass)
                     }
-                Button(busy ? "…" : "Join") { confirmJoin = true }
-                    .buttonStyle(.glassProminent)
-                    .disabled(code.count != 6 || busy)
+                }
+                .capsuleField()
+                HStack(spacing: 12) {
+                    Text("Code").foregroundStyle(.secondary).frame(width: 46, alignment: .leading)
+                    TextField("Friend's code", text: $code)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.body.monospaced())
+                        .onChange(of: code) {
+                            let clean = String(code.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
+                            if clean != code { code = clean }
+                        }
+                    Button(busy ? "…" : "Join") { confirmJoin = true }
+                        .buttonStyle(.glassProminent)
+                        .foregroundStyle(.black)
+                        .disabled(code.count != 6 || busy)
+                }
+                .capsuleField()
             }
-        } header: {
-            Text("Join a friend's colony")
+
+            if let state, !state.isHost {
+                Button("Leave and return to my colony", systemImage: "arrow.uturn.backward", role: .destructive) { act { await game.leave() } }
+                    .font(.subheadline.weight(.medium))
+            }
+            if let error { ErrorText(text: error) }
         }
         .confirmationDialog("Join colony \(code)?", isPresented: $confirmJoin, titleVisibility: .visible) {
             Button("Join") {
@@ -701,33 +1074,83 @@ struct PlayersSection: View {
     }
 }
 
+/// The join code as a lit dot display, with a share action.
+struct InviteCodeCard: View {
+    var code: String
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Colony code").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase).tracking(1)
+            DotMatrixText(text: code, dot: 4.5, gap: 2, color: .amber)
+            ShareLink(item: "Join my Moon colony in Living Moon with code \(code)") {
+                Label("Share code", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity)
+        .background {
+            ZStack {
+                Color(white: 0.05)
+                RadialGradient(colors: [Color.amber.opacity(0.22), .clear], center: .top, startRadius: 0, endRadius: 240)
+            }
+        }
+        .clipShape(.rect(cornerRadius: YouStyle.radius))
+        .overlay(RoundedRectangle(cornerRadius: YouStyle.radius).strokeBorder(.white.opacity(0.1)))
+        .contextMenu {
+            Button("Copy code", systemImage: "doc.on.doc") { UIPasteboard.general.string = code }
+        }
+    }
+}
+
 struct PlayerRow: View {
     @Environment(Game.self) private var game
     var player: PlayerPublic
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(player.online ? Color.green : Color.gray.opacity(0.5)).frame(width: 8, height: 8)
-                .accessibilityLabel(player.online ? "Online" : "Offline")
-            Text(player.name)
-            if player.isHost { Badge(text: "Host") }
-            if player.isYou { Badge(text: "You", tint: .earth) }
-            Spacer()
-            if let id = player.avatarAgentId, let name = player.avatarName {
-                Button {
-                    game.selectedID = id
-                } label: {
-                    HStack(spacing: 6) {
-                        if let c = game.colonist(id) { Avatar(spriteId: c.spriteId, alive: c.alive, size: 24) }
-                        Text(name).font(.caption)
+        let colonist = game.colonist(player.avatarAgentId)
+        Button {
+            if let id = player.avatarAgentId { game.selectedID = id }
+        } label: {
+            HStack(spacing: 14) {
+                Group {
+                    if let colonist {
+                        Avatar(spriteId: colonist.spriteId, alive: colonist.alive, size: 42)
+                    } else {
+                        Text(String(player.name.prefix(1)).uppercased())
+                            .font(.headline)
+                            .frame(width: 42, height: 42)
+                            .background(Color.white.opacity(0.08), in: .circle)
                     }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            } else {
-                Text("No character yet").font(.caption).foregroundStyle(.tertiary)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle()
+                        .fill(player.online ? Color.green : Color.gray)
+                        .frame(width: 11, height: 11)
+                        .overlay(Circle().stroke(.black, lineWidth: 2))
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(player.name).font(.subheadline.weight(.semibold))
+                        if player.isHost { Badge(text: "Host") }
+                        if player.isYou { Badge(text: "You", tint: .earth) }
+                    }
+                    Text(player.avatarName ?? "No character yet").font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if player.avatarAgentId != nil {
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                }
             }
+            .padding(12)
+            .youSurface(24)
+            .contentShape(.rect(cornerRadius: 24))
         }
+        .buttonStyle(.plain)
+        .allowsHitTesting(player.avatarAgentId != nil)
+        .accessibilityLabel("\(player.name)\(player.isHost ? ", host" : "")\(player.isYou ? ", you" : ""), \(player.online ? "online" : "offline"), \(player.avatarName ?? "no character yet")")
     }
 }
 

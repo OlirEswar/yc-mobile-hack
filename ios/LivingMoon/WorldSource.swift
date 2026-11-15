@@ -36,6 +36,8 @@ protocol WorldSource: AnyObject {
     func watchFocus(_ agentId: Id, _ onValue: @escaping (FocusState?) -> Void) -> () -> Void
     /// focus:conversation, reactive: the player's questions to this colonist, oldest first.
     func watchConversation(_ agentId: Id, _ onValue: @escaping ([AskTurn]) -> Void) -> () -> Void
+    /// society/api:overview: the almanac. Nil when the backend has no society layer.
+    func society() async -> SocietyOverview?
     /// focus:ask. They answer in character; it never changes the world.
     func ask(_ agentId: Id, question: String) async throws -> AskResult
     func apply(_ intervention: Intervention, commandId: String) async throws -> InterventionResult

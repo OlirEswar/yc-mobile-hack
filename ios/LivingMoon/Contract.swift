@@ -297,6 +297,23 @@ struct AgentDetail: Codable, Identifiable, Hashable {
     var persona: PersonaPublic?
     /// Live storylines this colonist is part of.
     var storylineIds: [Id]?
+
+    // The society layer, all in words.
+    var organizations: [Membership]?
+    var family: Family?
+    var pets: [Pet]?
+    /// A goal that has taken over their life.
+    var obsession: String?
+    /// Notable works, newest first.
+    var works: [WorkRef]?
+    /// How the colony sees them, e.g. "a respected elder".
+    var standingLabel: String?
+    var education: String?
+
+    struct Membership: Codable, Hashable { var id: Id; var name: String; var kind: String; var role: String }
+    struct Family: Codable, Hashable { var partnerId: Id?; var partnerName: String?; var parentIds: [Id]; var childIds: [Id] }
+    struct Pet: Codable, Hashable { var name: String; var species: String }
+    struct WorkRef: Codable, Hashable, Identifiable { var id: Id; var title: String; var kind: String; var fame: Double }
 }
 
 struct ActiveEffect: Codable, Identifiable, Hashable {
@@ -327,6 +344,72 @@ struct WorldPublic: Codable, Hashable {
     var focusWarp: Bool?
 
     var running: Bool { status == "running" && speed > 0 }
+}
+
+// MARK: - Society (the almanac)
+
+struct OrganizationPublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var name: String
+    /// company, guild, cult, gang, militia, party, school, troupe or breakaway.
+    var kind: String
+    var creed: String
+    var leaderId: Id?
+    var memberIds: [Id]
+    var foundedTick: Double
+    var status: String
+    var territory: [LocationId]?
+    var rules: [String]?
+    var rivalIds: [Id]
+}
+
+struct DiscoveryPublic: Codable, Identifiable, Hashable {
+    var key: String
+    var name: String
+    var effect: String
+    var tick: Double
+    var discovererIds: [Id]
+    var eventId: Id?
+    var id: String { key }
+}
+
+struct StructurePublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var key: String
+    var name: String
+    var locationId: LocationId
+    var builderIds: [Id]
+    var progress: Double
+    var builtTick: Double?
+}
+
+struct WorkPublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var title: String
+    var kind: String
+    var creatorId: Id
+    var creatorName: String
+    var fame: Double
+    var createdTick: Double
+    var about: String
+}
+
+struct Notable: Codable, Hashable, Identifiable {
+    var agentId: Id
+    var name: String
+    /// What they are known for, e.g. "the painter of the Long Dark mural".
+    var known: String
+    var id: Id { agentId }
+
+    private enum CodingKeys: String, CodingKey { case agentId, name, known = "for" }
+}
+
+struct SocietyOverview: Codable, Hashable {
+    var organizations: [OrganizationPublic]
+    var discoveries: [DiscoveryPublic]
+    var structures: [StructurePublic]
+    var works: [WorkPublic]
+    var notables: [Notable]
 }
 
 // MARK: - Story

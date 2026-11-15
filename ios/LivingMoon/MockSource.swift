@@ -9,11 +9,7 @@ final class MockSource: WorldSource {
     let worldId = "mock-world"
 
     private struct Faction { let id: String; let name: String }
-    private static let factions = [
-        Faction(id: "council", name: "Founders' Circle"),
-        Faction(id: "union", name: "Haulers' Union"),
-        Faction(id: "icers", name: "Deep Ice Collective"),
-    ]
+    private static let factions = MockStory.factions.map { Faction(id: $0.id, name: $0.name) }
     private static let first = ["Mira", "Tomas", "Elian", "Asha", "Kenji", "Noor", "Ivo", "Lena", "Dax", "Yara", "Soren", "Priya", "Malik", "Juno", "Teo", "Ines", "Rafe", "Zhen", "Oksana", "Bram", "Calla", "Emeka", "Farah", "Goran", "Hana", "Idris", "Jaya", "Kofi", "Liang", "Marit", "Nico", "Oona", "Pavel", "Quinn", "Rosa", "Sami", "Talia", "Uri", "Vera", "Wren", "Xavi", "Yusuf", "Zora", "Anouk", "Bodhi", "Cyrus", "Dalia", "Esme", "Finn", "Greta"]
     private static let last = ["Okafor", "Vance", "Reyes", "Tanaka", "Novak", "Haddad", "Lindqvist", "Mbeki", "Sorensen", "Park", "Castillo", "Ivanova", "Rahman", "Duarte", "Fischer", "Adeyemi", "Kowalski", "Nakamura", "Silva", "Brandt", "Chowdhury", "Moreau", "Petrov", "Osei", "Alvarez", "Hale", "Ng", "Bianchi", "Koroma", "Stone"]
     private static let moods = ["content", "focused", "tired", "cheerful", "restless", "calm", "worried", "hopeful"]
@@ -44,6 +40,23 @@ final class MockSource: WorldSource {
     private var prices: [String: Double] = ["food": 4, "water": 5, "parts": 9, "medicine": 14]
     private var commands: [String: InterventionResult] = [:]
     private var detailWatchers: [Id: [UUID: (AgentDetail?) -> Void]] = [:]
+
+    // The story layer.
+    private var personas: [Id: PersonaPublic] = [:]
+    private var keyIds: [String: Id] = [:]
+    private var storylines: [StorylinePublic] = []
+    private var storylineIds: [String: Id] = [:]
+    private var laterBeats: [String: [MockStory.Line]] = [:]
+    private var scriptIndex = 0
+    private var focusId: Id?
+    private var warping = false
+    private var thoughts: [Id: [ThoughtLine]] = [:]
+    private var hooks: [Id: [StoryHook]] = [:]
+    private var conversations: [Id: [AskTurn]] = [:]
+    private var society: [Id: (orgs: [AgentDetail.Membership], family: AgentDetail.Family?, pets: [AgentDetail.Pet], obsession: String?, works: [AgentDetail.WorkRef], standing: String, education: String?)] = [:]
+    private var storylineWatchers: [UUID: (agentId: Id?, onValue: ([StorylinePublic]) -> Void)] = [:]
+    private var focusWatchers: [Id: [UUID: (FocusState?) -> Void]] = [:]
+    private var conversationWatchers: [Id: [UUID: ([AskTurn]) -> Void]] = [:]
     private weak var sink: SourceSink?
 
     init() { seed() }
@@ -63,8 +76,8 @@ final class MockSource: WorldSource {
     private func touch(_ id: Id) { agents[id]?.lite.updatedAtVersion = version }
 
     @discardableResult
-    private func emit(_ category: EventCategory, _ type: String, actor: Id? = nil, participants: [Id] = [], at location: LocationId? = nil, _ summary: String, salience: Double, cause: Id? = nil, visibility: String = "public", banner: Bool? = nil) -> WorldEventPublic {
-        let event = WorldEventPublic(id: newId("e"), tick: tick, category: category, eventType: type, actorId: actor, participantIds: participants, locationId: location, summary: summary, salience: salience, causationEventId: cause, banner: banner ?? (salience >= 0.6), visibility: visibility)
+    private func emit(_ category: EventCategory, _ type: String, actor: Id? = nil, participants: [Id] = [], at location: LocationId? = nil, _ summary: String, salience: Double, cause: Id? = nil, visibility: String = "public", banner: Bool? = nil, storylineId: Id? = nil) -> WorldEventPublic {
+        let event = WorldEventPublic(id: newId("e"), tick: tick, category: category, eventType: type, actorId: actor, participantIds: participants, locationId: location, summary: summary, salience: salience, causationEventId: cause, banner: banner ?? (salience >= 0.6), storylineId: storylineId, visibility: visibility)
         events.append(event)
         if events.count > 600 { events.removeFirst(events.count - 600) }
         for id in [actor].compactMap({ $0 }) + participants {
@@ -80,7 +93,7 @@ final class MockSource: WorldSource {
     }
 
     @discardableResult
-    private func makeAgent(name: String, spriteId: String, occupation occId: String, home: LocationId, ageBand: String, traits: [String: Double]? = nil, values: [String: Double]? = nil, background: String? = nil, factionId: String? = nil, location: LocationId? = nil) -> Id {
+    private func makeAgent(name: String, spriteId: String, occupation occId: String, home: LocationId, ageBand: String, traits: [String: Double]? = nil, values: [String: Double]? = nil, background: String? = nil, factionId: String? = nil, location: LocationId? = nil, persona: PersonaPublic? = nil) -> Id {
         let occ = occupation(occId)
         let traits = traits ?? Dictionary(uniqueKeysWithValues: TRAIT_KEYS.map { ($0, (rand() * 100).rounded() / 100) })
         let values = values ?? Dictionary(uniqueKeysWithValues: VALUE_KEYS.map { ($0, (rand() * 100).rounded() / 100) })
@@ -96,6 +109,7 @@ final class MockSource: WorldSource {
         let goals = [survive, GoalPublic(id: newId("g"), kind: second.0, description: second.1, priority: 0.35 + rand() * 0.3, source: "personality", status: "active", createdAtTick: 0)]
         let detail = AgentDetail(id: id, name: name, spriteId: spriteId, occupation: occ.id, alive: true, locationId: lite.locationId, activityLabel: lite.activityLabel, mood: mood, health: health, needs: needs, ageBand: ageBand, background: background ?? "Came up on one of the early shuttles and never left.", homeLocationId: home, workLocationId: occ.work, householdName: nil, factionName: faction?.name, traits: traits, inventory: ["food": 2 + (rand() * 6).rounded(.down), "water": 2 + (rand() * 6).rounded(.down), "credits": 10 + (rand() * 90).rounded(.down)], goals: goals, plan: PlanPublic(intent: "Get through the shift and keep the household supplied.", source: "routine", goalId: survive.id, steps: [PlanStep(label: "Work the shift", status: "running"), PlanStep(label: "Eat at the canteen", status: "pending"), PlanStep(label: "Rest at home", status: "pending")], cursor: 0), beliefs: [], relationships: [], recentEvents: [], lastThought: nil, death: nil)
         agents[id] = Agent(lite: lite, detail: detail, factionId: faction?.id, values: values)
+        personas[id] = persona ?? MockStory.persona(occupation: occ.label) { Int(rand() * Double($0)) }
         order.append(id)
         return id
     }
@@ -103,17 +117,24 @@ final class MockSource: WorldSource {
     // MARK: Seed
 
     private func seed() {
-        var used: Set<String> = []
+        var counts = Self.counts
+        for k in MockStory.keys {
+            let id = makeAgent(name: k.name, spriteId: k.spriteId, occupation: k.occupation, home: k.home, ageBand: k.slug == "teo" ? "young" : "adult", background: k.background, factionId: k.factionId, location: k.post?.0, persona: k.persona)
+            keyIds[k.slug] = id
+            counts[k.occupation, default: 1] -= 1
+            if let post = k.post { setActivity(id, "working", post.1, 60 - tick) }
+        }
+        var used = Set(MockStory.keys.map(\.name))
         for occ in OCCUPATIONS {
-            for _ in 0..<(Self.counts[occ.id] ?? 0) {
+            for _ in 0..<(counts[occ.id] ?? 0) {
                 var full = ""
                 repeat { full = pick(Self.first) + " " + pick(Self.last) } while used.contains(full)
                 used.insert(full)
-                let faction: String? = ["councilor", "quartermaster", "security"].contains(occ.id) ? "council" : occ.id == "ice_miner" ? "icers" : (["hauler", "dock_hand", "quarry_hand", "fabricator"].contains(occ.id) && rand() > 0.3) ? "union" : rand() > 0.75 ? pick(Self.factions).id : nil
+                let faction: String? = ["councilor", "quartermaster", "security"].contains(occ.id) ? "compact" : occ.id == "trader" ? "league" : (["ice_miner", "hauler", "dock_hand", "quarry_hand", "fabricator"].contains(occ.id) && rand() > 0.3) ? "union" : rand() > 0.75 ? pick(Self.factions).id : nil
                 makeAgent(name: full, spriteId: occ.archetype + "_" + String(Int(rand() * Double(SPRITE_VARIANTS))), occupation: occ.id, home: rand() > 0.5 ? .habitat_a : .habitat_b, ageBand: rand() < 0.15 ? "young" : rand() < 0.2 ? "elder" : "adult", factionId: faction)
             }
         }
-        let seeded = order
+        let seeded = Array(order.dropFirst(MockStory.keys.count))
         for i in stride(from: 0, to: seeded.count, by: 3) {
             let head = agents[seeded[i]]!
             let members = seeded[i..<min(i + 3, seeded.count)].filter { agents[$0]!.detail.homeLocationId == head.detail.homeLocationId }
@@ -136,6 +157,42 @@ final class MockSource: WorldSource {
             }
             agents[id]!.detail.beliefs.append(BeliefPublic(id: newId("b"), text: "The Supply Depot holds enough water for about ten sols.", confidence: 0.6, sourceType: "told", learnedAtTick: 0))
         }
+        seedStory()
+    }
+
+    private func seedStory() {
+        func key(_ slug: String) -> Id { keyIds[slug]! }
+        let ties: [(String, String, String, Double)] = [
+            ("ines", "teo", "family", 0.95), ("teo", "ines", "family", 0.9), ("ines", "dmitri", "rival", -0.35), ("dmitri", "ines", "acquaintance", 0.1),
+            ("ines", "noor", "acquaintance", 0.2), ("noor", "ines", "acquaintance", 0.4), ("asha", "teo", "friend", 0.6), ("teo", "asha", "friend", 0.7),
+            ("ines", "asha", "acquaintance", 0.3), ("dmitri", "marit", "colleague", 0.5), ("marit", "dmitri", "colleague", 0.3), ("kofi", "marit", "rival", -0.6),
+            ("marit", "kofi", "rival", -0.5), ("kofi", "ines", "friend", 0.5), ("ines", "kofi", "friend", 0.45), ("noor", "dmitri", "rival", -0.2),
+        ]
+        for (a, b, kind, affinity) in ties {
+            agents[key(a)]!.detail.relationships.removeAll { $0.toAgentId == key(b) }
+            relate(key(a), key(b), kind: kind, affinity: affinity)
+            let ties = agents[key(a)]!.detail.relationships
+            agents[key(a)]!.detail.relationships = ties.filter { $0.toAgentId == key(b) } + ties.filter { $0.toAgentId != key(b) }
+        }
+        agents[key("ines")]!.detail.householdName = "Okafor household"
+        agents[key("teo")]!.detail.householdName = "Okafor household"
+        agents[key("ines")]!.detail.goals.insert(GoalPublic(id: newId("g"), kind: "protect_person", description: "Keep Teo breathing until the shuttle", priority: 0.95, source: "personality", status: "active", targetAgentId: key("teo"), targetAgentName: "Teo Okafor", createdAtTick: 0), at: 0)
+        agents[key("dmitri")]!.detail.beliefs.insert(BeliefPublic(id: newId("b"), text: "Someone on the ice crew is skimming the reserve.", confidence: 0.7, sourceType: "inference", learnedAtTick: 0), at: 0)
+
+        for line in MockStory.storylines {
+            let id = newId("s")
+            storylineIds[line.slug] = id
+            laterBeats[line.slug] = line.later
+            storylines.append(StorylinePublic(id: id, title: line.title, premise: line.premise, status: line.tension >= 0.45 ? "rising" : "brewing", tension: line.tension, participantIds: line.participants.map(key), beats: line.beats.enumerated().map { StoryBeat(tick: Double($0.offset * 4), text: $0.element) }, origin: "seed", createdTick: 0, lastBeatTick: Double((line.beats.count - 1) * 4)))
+        }
+
+        society[key("ines")] = ([.init(id: "union", name: "Diggers' Union", kind: "guild", role: "member")], nil, [], nil, [], "a steady hand on the ice crew", "self-taught in drill hydraulics")
+        society[key("teo")] = ([.init(id: "choir", name: "The Rust Choir", kind: "troupe", role: "member")], nil, [.init(name: "Pip", species: "cave cricket")], nil, [.init(id: "w2", title: "Under the Blankets", kind: "poem", fame: 0.4)], "everyone's favourite little brother", "studying astronomy at the Observatory school")
+        society[key("dmitri")] = ([.init(id: "compact", name: "Founders' Compact", kind: "party", role: "officer")], nil, [], "keeping the Long Dark ledger out of anyone's hands", [], "a respected, slightly feared official", nil)
+        society[key("asha")] = ([], .init(partnerId: key("kofi"), partnerName: "Kofi Mbeki", parentIds: [], childIds: []), [.init(name: "Stitches", species: "cat")], nil, [], "the colony's conscience", "a trained trauma surgeon")
+        society[key("noor")] = ([.init(id: "league", name: "Free Exchange League", kind: "company", role: "leader")], nil, [], nil, [], "rich, and resented for it", nil)
+        society[key("kofi")] = ([.init(id: "union", name: "Diggers' Union", kind: "guild", role: "leader"), .init(id: "choir", name: "The Rust Choir", kind: "troupe", role: "founder")], .init(partnerId: key("asha"), partnerName: "Asha Tanaka", parentIds: [], childIds: []), [], "opening the council's books", [.init(id: "w1", title: "Locked Door Blues", kind: "song", fame: 0.8)], "a hero on the works floor, a menace in the council", nil)
+        society[key("marit")] = ([.init(id: "compact", name: "Founders' Compact", kind: "party", role: "leader")], nil, [], nil, [], "the founder's daughter", "schooled on Earth in law")
     }
 
     // MARK: Publishing
@@ -144,7 +201,7 @@ final class MockSource: WorldSource {
         let list = all
         var stockpiles: [String: [String: Double]] = ["depot": stock, "hydroponics": ["food": 120], "ice_wells": ["water": 80]]
         stockpiles["depot"]!["credits"] = nil
-        return WorldPublic(id: "mock-world", name: "Shackleton Colony", tick: tick, speed: speed, status: speed == 0 ? "paused" : "running", version: version, population: Population(alive: Double(list.filter { $0.lite.alive }.count), dead: Double(list.filter { !$0.lite.alive }.count)), activeEffects: effects, stockpiles: stockpiles, damage: Dictionary(uniqueKeysWithValues: damage.map { ($0.key.rawValue, $0.value) }), prices: prices)
+        return WorldPublic(id: worldId, name: "Shackleton Colony", tick: tick, speed: speed, status: speed == 0 ? "paused" : "running", version: version, population: Population(alive: Double(list.filter { $0.lite.alive }.count), dead: Double(list.filter { !$0.lite.alive }.count)), activeEffects: effects, stockpiles: stockpiles, damage: Dictionary(uniqueKeysWithValues: damage.map { ($0.key.rawValue, $0.value) }), prices: prices, focusWarp: warping)
     }
 
     private func publicDetail(_ a: Agent) -> AgentDetail {
@@ -162,6 +219,17 @@ final class MockSource: WorldSource {
         }
         d.beliefs = Array(d.beliefs.prefix(6))
         d.goals = d.goals.sorted { $0.priority > $1.priority }
+        d.persona = personas[a.lite.id]
+        d.storylineIds = storylines.filter { $0.participantIds.contains(a.lite.id) }.map(\.id)
+        if let soc = society[a.lite.id] {
+            d.organizations = soc.orgs
+            d.family = soc.family
+            d.pets = soc.pets
+            d.obsession = soc.obsession
+            d.works = soc.works
+            d.standingLabel = soc.standing
+            d.education = soc.education
+        }
         return d
     }
 
@@ -174,6 +242,125 @@ final class MockSource: WorldSource {
             let d = agents[id].map(publicDetail)
             watchers.values.forEach { $0(d) }
         }
+        let ranked = storylines.sorted { $0.tension > $1.tension }
+        for w in storylineWatchers.values { w.onValue(w.agentId.map { id in ranked.filter { $0.participantIds.contains(id) } } ?? ranked) }
+        for (id, watchers) in focusWatchers {
+            let state = focusState(id)
+            watchers.values.forEach { $0(state) }
+        }
+    }
+
+    private func focusState(_ id: Id) -> FocusState? {
+        guard agents[id] != nil else { return nil }
+        return FocusState(agentId: id, thoughts: thoughts[id] ?? [], hooks: hooks[id] ?? [], storylines: storylines.filter { $0.participantIds.contains(id) }.sorted { $0.tension > $1.tension }, warping: warping && focusId == id)
+    }
+
+    // MARK: Story
+
+    private func think(_ id: Id, _ text: String) {
+        let line = ThoughtLine(id: newId("t"), tick: tick, text: text, mood: agents[id]?.lite.mood, source: "rules")
+        thoughts[id] = Array(([line] + (thoughts[id] ?? [])).prefix(30))
+    }
+
+    /// A rule-based monologue line for whatever the followed colonist just decided.
+    private func thinkAboutNow(_ id: Id) {
+        guard let a = agents[id]?.lite, let persona = personas[id] else { return }
+        if let last = thoughts[id]?.first, tick - last.tick < 2 { return }
+        let partner = agents[a.interactingWithId ?? ""]?.lite.first
+        think(id, MockStory.thought(activity: a.activity, label: a.activityLabel, persona: persona, needs: a.needs, partner: partner) { Int(self.rand() * Double($0)) })
+    }
+
+    private func offerHook(to id: Id, about other: Id, _ reason: String) {
+        guard let o = agents[other]?.lite, o.alive else { return }
+        let storyline = storylines.first { $0.participantIds.contains(other) && $0.participantIds.contains(id) } ?? storylines.first { $0.participantIds.contains(other) }
+        let hook = StoryHook(agentId: other, name: o.name, reason: reason, storylineId: storyline?.id)
+        hooks[id] = Array(([hook] + (hooks[id] ?? []).filter { $0.agentId != other }).prefix(3))
+    }
+
+    /// Records a beat of a storyline: an event, a line in the storyline and a rise in tension.
+    @discardableResult
+    private func storyBeat(_ slug: String, _ summary: String, actor: Id?, participants: [Id], at location: LocationId?, tension: Double, beat: String? = nil) -> WorldEventPublic {
+        let sid = storylineIds[slug]
+        let i = storylines.firstIndex { $0.id == sid }
+        let level = min(1, (i.map { storylines[$0].tension } ?? 0) + tension)
+        let event = emit(.social, "story_beat", actor: actor, participants: participants, at: location, summary, salience: 0.45 + level * 0.4, banner: level >= 0.6, storylineId: sid)
+        if let i {
+            storylines[i].tension = level
+            storylines[i].status = level >= 0.75 ? "climax" : level >= 0.45 ? "rising" : "brewing"
+            storylines[i].beats = Array((storylines[i].beats + [StoryBeat(tick: tick, text: beat ?? summary, eventId: event.id)]).suffix(12))
+            storylines[i].lastBeatTick = tick
+        }
+        return event
+    }
+
+    /// The world moves its storylines on its own: the next authored beat of a random live one.
+    private func advanceSomeStoryline() {
+        let open = laterBeats.filter { !$0.value.isEmpty }.keys.sorted()
+        guard !open.isEmpty else { return }
+        let slug = pick(open)
+        guard let line = laterBeats[slug]?.removeFirst() else { return }
+        let ids = line.participants.compactMap { keyIds[$0] }
+        storyBeat(slug, line.text, actor: ids.first, participants: Array(ids.dropFirst()), at: ids.first.flatMap { agents[$0]?.lite.locationId }, tension: line.tension)
+        if let focus = focusId, let actor = ids.first, focus != actor, !ids.contains(focus) {
+            offerHook(to: focus, about: actor, line.text.replacingOccurrences(of: ".", with: ""))
+        }
+    }
+
+    /// The starter's authored first hour, one beat per decision.
+    private func runScript(_ id: Id) {
+        let beat = MockStory.script[scriptIndex]
+        scriptIndex += 1
+        let me = agents[id]!.lite
+        switch beat {
+        case let .walk(to, why, thought):
+            walk(id, to: to, why: why)
+            think(id, thought)
+        case let .meet(slug, speech, reply, summary, storyline, tension, thought, hook):
+            guard let other = keyIds[slug], agents[other]?.lite.alive == true else { return decide(id) }
+            setActivity(id, "talking", "Talking with " + agents[other]!.lite.name, 3)
+            setActivity(other, "talking", "Talking with " + me.name, 3)
+            agents[id]!.lite.interactingWithId = other
+            agents[other]!.lite.interactingWithId = id
+            agents[id]!.lite.speech = speech
+            agents[other]!.lite.speech = reply
+            storyBeat(storyline, summary, actor: id, participants: [other], at: me.locationId, tension: tension)
+            think(id, thought)
+            if let hook { offerHook(to: id, about: other, hook) }
+        case let .act(activity, label, summary, storyline, tension, thought):
+            setActivity(id, activity, label, 4)
+            storyBeat(storyline, summary, actor: id, participants: [], at: me.locationId, tension: tension)
+            think(id, thought)
+        }
+    }
+
+    private func answer(_ id: Id, _ question: String) -> String {
+        let a = agents[id]!
+        let persona = personas[id]!
+        let q = question.lowercased()
+        let key = MockStory.keys.first { keyIds[$0.slug] == id }
+        let ties = a.detail.relationships
+        func lower(_ s: String) -> String { s.prefix(1).lowercased() + s.dropFirst() }
+        if let named = ties.first(where: { q.contains($0.toAgentName.split(separator: " ")[0].lowercased()) }) {
+            let first = named.toAgentName.split(separator: " ")[0]
+            if !named.toAgentAlive { return "\(first)? Gone. I still set out two cups some mornings." }
+            if named.affinity > 0.5 { return "\(first) is the reason I get up. Don't tell them I said that." }
+            if named.affinity < -0.2 { return "\(first)? I'd rather not. Let's say I count my rations twice when they're around." }
+            return "\(first)? We get along. Up here that's not nothing, but it's not trust either."
+        }
+        if q.contains("long dark") || q.contains("winter") { return key?.longDark ?? "Everyone lost someone. I lost a bunk-mate and most of my faith in the council." }
+        if q.contains("afraid") || q.contains("fear") || q.contains("scare") { return "Honestly? " + persona.fear + ". I don't say it out loud much." }
+        if q.contains("want") || q.contains("hope") || q.contains("dream") { return "I want to " + lower(persona.want) + ". Everything else is noise." }
+        if q.contains("secret") || q.contains("hiding") || q.contains("lie") { return "Everyone up here hides something. " + persona.flaw + ", if you want my worst. That's all you're getting." }
+        if q.contains("trust") || q.contains("friend") || q.contains("love") {
+            guard let best = ties.filter({ $0.toAgentAlive }).max(by: { $0.trust < $1.trust }) else { return "Trust is a luxury good. I can't afford it this week." }
+            return best.toAgentName + ". If I had to hand someone my last litre, it'd be them."
+        }
+        if q.contains("hate") || q.contains("enemy") || q.contains("blame") {
+            guard let worst = ties.min(by: { $0.affinity < $1.affinity }), worst.affinity < 0 else { return "Hate takes energy. I need mine for the shift." }
+            return worst.toAgentName + ". Ask me again after I've had a drink."
+        }
+        if q.contains("why") || q.contains("doing") || q.contains("where") { return a.lite.activityLabel + ". " + (a.detail.plan?.intent ?? persona.arc.note) }
+        return [persona.arc.note + " That's what keeps me up.", "You ask a lot of questions for someone I can't see. Fine. " + persona.arc.note, "Short answer: I want to " + lower(persona.want) + ". Long answer needs a drink."][Int(rand() * 3)]
     }
 
     // MARK: Behaviour
@@ -207,6 +394,12 @@ final class MockSource: WorldSource {
     }
 
     private func decide(_ id: Id) {
+        if id == keyIds[MockStory.starter], scriptIndex < MockStory.script.count, !stormAt(agents[id]!.lite.locationId) { return runScript(id) }
+        choose(id)
+        if id == focusId { thinkAboutNow(id) }
+    }
+
+    private func choose(_ id: Id) {
         guard let a = agents[id] else { return }
         let h = hour()
         if stormAt(a.lite.locationId) && a.lite.activity != "fleeing" {
@@ -311,6 +504,9 @@ final class MockSource: WorldSource {
             emit(.social, "gift", actor: id, participants: [b.id], at: a.lite.locationId, "\(a.lite.name) gave 2 food to \(b.name).", salience: 0.35, visibility: "local")
             return
         }
+        if id == focusId, personas[b.id]?.key == true || storylines.contains(where: { $0.participantIds.contains(b.id) }) {
+            offerHook(to: id, about: b.id, "\(a.lite.first) just talked with \(personas[b.id]?.epithet ?? b.name)")
+        }
         setActivity(id, "talking", "Talking with \(b.name)", 2 + rand() * 2)
         setActivity(b.id, "talking", "Talking with \(a.lite.name)", agents[id]!.lite.busyUntilTick - tick)
         agents[id]!.lite.interactingWithId = b.id
@@ -372,13 +568,19 @@ final class MockSource: WorldSource {
             if Int(tick) % 12 == 0 { touch(id) }
             if tick >= a.busyUntilTick { decide(id) }
         }
+        if Int(tick) % 9 == 0 { advanceSomeStoryline() }
+        let routine = focusId.flatMap { agents[$0]?.lite.activity }.map { $0 == "sleeping" || $0 == "resting" || $0 == "working" } ?? false
+        if routine != warping {
+            warping = routine
+            schedule()
+        }
     }
 
     private func schedule() {
         timer?.invalidate()
         timer = nil
         guard speed > 0 else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: Clock.secondsPerTick / speed, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Clock.secondsPerTick / speed / (warping ? 6 : 1), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.stepTick()
                 self?.notify()
@@ -498,7 +700,15 @@ final class MockSource: WorldSource {
         notify()
     }
     func heartbeat() async {}
-    func setFocus(_ agentId: Id?) async {}
+    func setFocus(_ agentId: Id?) async {
+        focusId = agentId
+        warping = false
+        if let agentId, thoughts[agentId] == nil, let a = agents[agentId] {
+            think(agentId, personas[agentId].map { "\(a.lite.activityLabel). And underneath it, always: \($0.fear.prefix(1).lowercased() + $0.fear.dropFirst())." } ?? a.lite.activityLabel)
+        }
+        schedule()
+        notify()
+    }
     func setSpeed(_ next: Double) async throws {
         speed = next
         version += 1
@@ -544,6 +754,75 @@ final class MockSource: WorldSource {
         notify()
         return result
     }
+    func intro() async -> StoryIntro? {
+        let story = MockStory.intro
+        let cards = MockStory.keys.compactMap { k in keyIds[k.slug].map { KeyCharacterCard(agentId: $0, name: k.name, spriteId: k.spriteId, epithet: k.persona.epithet, hook: k.hook, factionId: k.factionId) } }
+        return StoryIntro(title: story.title, setting: story.setting, history: story.history, tensions: story.tensions, keyCharacters: cards, starterAgentId: keyIds[MockStory.starter]!, tutorial: MockStory.tutorial(keyIds))
+    }
+
+    func watchStorylines(agentId: Id?, _ onValue: @escaping ([StorylinePublic]) -> Void) -> () -> Void {
+        let key = UUID()
+        storylineWatchers[key] = (agentId, onValue)
+        let ranked = storylines.sorted { $0.tension > $1.tension }
+        onValue(agentId.map { id in ranked.filter { $0.participantIds.contains(id) } } ?? ranked)
+        return { [weak self] in self?.storylineWatchers[key] = nil }
+    }
+
+    func watchFocus(_ agentId: Id, _ onValue: @escaping (FocusState?) -> Void) -> () -> Void {
+        let key = UUID()
+        focusWatchers[agentId, default: [:]][key] = onValue
+        onValue(focusState(agentId))
+        return { [weak self] in self?.focusWatchers[agentId]?[key] = nil }
+    }
+
+    func watchConversation(_ agentId: Id, _ onValue: @escaping ([AskTurn]) -> Void) -> () -> Void {
+        let key = UUID()
+        conversationWatchers[agentId, default: [:]][key] = onValue
+        onValue(conversations[agentId] ?? [])
+        return { [weak self] in self?.conversationWatchers[agentId]?[key] = nil }
+    }
+
+    func ask(_ agentId: Id, question: String) async throws -> AskResult {
+        guard let a = agents[agentId] else { return .refused(code: "not_found", message: "Nobody by that name lives here.") }
+        guard a.lite.alive else { return .refused(code: "dead", message: "\(a.lite.first) can no longer answer.") }
+        try await Task.sleep(for: .milliseconds(900))
+        let turn = AskTurn(id: newId("q"), tick: tick, question: question, answer: answer(agentId, question))
+        conversations[agentId, default: []].append(turn)
+        conversationWatchers[agentId]?.values.forEach { $0(conversations[agentId] ?? []) }
+        return .answered(turn)
+    }
+
+    func society() async -> SocietyOverview? {
+        func key(_ slug: String) -> Id { keyIds[slug]! }
+        func members(_ faction: String) -> [Id] { all.filter { $0.factionId == faction }.map(\.lite.id) }
+        let choir = [key("kofi"), key("teo")] + members("union").suffix(4)
+        return SocietyOverview(
+            organizations: [
+                OrganizationPublic(id: "compact", name: "Founders' Compact", kind: "party", creed: "The colony survives because someone is allowed to say no.", leaderId: key("marit"), memberIds: members("compact"), foundedTick: -2_700, status: "active", rivalIds: ["union"]),
+                OrganizationPublic(id: "union", name: "Diggers' Union", kind: "guild", creed: "Those who dig the ice decide who drinks it.", leaderId: key("kofi"), memberIds: members("union"), foundedTick: -1_000, status: "active", rivalIds: ["compact"]),
+                OrganizationPublic(id: "league", name: "Free Exchange League", kind: "company", creed: "A shuttle comes for whoever can pay it.", leaderId: key("noor"), memberIds: members("league"), foundedTick: -950, status: "active", rivalIds: []),
+                OrganizationPublic(id: "choir", name: "The Rust Choir", kind: "troupe", creed: "Sing the names of the eleven until the council says them too.", leaderId: key("kofi"), memberIds: choir, foundedTick: -400, status: "active", rivalIds: []),
+            ],
+            discoveries: [
+                DiscoveryPublic(key: "regolith_bricks", name: "Sintered regolith bricks", effect: "Domes can be extended without parts from Earth.", tick: -2_000, discovererIds: [key("kofi")]),
+                DiscoveryPublic(key: "cold_trap", name: "Cold-trap ice harvesting", effect: "The ice wells yield a third more in the dark season.", tick: -600, discovererIds: [key("ines")]),
+                DiscoveryPublic(key: "algae_paste", name: "Spirulina paste", effect: "Hydroponics can feed twice the people, if nobody minds the taste.", tick: -150, discovererIds: [key("asha")]),
+            ],
+            structures: [
+                StructurePublic(id: "st1", key: "memorial", name: "The Long Dark Memorial", locationId: .plaza, builderIds: [key("kofi"), key("teo")], progress: 1, builtTick: -300),
+                StructurePublic(id: "st2", key: "still", name: "A water still behind the Exchange", locationId: .market, builderIds: [key("noor")], progress: 0.6, builtTick: nil),
+            ],
+            works: [
+                WorkPublic(id: "w1", title: "Locked Door Blues", kind: "song", creatorId: key("kofi"), creatorName: "Kofi Mbeki", fame: 0.8, createdTick: -500, about: "The reserve the council kept locked while eleven people froze."),
+                WorkPublic(id: "w2", title: "Under the Blankets", kind: "poem", creatorId: key("teo"), creatorName: "Teo Okafor", fame: 0.4, createdTick: -90, about: "A child's game that was really about heat."),
+            ],
+            notables: [
+                Notable(agentId: key("kofi"), name: "Kofi Mbeki", known: "the man who wrote Locked Door Blues"),
+                Notable(agentId: key("marit"), name: "Marit Lindqvist", known: "the founder's daughter who runs the council"),
+                Notable(agentId: key("asha"), name: "Asha Tanaka", known: "the medic who stayed when the shuttles stopped"),
+            ])
+    }
+
     func checkoutURL() async throws -> URL {
         throw SourceError.unsupported("Checkout needs the live backend. Switch the data source in the menu.")
     }
@@ -551,6 +830,9 @@ final class MockSource: WorldSource {
         timer?.invalidate()
         timer = nil
         detailWatchers = [:]
+        storylineWatchers = [:]
+        focusWatchers = [:]
+        conversationWatchers = [:]
     }
 }
 

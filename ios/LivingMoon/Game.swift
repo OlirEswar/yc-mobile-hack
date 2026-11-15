@@ -306,6 +306,8 @@ final class Game: SourceSink {
         }
     }
 
+    func society() async -> SocietyOverview? { await source?.society() }
+
     /// True while the backend fast-forwards through the followed colonist's routine.
     var warping: Bool { followingID != nil && world?.focusWarp == true }
 

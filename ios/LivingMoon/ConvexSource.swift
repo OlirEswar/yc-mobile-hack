@@ -78,6 +78,13 @@ final class ConvexSource: WorldSource {
         try? await first("story:intro", ["worldId": worldId], as: StoryIntro?.self)
     }
 
+    func society() async -> SocietyOverview? {
+        for path in ["society/api:overview", "society:overview"] {
+            if let overview = try? await first(path, ["worldId": worldId], as: SocietyOverview.self) { return overview }
+        }
+        return nil
+    }
+
     /// The story and focus queries are newer than some deployments: a missing function reads as empty.
     func watchStorylines(agentId: Id?, _ onValue: @escaping ([StorylinePublic]) -> Void) -> () -> Void {
         var args: [String: ConvexEncodable?] = ["worldId": worldId]

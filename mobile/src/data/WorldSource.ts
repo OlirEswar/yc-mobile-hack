@@ -4,7 +4,7 @@
  * Every method mirrors one entry of shared/api.ts.
  */
 import type { Speed } from '../../shared/colony';
-import type { PlanId } from '../../shared/plans';
+import type { OfferId, PlanId } from '../../shared/plans';
 import type {
   AgentDetail,
   AgentLite,
@@ -49,8 +49,8 @@ export interface WorldSource {
   chain(eventId: Id): Promise<WorldEventPublic[]>;
   /** billing:status, reactive. */
   subscribePlan(onPlan: (plan: PlanId) => void): Unsubscribe;
-  /** billing:createCheckout. Returns the Whop checkout URL for the Patron subscription. */
-  createCheckout(): Promise<string>;
+  /** billing:createCheckout. Returns the Whop checkout URL for the offer. */
+  createCheckout(offer: OfferId): Promise<string>;
   /** interventions:apply. The caller supplies the commandId so a retry is idempotent. */
   apply(intervention: Intervention, commandId: string): Promise<InterventionResult>;
   dispose(): void;

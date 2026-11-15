@@ -108,8 +108,8 @@ export function createConvexSource(url: string): WorldSource {
     subscribePlan(onPlan) {
       return watch(() => client.watchQuery(fn.billingStatus, { sessionToken }), (status) => onPlan(status.plan));
     },
-    async createCheckout() {
-      const { purchaseUrl } = await client.action(fn.createCheckout, { sessionToken });
+    async createCheckout(offer) {
+      const { purchaseUrl } = await client.action(fn.createCheckout, { sessionToken, offer });
       return purchaseUrl;
     },
     apply(intervention, commandId) {

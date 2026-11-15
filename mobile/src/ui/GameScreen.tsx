@@ -1,28 +1,26 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { WorldView } from '../render/WorldView';
-import { becomePatron, useGame } from '../game/store';
-import { PATRON_PRICE_USD } from '../../shared/plans';
+import { openStore, useGame } from '../game/store';
+import { OFFERS } from '../../shared/plans';
+import { StoreSheet } from './StoreSheet';
 import { colors, fonts, space } from './theme';
 
 export function GameScreen() {
   const world = useGame((s) => s.world);
   const patron = useGame((s) => s.plan === 'patron');
-  const checkingOut = useGame((s) => s.checkingOut);
+  const storeOpen = useGame((s) => s.panel === 'store');
   return (
     <View style={styles.root}>
       <WorldView />
       <View style={styles.debug} pointerEvents="none">
         <Text style={styles.text}>tick {world?.tick ?? '-'} v{world?.version ?? '-'}</Text>
       </View>
-      {patron ? (
-        <View style={[styles.pass, styles.passOwned]} pointerEvents="none">
-          <Text style={[styles.passText, { color: colors.gold }]}>Patron</Text>
-        </View>
-      ) : (
-        <Pressable style={styles.pass} onPress={becomePatron} disabled={checkingOut}>
-          <Text style={styles.passText}>{checkingOut ? 'Opening checkout…' : 'Become a Patron · $' + PATRON_PRICE_USD + '/mo'}</Text>
-        </Pressable>
-      )}
+      <Pressable style={[styles.pass, patron && styles.passOwned]} onPress={openStore}>
+        <Text style={[styles.passText, patron && { color: colors.gold }]}>
+          {patron ? 'Patron' : 'Become a Patron · $' + OFFERS.patron_monthly.priceUsd + '/mo'}
+        </Text>
+      </Pressable>
+      {storeOpen ? <StoreSheet /> : null}
     </View>
   );
 }

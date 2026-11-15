@@ -125,6 +125,8 @@ export default defineSchema({
       totalCalls: num,
       tokensIn: num,
       tokensOut: num,
+      /** Bought with thought top-ups. Spent only after the day's budget runs out; never resets. */
+      bonusThoughts: v.optional(num),
     }),
     config: v.object({ llm: llmConfigV }),
     loop: v.object({ token: num, running: v.boolean(), nextAt: num }),
@@ -361,4 +363,12 @@ export default defineSchema({
   })
     .index('by_device', ['deviceId'])
     .index('by_token', ['token']),
+
+  /** One row per one-time purchase, keyed by Whop payment id so a retried webhook credits once. */
+  purchases: defineTable({
+    sessionId: v.id('sessions'),
+    paymentId: str,
+    offer: str,
+    createdAt: num,
+  }).index('by_payment', ['paymentId']),
 });

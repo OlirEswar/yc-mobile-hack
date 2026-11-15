@@ -220,7 +220,7 @@ export function createMockSource(): WorldSource {
       damage: { ...damage },
       prices: { ...prices },
       factions: FACTIONS.map((f) => ({ ...f, leaderAgentId: all().find((a) => a.factionId === f.id && a.alive)?.id, memberCount: list.filter((a) => a.factionId === f.id && a.alive).length })),
-      llm: { enabled: false, callsToday: llmCalls, budgetPerDay: 20, queued: 0 },
+      llm: { enabled: false, callsToday: llmCalls, budgetPerDay: 20, bonusThoughts: 0, queued: 0 },
     };
   }
   const lite = (a: MockAgent): AgentLite => ({ id: a.id, name: a.name, spriteId: a.spriteId, occupation: a.occupation, factionId: a.factionId, alive: a.alive, locationId: a.locationId, move: a.move, activity: a.activity, activityLabel: a.activityLabel, busyUntilTick: a.busyUntilTick, interactingWithId: a.interactingWithId, speech: a.speech, mood: a.mood, health: Math.round(a.health), needs: { hunger: Math.round(a.needs.hunger), thirst: Math.round(a.needs.thirst), fatigue: Math.round(a.needs.fatigue), safety: Math.round(a.needs.safety), social: Math.round(a.needs.social) }, updatedAtVersion: a.updatedAtVersion });

@@ -106,7 +106,7 @@ export function toWorldPublic(w: Doc<'worlds'>, factions: Doc<'factions'>[]): Wo
     damage,
     prices: w.prices,
     factions: factions.map(toFactionPublic).sort((a, b) => a.id.localeCompare(b.id)),
-    llm: { enabled: w.llm.enabled, callsToday: w.llm.callsToday, budgetPerDay: w.llm.budgetPerDay, queued: w.llm.queued },
+    llm: { enabled: w.llm.enabled, callsToday: w.llm.callsToday, budgetPerDay: w.llm.budgetPerDay, bonusThoughts: w.llm.bonusThoughts ?? 0, queued: w.llm.queued },
     rationLevel: w.econ.rationLevel as 0 | 1 | 2,
     treasury: Math.round(w.econ.treasury),
     regolith: { quarry: Math.round(w.econ.regolith.quarry), workshop: Math.round(w.econ.regolith.workshop) },

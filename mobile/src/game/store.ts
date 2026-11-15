@@ -12,7 +12,7 @@ import { AppState } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { LOCATIONS, type LocationId, type Speed } from '../../shared/colony';
 import { LOCATION_LAYOUT } from '../../shared/mapLayout';
-import type { PlanId } from '../../shared/plans';
+import { OFFERS, type OfferId, type PlanId } from '../../shared/plans';
 import type { AgentDetail, AgentLite, Id, Intervention, InterventionResult, PowerType, WorldEventPublic, WorldPublic } from '../../shared/types';
 import { createWorldSource, type WorldSource } from '../data';
 import { cameraPose, flyTo, flyToPose, scene, setFollowSlot, type AnimAgent, type CameraPose } from '../render/scene';
@@ -55,7 +55,7 @@ export type GameState = {
   selectedAgentId: Id | null;
   selectedLocationId: LocationId | null;
   followAgentId: Id | null;
-  panel: 'none' | 'chronicle' | 'creator';
+  panel: 'none' | 'chronicle' | 'creator' | 'store';
   /** Event whose cause chain the chronicle shows, if any. */
   chronicleEventId: Id | null;
   power: PowerDraft | null;
@@ -377,12 +377,16 @@ export async function boot() {
   }
 }
 
-/** Opens a Whop checkout for the Patron subscription. The membership webhook switches `plan` once it activates. */
-export async function becomePatron() {
-  if (!source || state.plan === 'patron' || state.checkingOut) return;
+/**
+ * Opens a Whop checkout for one store offer. The webhook does the rest: a membership switches `plan`,
+ * a top-up payment adds to `world.llm.bonusThoughts`.
+ */
+export async function buy(offer: OfferId) {
+  if (!source || state.checkingOut) return;
+  if (OFFERS[offer].kind === 'patron' && state.plan === 'patron') return;
   set({ checkingOut: true });
   try {
-    await WebBrowser.openBrowserAsync(await source.createCheckout());
+    await WebBrowser.openBrowserAsync(await source.createCheckout(offer));
   } catch (error) {
     showToast('error', apiError('billing:createCheckout', error));
   } finally {
@@ -516,6 +520,9 @@ export function openChronicle(eventId: Id | null = null) {
 }
 export function openCreator() {
   set({ panel: 'creator', power: null, picker: null });
+}
+export function openStore() {
+  set({ panel: 'store', power: null, picker: null });
 }
 export const closePanel = () => set({ panel: 'none', chronicleEventId: null });
 export const openPicker = (picker: AgentPicker) => set({ picker });

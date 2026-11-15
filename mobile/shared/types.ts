@@ -215,7 +215,8 @@ export type WorldPublic = {
   /** Market price in credits per unit. */
   prices: Record<TradedResourceId, number>;
   factions: FactionPublic[];
-  llm: { enabled: boolean; callsToday: number; budgetPerDay: number; queued: number };
+  /** bonusThoughts: banked by thought top-ups, spent after the day's budget. */
+  llm: { enabled: boolean; callsToday: number; budgetPerDay: number; bonusThoughts: number; queued: number };
   /** Depot ration policy: 0 full rations, 1 reduced, 2 emergency. */
   rationLevel?: 0 | 1 | 2;
   /** Colony treasury in credits. Wages are paid from it; sales and the daily levy return to it. */

@@ -36,97 +36,162 @@ struct ColonyView: View {
     @State private var lastPrice: (value: Double, trend: Int) = (0, 0)
 
     var body: some View {
-        @Bindable var game = game
         let world = game.world
         let food = (world?.stockpiles["depot"]?["food"] ?? 0).rounded()
         let price = world?.prices["food"] ?? 0
 
-        NavigationStack {
-            ZStack {
-                MapView()
-                VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        StatChip(label: "People", value: "\(Int(world?.population.alive ?? 0))")
-                        StatChip(label: "Food", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true)
-                        StatChip(label: "Price", value: "\(Int(price))cr", trend: lastPrice.trend, goodWhenUp: false)
-                    }
-                    ForEach(world?.activeEffects ?? []) { effect in
-                        let sols = max(1, Int(((effect.endTick - (world?.tick ?? 0)) / Clock.ticksPerDay).rounded(.up)))
-                        Label(effect.label + " · " + (effect.type == "storm" ? "passing" : "\(sols) sol\(sols == 1 ? "" : "s") left"), systemImage: effect.type == "storm" ? "burst.fill" : "drop.degreesign.slash")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .glassEffect(.regular.tint((effect.type == "storm" ? Color.red : .amber).opacity(0.35)))
-                    }
-                    if let note = game.backendNote {
-                        Label(note, systemImage: "exclamationmark.triangle")
-                            .font(.caption2).lineLimit(2)
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .glassEffect()
-                    }
-                    Spacer()
-                    if let loc = game.selectedLocation { PlaceCard(location: loc) }
-                    PowerTray()
+        ZStack {
+            MapView()
+            VStack(spacing: 12) {
+                header
+                StatusCard(metrics: [
+                    Metric(label: "Colonists", value: "\(Int(world?.population.alive ?? 0))"),
+                    Metric(label: "Food stored", value: "\(Int(food))", trend: lastFood.trend, goodWhenUp: true),
+                    Metric(label: "Food price", value: "\(Int(price))", unit: "cr", trend: lastPrice.trend, goodWhenUp: false),
+                ])
+                ForEach(world?.activeEffects ?? []) { effect in
+                    let sols = max(1, Int(((effect.endTick - (world?.tick ?? 0)) / Clock.ticksPerDay).rounded(.up)))
+                    EffectBanner(storm: effect.type == "storm", title: effect.label, detail: effect.type == "storm" ? "Passing" : "\(sols) sol\(sols == 1 ? "" : "s") left")
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Label(game.stamp, systemImage: "moon.fill")
-                        .labelStyle(.titleAndIcon)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 6)
-                        .fixedSize()
+                if let note = game.backendNote {
+                    Label(note, systemImage: "exclamationmark.triangle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 18))
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
-                            Label("Pause", systemImage: "pause.fill").tag(0.0)
-                            Label("1× speed", systemImage: "play.fill").tag(1.0)
-                            Label("4× speed", systemImage: "forward.fill").tag(4.0)
-                            Label("8× speed", systemImage: "forward.end.fill").tag(8.0)
-                        }
-                    } label: {
-                        Image(systemName: game.speed == 0 ? "pause.fill" : game.speed == 1 ? "play.fill" : "forward.fill")
+                Spacer()
+                if let toast = game.toast { ToastView(toast: toast) }
+                if let loc = game.selectedLocation { PlaceCard(location: loc) }
+                HStack(spacing: 10) {
+                    TickerView()
+                    Button { game.choosingPower = true } label: {
+                        Label("Powers", systemImage: "wand.and.stars")
+                            .font(.headline)
+                            .padding(.horizontal, 6)
+                            .frame(height: 40)
                     }
-                    .accessibilityLabel("Simulation speed")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
-                        Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
+                    .buttonStyle(.glassProminent)
+                    .accessibilityHint("Choose how to change the colony")
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .animation(.snappy(duration: 0.25), value: game.toast)
+        }
+        .sheet(isPresented: Binding(get: { game.choosingPower }, set: { game.choosingPower = $0 })) {
+            PowerMenu { power in
+                game.choosingPower = false
+                game.powerTarget = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { game.activePower = power }
+            }
+            .presentationDetents([.medium, .large])
         }
         .onChange(of: food) { old, new in lastFood = (new, new > old ? 1 : new < old ? -1 : lastFood.trend) }
         .onChange(of: price) { old, new in lastPrice = (new, new > old ? 1 : new < old ? -1 : lastPrice.trend) }
     }
+
+    private var header: some View {
+        @Bindable var game = game
+        let parts = Clock.parts(game.world?.tick ?? 0)
+        return HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "moon.fill").foregroundStyle(Color.amber)
+                Text("Sol \(parts.sol)").foregroundStyle(.secondary)
+                Text(Clock.time(game.world?.tick ?? 0)).monospacedDigit()
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16).frame(height: 44)
+            .glassEffect()
+            .accessibilityElement(children: .combine)
+            Spacer()
+            Menu {
+                Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
+                    Label("Pause", systemImage: "pause.fill").tag(0.0)
+                    Label("Normal speed", systemImage: "play.fill").tag(1.0)
+                    Label("4× speed", systemImage: "forward.fill").tag(4.0)
+                    Label("8× speed", systemImage: "forward.end.fill").tag(8.0)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: game.speed == 0 ? "pause.fill" : "play.fill")
+                    Text(game.speed == 0 ? "Paused" : "\(Int(game.speed))×").monospacedDigit()
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).frame(height: 44)
+                .glassEffect(.regular.interactive())
+            }
+            .accessibilityLabel("Simulation speed")
+            Menu {
+                Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
+                Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive())
+            }
+            .accessibilityLabel("More")
+        }
+        .padding(.leading, 4)
+    }
 }
 
-struct StatChip: View {
+struct Metric: Identifiable {
+    var id: String { label }
     var label: String
     var value: String
+    var unit: String? = nil
     var trend = 0
     var goodWhenUp = true
+}
+
+/// One quiet surface for the colony's headline numbers.
+struct StatusCard: View {
+    var metrics: [Metric]
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Text(value).font(.footnote.weight(.semibold).monospacedDigit())
-            if trend != 0 {
-                Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle((trend > 0) == goodWhenUp ? Color.green : .red)
+        HStack(spacing: 0) {
+            ForEach(Array(metrics.enumerated()), id: \.element.id) { i, m in
+                if i > 0 { Rectangle().fill(.white.opacity(0.12)).frame(width: 1, height: 34) }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(m.value).font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
+                        if let unit = m.unit { Text(unit).font(.caption).foregroundStyle(.secondary) }
+                        if m.trend != 0 {
+                            Image(systemName: m.trend > 0 ? "arrow.up.right" : "arrow.down.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle((m.trend > 0) == m.goodWhenUp ? Color.green : .red)
+                                .accessibilityLabel(m.trend > 0 ? "rising" : "falling")
+                        }
+                    }
+                    Text(m.label).font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, i == 0 ? 0 : 14)
+                .accessibilityElement(children: .combine)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .glassEffect()
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+}
+
+struct EffectBanner: View {
+    var storm: Bool
+    var title: String
+    var detail: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: storm ? "burst.fill" : "drop.degreesign.slash")
+                .foregroundStyle(storm ? Color.red : .amber)
+            Text(title).font(.subheadline.weight(.semibold))
+            Spacer()
+            Text(detail).font(.footnote).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .glassEffect(.regular.tint((storm ? Color.red : .amber).opacity(0.22)), in: .rect(cornerRadius: 18))
     }
 }
 
@@ -137,50 +202,99 @@ struct PlaceCard: View {
     var body: some View {
         let damaged = (game.world?.damage[location.rawValue] ?? 0) > 0
         let stock = game.world?.stockpiles[location.rawValue] ?? [:]
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(location.name).font(.headline)
-                if damaged { Text("Damaged").font(.caption.weight(.semibold)).foregroundStyle(.red) }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(location.name).font(.title3.weight(.semibold))
+                if damaged {
+                    Text("Damaged").font(.caption.weight(.semibold)).foregroundStyle(.red)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.red.opacity(0.15), in: .capsule)
+                }
                 Spacer()
-                Button("Close", systemImage: "xmark") { game.selectedLocation = nil }.labelStyle(.iconOnly)
+                Button("Close", systemImage: "xmark") { game.selectedLocation = nil }
+                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.small)
             }
-            Text(location.def.description).font(.footnote).foregroundStyle(.secondary)
+            Text(location.def.description).font(.subheadline).foregroundStyle(.secondary)
             if !stock.isEmpty {
-                Text(stock.sorted { $0.key < $1.key }.map { "\($0.key.capitalized) \(Int($0.value))" }.joined(separator: " · "))
-                    .font(.caption.monospacedDigit())
+                HStack(spacing: 18) {
+                    ForEach(stock.sorted { $0.key < $1.key }, id: \.key) { item in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(Int(item.value))").font(.system(.headline, design: .rounded).monospacedDigit())
+                            Text(item.key.capitalized).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .padding(18)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
     }
 }
 
-struct PowerTray: View {
-    @Environment(Game.self) private var game
+/// Every power, grouped by what it changes, each with a plain description.
+struct PowerMenu: View {
+    @Environment(\.dismiss) private var dismiss
+    var choose: (Power) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Power.allCases) { power in
-                Button {
-                    game.powerTarget = game.selectedID
-                    game.selectedID = nil
-                    game.activePower = power
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: power.symbol).font(.system(size: 18)).frame(height: 22)
-                        Text(power.short).font(.caption2)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    ForEach(Power.Kind.allCases, id: \.self) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.leading, 4)
+                            VStack(spacing: 0) {
+                                let powers = Power.allCases.filter { $0.kind == group }
+                                ForEach(Array(powers.enumerated()), id: \.element) { i, power in
+                                    if i > 0 { Divider().padding(.leading, 70) }
+                                    Button { choose(power) } label: { PowerRow(power: power) }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                            .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 22))
+                        }
                     }
-                    .foregroundStyle(power.believed ? Color.earth : .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(power.title)
+                .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 24)
+            }
+            .navigationTitle("Powers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
             }
         }
-        .padding(.horizontal, 4)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+    }
+}
+
+struct PowerRow: View {
+    var power: Power
+
+    var body: some View {
+        HStack(spacing: 14) {
+            PowerIcon(power: power, size: 42)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(power.title).font(.body.weight(.semibold))
+                Text(power.blurb).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+}
+
+struct PowerIcon: View {
+    var power: Power
+    var size: CGFloat = 42
+
+    var body: some View {
+        Image(systemName: power.symbol)
+            .font(.system(size: size * 0.42, weight: .semibold))
+            .foregroundStyle(power.tint)
+            .frame(width: size, height: size)
+            .background(power.tint.opacity(0.16), in: .rect(cornerRadius: size * 0.3))
     }
 }
 
@@ -215,50 +329,61 @@ struct InspectSheet: View {
         if let c = game.colonist(id) {
             List {
                 Section {
-                    HStack(spacing: 14) {
-                        Avatar(spriteId: c.spriteId, alive: c.alive, size: 60)
-                        VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 16) {
+                        Avatar(spriteId: c.spriteId, alive: c.alive, size: 68)
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(c.name).font(.title.weight(.regular)).fontDesign(.serif)
-                            Text(occupation(c.occupation).label + (c.alive ? " · feels \(c.mood)" : " · died")).font(.subheadline).foregroundStyle(.secondary)
+                            Text(occupation(c.occupation).label).font(.subheadline.weight(.medium))
+                            Text(c.alive ? "Feels \(c.mood)" : "Died").font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 12, trailing: 4))
                     .listRowSeparator(.hidden)
 
                     if c.alive {
-                        HStack(spacing: 8) {
-                            Button { open(nil, following: c.id) } label: { Text("Follow").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glassProminent)
-                            Button { open(.whisper, following: nil) } label: { Text("Whisper").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glass)
-                            Button { open(.supplyDrop, following: nil) } label: { Text("Drop").frame(maxWidth: .infinity) }
-                                .buttonStyle(.glass)
+                        HStack(spacing: 10) {
+                            Button { open(nil, following: c.id) } label: {
+                                Text("Follow").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.glassProminent)
+                            Button { open(.whisper, following: nil) } label: {
+                                Text("Whisper").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.glass)
+                            .tint(.earth)
+                            Button { open(.supplyDrop, following: nil) } label: {
+                                Text("Give").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.glass)
                         }
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
                         .controlSize(.large)
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
                     }
                 }
 
                 Section("Doing") {
-                    Text(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel)
+                    Text(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel).font(.body.weight(.medium))
                     if let plan = detail?.plan { Text(plan.intent).foregroundStyle(.secondary) }
                 }
 
                 Section("Needs") {
-                    HStack {
-                        NeedGauge(label: "Hunger", value: c.needs.hunger, tint: c.needs.hunger > 55 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Thirst", value: c.needs.thirst, tint: c.needs.thirst > 55 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Rest", value: 100 - c.needs.fatigue, tint: c.needs.fatigue > 65 ? .amber : .green)
-                        Spacer()
-                        NeedGauge(label: "Health", value: c.health, tint: c.health < 40 ? .red : .green)
+                    Grid(horizontalSpacing: 20, verticalSpacing: 16) {
+                        GridRow {
+                            NeedMeter(label: "Hunger", value: c.needs.hunger, warn: c.needs.hunger > 55, lowIsGood: true)
+                            NeedMeter(label: "Thirst", value: c.needs.thirst, warn: c.needs.thirst > 55, lowIsGood: true)
+                        }
+                        GridRow {
+                            NeedMeter(label: "Rest", value: 100 - c.needs.fatigue, warn: c.needs.fatigue > 65)
+                            NeedMeter(label: "Health", value: c.health, warn: c.health < 40, danger: c.health < 40)
+                        }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 8)
                     ForEach((detail?.inventory ?? [:]).sorted { $0.key < $1.key }, id: \.key) { item in
-                        LabeledContent(item.key.capitalized, value: item.key == "credits" ? "\(Int(item.value))cr" : "\(Int(item.value))")
+                        LabeledContent(item.key.capitalized, value: item.key == "credits" ? "\(Int(item.value)) cr" : "\(Int(item.value))")
                     }
                 }
 
@@ -331,24 +456,96 @@ struct InspectSheet: View {
     }
 }
 
-struct NeedGauge: View {
+struct NeedMeter: View {
     var label: String
     var value: Double
-    var tint: Color
+    var warn = false
+    var lowIsGood = false
+    var danger = false
 
     var body: some View {
-        VStack(spacing: 4) {
-            Gauge(value: min(100, max(0, value)), in: 0...100) { EmptyView() } currentValueLabel: { Text("\(Int(value))") }
-                .gaugeStyle(.accessoryCircularCapacity)
-                .tint(tint)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        let v = min(100, max(0, value))
+        let tint: Color = danger ? .red : warn ? .amber : .green
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label).font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(v))").font(.system(.headline, design: .rounded).monospacedDigit())
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.1))
+                    Capsule().fill(tint).frame(width: max(6, geo.size.width * v / 100))
+                }
+            }
+            .frame(height: 6)
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) \(Int(value)) of 100")
+        .accessibilityLabel("\(label) \(Int(v)) of 100\(warn ? ", needs attention" : "")")
     }
 }
 
 // MARK: - Powers
+
+extension Power {
+    enum Kind: CaseIterable {
+        case world, minds, people
+        var title: String {
+            switch self {
+            case .world: "Change the world"
+            case .minds: "Change minds"
+            case .people: "Change who lives here"
+            }
+        }
+    }
+    var kind: Kind {
+        switch self {
+        case .drought, .meteors, .supplyDrop: .world
+        case .whisper, .rumor: .minds
+        case .arrival, .endLife: .people
+        }
+    }
+    var blurb: String {
+        switch self {
+        case .drought: "The ice wells fail for a few sols. Water and crops run short."
+        case .meteors: "Debris strikes exposed sites and stops work until it's repaired."
+        case .supplyDrop: "Give one colonist food, water or credits out of nowhere."
+        case .whisper: "Plant an idea in one person's mind. It doesn't have to be true."
+        case .rumor: "Start talk about someone and watch it spread and change."
+        case .arrival: "Design a new colonist and land them on the next shuttle."
+        case .endLife: "A colonist dies. Their household and friends will feel it."
+        }
+    }
+    var tint: Color {
+        switch kind {
+        case .world: .amber
+        case .minds: .earth
+        case .people: self == .endLife ? .red : .amber
+        }
+    }
+}
+
+/// The one filled action at the foot of a sheet.
+struct PrimaryAction: View {
+    var title: String
+    var tint: Color
+    var disabled = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.headline).lineLimit(1).frame(maxWidth: .infinity).frame(height: 30)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(tint)
+        .controlSize(.large)
+        .disabled(disabled)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
 
 struct PowerSheet: View {
     @Environment(Game.self) private var game
@@ -380,6 +577,14 @@ struct PowerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack(spacing: 14) {
+                        PowerIcon(power: power, size: 50)
+                        Text(power.blurb).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+                }
                 switch power {
                 case .drought:
                     Section {
@@ -465,12 +670,10 @@ struct PowerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(sending ? "…" : power == .endLife ? "End" : power == .whisper ? "Whisper" : power == .rumor ? "Spread" : "Begin") {
-                        if power == .endLife { confirmEnd = true } else { send() }
-                    }
-                    .tint(power == .endLife ? .red : power.believed ? .earth : .amber)
-                    .disabled(intervention == nil || sending)
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryAction(title: sending ? "Working…" : actionTitle, tint: power == .endLife ? .red : power.tint, disabled: intervention == nil || sending) {
+                    if power == .endLife { confirmEnd = true } else { send() }
                 }
             }
             .confirmationDialog("End \(game.colonist(target)?.name ?? "this life")?", isPresented: $confirmEnd, titleVisibility: .visible) {
@@ -486,6 +689,18 @@ struct PowerSheet: View {
         .onChange(of: presetKey) { fillIdea() }
         .onChange(of: about) { fillIdea() }
         .onChange(of: target) { if power == .rumor { fillIdea() } }
+    }
+
+    private var actionTitle: String {
+        switch power {
+        case .drought: "Start the drought"
+        case .meteors: "Call the storm"
+        case .supplyDrop: "Send \(amount) \(resource.rawValue) to \(name)"
+        case .endLife: "End \(name)'s life"
+        case .whisper: "Whisper to \(name)"
+        case .rumor: "Spread the rumor"
+        case .arrival: "Land"
+        }
     }
 
     private func targetPicker(_ label: String, selection: Binding<Id>, from people: [AgentLite]) -> some View {
@@ -564,7 +779,7 @@ struct CreatorSheet: View {
                     .listRowBackground(Color.clear)
                 }
                 Section {
-                    TextField("Name", text: $name)
+                    LabeledContent("Name") { TextField("Name", text: $name).multilineTextAlignment(.trailing) }
                     Picker("Occupation", selection: $occupationId) {
                         ForEach(OCCUPATIONS) { Text($0.label).tag($0.id) }
                     }
@@ -594,13 +809,12 @@ struct CreatorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(sending ? "…" : "Land") { land() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).count < 2 || sending)
-                }
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Randomize", systemImage: "dice") { randomize() }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryAction(title: sending ? "Landing…" : "Land \(name.split(separator: " ").first.map(String.init) ?? "them")", tint: .amber, disabled: name.trimmingCharacters(in: .whitespaces).count < 2 || sending) { land() }
             }
         }
     }
@@ -652,6 +866,12 @@ struct FollowView: View {
                         }
                         .buttonStyle(.glass)
                         Spacer()
+                        Text(Clock.time(game.world?.tick ?? 0))
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 12).frame(height: 36)
+                            .glassEffect()
+                            .accessibilityLabel(game.stamp)
+                        Spacer()
                         Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
                             Image(systemName: "pause.fill").tag(0.0)
                             Text("1×").tag(1.0)
@@ -659,11 +879,9 @@ struct FollowView: View {
                             Text("8×").tag(8.0)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 190)
+                        .frame(width: 172)
                     }
-                    if let toast = game.toast {
-                        Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
-                    }
+                    if let toast = game.toast { ToastView(toast: toast).padding(.top, 8) }
                     Spacer()
                     hud(c)
                 }
@@ -683,7 +901,7 @@ struct FollowView: View {
                 Avatar(spriteId: c.spriteId)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(c.name).font(.title3).fontDesign(.serif)
-                    Text("\(occupation(c.occupation).label) · \(game.stamp)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 5) {
@@ -721,7 +939,7 @@ struct FollowView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(game.skipping)
-                Button("Ties") {
+                Button("Profile") {
                     let id = c.id
                     game.unfollow()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { game.selectedID = id }

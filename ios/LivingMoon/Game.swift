@@ -77,6 +77,7 @@ final class Game: SourceSink {
     var tab: Tab = .colony
     var selectedID: Id?
     var selectedLocation: LocationId?
+    var choosingPower = false
     var followingID: Id?
     var activePower: Power?
     /// Who the next power targets: the colonist selected when the power was opened.

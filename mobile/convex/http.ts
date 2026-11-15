@@ -21,8 +21,9 @@ http.route({
       return new Response('Invalid signature', { status: 401 });
     }
     const sessionId = event.data?.metadata?.sessionId;
-    if (event.type === 'payment.succeeded' && typeof sessionId === 'string') {
-      await ctx.runMutation(internal.billing.markPremium, { sessionId, paymentId: event.data.id });
+    const active = event.type === 'membership.activated' ? true : event.type === 'membership.deactivated' ? false : null;
+    if (active !== null && typeof sessionId === 'string') {
+      await ctx.runMutation(internal.billing.setPatron, { sessionId, membershipId: event.data.id, active });
     }
     return new Response('OK', { status: 200 });
   }),

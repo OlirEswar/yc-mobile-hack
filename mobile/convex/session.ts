@@ -2,7 +2,8 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { mutation } from './_generated/server';
 import { ensureLoop } from './engine/loop';
-import { asAgentId, authorizeWorld, newToken } from './lib/auth';
+import { asAgentId, authorizeWorld, newToken, planOf } from './lib/auth';
+import { PLANS } from '../shared/plans';
 import { DEFAULT_SEED, RATE_LIMITS } from './lib/constants';
 import { seedWorld } from './seed/insert';
 
@@ -41,7 +42,7 @@ export const bootstrap = mutation({
       await ctx.scheduler.runAfter(0, internal.admin.purgeWorld, { worldId: stalest._id });
     }
 
-    const worldId = await seedWorld(ctx, deviceId, DEFAULT_SEED);
+    const worldId = await seedWorld(ctx, deviceId, DEFAULT_SEED, PLANS[session ? planOf(session) : 'free'].thoughtsPerDay);
     const world = (await ctx.db.get(worldId))!;
     const loop = await ensureLoop(ctx, world, now);
     if (loop) await ctx.db.patch(worldId, loop);

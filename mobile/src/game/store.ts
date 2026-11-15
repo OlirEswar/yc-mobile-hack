@@ -12,6 +12,7 @@ import { AppState } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { LOCATIONS, type LocationId, type Speed } from '../../shared/colony';
 import { LOCATION_LAYOUT } from '../../shared/mapLayout';
+import type { PlanId } from '../../shared/plans';
 import type { AgentDetail, AgentLite, Id, Intervention, InterventionResult, PowerType, WorldEventPublic, WorldPublic } from '../../shared/types';
 import { createWorldSource, type WorldSource } from '../data';
 import { cameraPose, flyTo, flyToPose, scene, setFollowSlot, type AnimAgent, type CameraPose } from '../render/scene';
@@ -43,8 +44,8 @@ export type GameState = {
   phase: 'loading' | 'ready' | 'error';
   loadError?: string;
   sourceKind: 'mock' | 'convex';
-  /** Bought the Colony Pass through Whop. Kept current by billing:status. */
-  premium: boolean;
+  /** Free or Patron. Kept current by billing:status. */
+  plan: PlanId;
   checkingOut: boolean;
   world: WorldPublic | null;
   /** Bumps whenever any colonist record changes. Read colonists with getAgent / listAgents. */
@@ -72,7 +73,7 @@ export type GameState = {
 let state: GameState = {
   phase: 'loading',
   sourceKind: 'mock',
-  premium: false,
+  plan: 'free',
   checkingOut: false,
   world: null,
   agentsRev: 0,
@@ -125,7 +126,7 @@ let nextLocalId = 1;
 let savedPose: CameraPose | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let unsubscribeWorld: (() => void) | undefined;
-let unsubscribePremium: (() => void) | undefined;
+let unsubscribePlan: (() => void) | undefined;
 let pendingCommand: { intervention: Intervention; commandId: string } | null = null;
 
 export const getAgent = (id: Id | null | undefined): AgentLite | undefined => (id ? agents.get(id) : undefined);
@@ -348,7 +349,7 @@ export async function boot() {
   set({ phase: 'loading', loadError: undefined });
   try {
     unsubscribeWorld?.();
-    unsubscribePremium?.();
+    unsubscribePlan?.();
     source?.dispose();
     agents.clear();
     slots.length = 0;
@@ -367,7 +368,7 @@ export async function boot() {
     const recent = await source.feed({ limit: 60, minSalience: 0 });
     mergeEvents([...recent].reverse(), false);
     unsubscribeWorld = source.subscribeWorld(onWorld, (error) => apiError('world:get', error));
-    unsubscribePremium = source.subscribePremium((premium) => set({ premium }));
+    unsubscribePlan = source.subscribePlan((plan) => set({ plan }));
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(beat, 15000);
     set({ phase: 'ready' });
@@ -376,9 +377,9 @@ export async function boot() {
   }
 }
 
-/** Opens a Whop checkout for the Colony Pass. The webhook flips `premium` once payment succeeds. */
-export async function buyPremium() {
-  if (!source || state.premium || state.checkingOut) return;
+/** Opens a Whop checkout for the Patron subscription. The membership webhook switches `plan` once it activates. */
+export async function becomePatron() {
+  if (!source || state.plan === 'patron' || state.checkingOut) return;
   set({ checkingOut: true });
   try {
     await WebBrowser.openBrowserAsync(await source.createCheckout());

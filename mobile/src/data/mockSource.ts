@@ -632,8 +632,8 @@ export function createMockSource(): WorldSource {
       notify();
       return result;
     },
-    subscribePremium(onPremium) {
-      onPremium(false);
+    subscribePlan(onPlan) {
+      onPlan('free');
       return () => {};
     },
     async createCheckout() {

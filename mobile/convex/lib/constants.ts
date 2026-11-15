@@ -21,8 +21,8 @@ export const INITIAL_STOCKPILES: Partial<Record<LocationId, Record<string, numbe
 
 export const INITIAL_TREASURY = 12_000;
 
+/** The daily budget comes from the owner's plan (shared/plans.ts), not from here. */
 export const DEFAULT_LLM_CONFIG = {
-  budgetPerDay: 40,
   maxConcurrent: 3,
   /** 12 simulated hours between normal LLM plans for one agent. */
   cooldownTicks: 72,

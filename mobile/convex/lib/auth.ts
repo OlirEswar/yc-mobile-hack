@@ -1,5 +1,10 @@
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx, QueryCtx } from '../_generated/server';
+import type { PlanId } from '../../shared/plans';
+
+export function planOf(session: Doc<'sessions'>): PlanId {
+  return session.patronMembershipId ? 'patron' : 'free';
+}
 
 export async function getSession(ctx: QueryCtx | MutationCtx, token: string): Promise<Doc<'sessions'> | null> {
   if (typeof token !== 'string' || token.length < 16 || token.length > 128) return null;

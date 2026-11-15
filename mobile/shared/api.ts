@@ -4,6 +4,7 @@
  * `api.<module>.<name>`. Changing a path, argument or return shape here needs both sides to agree.
  */
 import type { Speed } from './colony';
+import type { PlanId } from './plans';
 import type {
   AgentDetail,
   AgentLite,
@@ -73,9 +74,9 @@ export type ApiContract = {
   'chronicle:chain': { args: { worldId: Id; eventId: Id }; returns: WorldEventPublic[] };
 
   // ----- billing -----
-  /** query. Reactive. True once the Whop payment.succeeded webhook has marked this session premium. */
-  'billing:status': { args: { sessionToken: string }; returns: { premium: boolean } };
-  /** action. Creates a Whop checkout tagged with this session and returns the hosted checkout URL. */
+  /** query. Reactive. The session's plan, switched by the Whop membership.activated and membership.deactivated webhooks. */
+  'billing:status': { args: { sessionToken: string }; returns: { plan: PlanId } };
+  /** action. Creates a Whop checkout for the monthly Patron subscription, tagged with this session, and returns the hosted checkout URL. */
   'billing:createCheckout': { args: { sessionToken: string }; returns: { purchaseUrl: string } };
 
   // ----- god powers -----

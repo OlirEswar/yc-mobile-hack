@@ -33,7 +33,7 @@ export function topicWeight(kind: string, confidence: number): number {
   return (TOPIC_WEIGHT[kind] ?? 0.7) * confidence;
 }
 
-export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number): Promise<Id<'worlds'>> {
+export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number, thoughtsPerDay: number): Promise<Id<'worlds'>> {
   const colony = buildColony(seed);
   const now = Date.now();
   const stockpiles: Record<string, Record<string, number>> = {};
@@ -71,7 +71,7 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
     llm: {
       enabled: false,
       callsToday: 0,
-      budgetPerDay: DEFAULT_LLM_CONFIG.budgetPerDay,
+      budgetPerDay: thoughtsPerDay,
       queued: 0,
       running: 0,
       day: 0,
@@ -83,7 +83,7 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
       tokensIn: 0,
       tokensOut: 0,
     },
-    config: { llm: { ...DEFAULT_LLM_CONFIG } },
+    config: { llm: { ...DEFAULT_LLM_CONFIG, budgetPerDay: thoughtsPerDay } },
     loop: { token: 0, running: false, nextAt: 0 },
     lastHeartbeatAt: now,
     lastBannerTick: -100,

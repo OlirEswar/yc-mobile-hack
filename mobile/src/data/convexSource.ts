@@ -105,8 +105,8 @@ export function createConvexSource(url: string): WorldSource {
     chain(eventId) {
       return client.query(fn.chain, { worldId, eventId });
     },
-    subscribePremium(onPremium) {
-      return watch(() => client.watchQuery(fn.billingStatus, { sessionToken }), (status) => onPremium(status.premium));
+    subscribePlan(onPlan) {
+      return watch(() => client.watchQuery(fn.billingStatus, { sessionToken }), (status) => onPlan(status.plan));
     },
     async createCheckout() {
       const { purchaseUrl } = await client.action(fn.createCheckout, { sessionToken });

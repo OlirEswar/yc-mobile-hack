@@ -356,9 +356,8 @@ export default defineSchema({
     powerTimes: v.array(num),
     createTimes: v.array(num),
     createdAt: num,
-    /** Set by the Whop payment.succeeded webhook once this install buys the Colony Pass. */
-    premium: v.optional(v.boolean()),
-    premiumPaymentId: v.optional(str),
+    /** The Whop membership behind an active Patron subscription. Cleared when it deactivates. */
+    patronMembershipId: v.optional(str),
   })
     .index('by_device', ['deviceId'])
     .index('by_token', ['token']),

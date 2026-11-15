@@ -51,11 +51,16 @@ export async function queueThought(tx: Tx, a: AgentDoc, mind: MindDoc, job: { tr
 /** What the followed colonist is reacting to. */
 export type Moment =
   | { kind: 'event'; event: Doc<'events'>; otherName?: string }
-  | { kind: 'plan'; label: string }
-  | { kind: 'idle'; storyTitle?: string };
+  | { kind: 'plan'; label: string; step?: string; place?: string; otherName?: string }
+  | { kind: 'idle'; otherName?: string };
 
-const place = (id?: string): string => LOCATIONS[id as LocationId]?.name ?? 'the colony';
-const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+/** A place name as it reads in a sentence: "the Supply Depot", "Habitat Ring A", "The Airlock Canteen". */
+function placeName(id?: string): string {
+  const name = LOCATIONS[id as LocationId]?.name;
+  if (!name) return 'the colony';
+  return /^(The |Habitat)/.test(name) ? name : 'the ' + name;
+}
+const place = placeName;
 
 /** One short line about how their body feels, or nothing when it is fine. */
 function bodyLine(a: AgentDoc): string | undefined {
@@ -67,31 +72,41 @@ function bodyLine(a: AgentDoc): string | undefined {
   return undefined;
 }
 
+const SNEAKY = new Set(['steal', 'smuggle', 'hide', 'sabotage', 'eavesdrop', 'bribe', 'blackmail', 'lie']);
+const TENDER = new Set(['court', 'comfort', 'confide', 'reconcile', 'help', 'give', 'repay']);
+const HARD = new Set(['threaten', 'accuse', 'confess', 'rally', 'strike', 'petition']);
+const SUPPLY = new Set(['eat', 'drink', 'ration', 'buy', 'beg', 'borrow', 'barter', 'grow', 'scavenge']);
+
 /** Candidate lines for a moment, in the colonist's first person. */
 function candidates(a: AgentDoc, mind: MindDoc, m: Moment): string[] {
   const hiding = !!mind.persona?.secret && mind.persona.secret.exposedAtTick === undefined;
+  const body = bodyLine(a);
   if (m.kind === 'plan') {
-    const body = bodyLine(a);
-    return [
-      m.label + '.' + (body ? ' ' + body : ''),
-      'Fine. ' + lower(m.label) + ', and then I deal with the rest.',
-      m.label + '. At least that much I can control.',
-      'Next: ' + lower(m.label) + (hiding ? ". Act normal. Nobody's looking at you." : '.'),
-    ];
+    const x = m.otherName ? firstName(m.otherName) : undefined;
+    const step = m.step ?? '';
+    if (SNEAKY.has(step)) return ["Quick and quiet. Nobody needs to know.", "Don't think about it. Just do it.", x ? 'If ' + x + ' finds out, I will think of something.' : 'My hands are steadier than my nerves.'];
+    if (TENDER.has(step) && x) return ['I need to see ' + x + '.', x + " first. I've put this off long enough.", 'Maybe ' + x + ' is the one person I can be straight with.'];
+    if (HARD.has(step)) return [x ? 'Time ' + x + ' heard it from me.' : 'Enough waiting. Today I say it out loud.', 'My voice had better not shake.', 'No turning back after this.'];
+    if (step === 'talk' && x) return ['I should talk to ' + x + '.', x + ' will know what people are saying.', 'Let me see what ' + x + ' makes of all this.'];
+    if (SUPPLY.has(step)) return [body ?? 'Supplies first. Everything else can wait.', 'Water and food, then I can think straight.', 'Everything here costs something. Even breathing.'];
+    if (step === 'work' || step === 'study' || step === 'experiment') return ['Back to it. The work does not care how I feel.', 'Another shift. Head down, hands busy.', hiding ? 'If I keep working, nobody asks questions.' : (body ?? 'At least work makes sense.')];
+    if (step === 'sleep') return ['Bed. Maybe tonight I sleep through.', 'Lights out. Tomorrow comes either way.', hiding ? 'Another day nobody found out.' : 'Enough for one day.'];
+    if (step === 'go' && m.place) return ['Off to ' + place(m.place) + '.', place(m.place).replace(/^the /, 'The ') + ", then. Let's see who is there.", body ?? 'Keep moving.'];
+    return [body ?? 'One thing at a time.', 'Fine. One thing at a time.', 'Keep going. Just keep going.'];
   }
   if (m.kind === 'idle') {
-    const story = m.storyTitle;
+    const x = m.otherName ? firstName(m.otherName) : undefined;
     if (a.activity === 'working' || a.activity === 'trading') {
       return [
         'Work keeps my hands busy. It does nothing for the rest of me.',
-        story ? 'Same hum, same shift, and my head keeps drifting back to ' + lower(story) + '.' : 'Same hum, same shift. My head is somewhere else.',
+        x ? 'Same hum, same shift, and my head keeps going back to ' + x + '.' : 'Same hum, same shift. My head is somewhere else.',
         hiding ? 'Every time someone walks past, I wonder what they know.' : 'One more hour and I can think about something else.',
       ];
     }
     return [
-      place(a.locationId) + ' is quiet. Too quiet to stop thinking.',
-      story ? 'I keep turning it over: ' + lower(story) + '. Where does it end?' : 'I keep replaying the last few days.',
-      hiding ? 'What if they find out? What then?' : (bodyLine(a) ?? 'Breathe. Just breathe for a moment.'),
+      place(a.locationId).replace(/^the /, 'The ') + ' is quiet. Too quiet to stop thinking.',
+      x ? 'What is ' + x + ' planning? I would give a lot to know.' : 'I keep replaying the last few days.',
+      hiding ? 'What if they find out? What then?' : (body ?? 'Breathe. Just breathe for a moment.'),
     ];
   }
   const e = m.event;
@@ -103,7 +118,7 @@ function candidates(a: AgentDoc, mind: MindDoc, m: Moment): string[] {
       ? ['The wells. It is always the wells.', 'If the water runs short, the council will start choosing who drinks.']
       : e.eventType === 'storm'
         ? ["Anyone caught outside is in trouble. I'm counting faces.", "The domes creak and everyone pretends they don't hear it."]
-        : ['Something just shifted in this colony. I can feel it.', 'Everyone in ' + place(e.locationId) + ' is pretending to be calm.'];
+        : ['Something just shifted in this colony. I can feel it.', 'Everyone at ' + place(e.locationId) + ' is pretending to be calm.'];
   }
   if (mine) {
     if (kind === 'crime') return ['No one saw. I think no one saw.', 'My heart is going like a drill bit.'];
@@ -114,10 +129,10 @@ function candidates(a: AgentDoc, mind: MindDoc, m: Moment): string[] {
   if (isHostile(e)) {
     return e.participantIds.includes(a._id)
       ? [x + " thinks I'll just take that. " + x + ' is wrong.', "My hands are shaking. Not from fear, I tell myself.", "I'll remember this, " + x + '.']
-      : [x + ' has finally snapped, right here in ' + place(e.locationId) + '.', "Nobody's stepping in. Of course nobody is.", 'Keep your head down. Not your fight. Not yet.'];
+      : [x + ' has finally snapped, right here at ' + place(e.locationId) + '.', "Nobody's stepping in. Of course nobody is.", 'Keep your head down. Not your fight. Not yet.'];
   }
   if (isEasing(e)) return [x + " didn't have to do that.", "I owe " + x + ' now. I hate owing people.', 'Maybe ' + x + ' is better than I gave them credit for.'];
-  return [x + '... what does that mean for me?', "That will be all over the canteen by supper.", 'Strange day in ' + place(e.locationId) + '.'];
+  return [x + '... what does that mean for me?', "That will be all over the canteen by supper.", 'Strange day at ' + place(e.locationId) + '.'];
 }
 
 /** A rule-based monologue line that does not repeat the recent ones. */

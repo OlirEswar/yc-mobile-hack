@@ -7,7 +7,7 @@
 import type { Doc } from '../_generated/dataModel';
 import { admits, rollDay } from '../cognition/budget';
 import { providerConfig } from '../cognition/provider';
-import { agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind } from '../engine/core';
+import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
@@ -39,8 +39,9 @@ export async function spotlightTick(tx: Tx, live: StorylineDoc[], events: Doc<'e
     (e) => involvedIn(e).includes(a._id) || (awake && !a.move && e.locationId === a.locationId && e.visibility !== 'private' && e.salience >= NOTABLE),
   );
   const pending = await hasPendingJob(tx, a);
-  await narrate(tx, a, mind, live, near, pending);
-  tx.world.focusWarp = await shouldWarp(tx, a, live, near, pending);
+  const warp = await shouldWarp(tx, a, live, near, pending);
+  await narrate(tx, a, mind, live, near, pending, warp);
+  tx.world.focusWarp = warp && !(await hasPendingJob(tx, a));
   if (!tx.world.focusWarp && !pending) await nudge(tx, a, mind, live, near);
 }
 
@@ -65,7 +66,7 @@ function llmReady(tx: Tx): boolean {
 const sleepsOnly = (steps: string[]): boolean => steps.every((s) => ['go', 'sleep'].includes(decodeStep(s)?.type ?? ''));
 
 /** New decisions go to the LLM; notable moments and quiet stretches become monologue lines. */
-async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], near: Doc<'events'>[], pending: boolean): Promise<void> {
+async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], near: Doc<'events'>[], pending: boolean, warp: boolean): Promise<void> {
   const plan = mind.plan;
   const decided = !!plan && plan.createdAtTick === tx.tick && plan.source !== 'llm';
   const ready = llmReady(tx);
@@ -73,7 +74,7 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
     const theirs = live.filter((s) => s.participantIds.includes(a._id)).slice(0, 2);
     const queued = await enqueueCognition(tx, a, {
       kind: 'plan',
-      trigger: 'followed by the player, deciding what to do next (the habit says: ' + plan.intent + ')',
+      trigger: 'followed by the player; habit alone would have them "' + plan.intent.replace(/\.$/, '') + '", but they decide from what is happening to them',
       detail: theirs.length > 0 ? 'On their mind: ' + theirs.map(describeStoryline).join(' ') : undefined,
       priority: 0.95,
       lane: 'focus',
@@ -82,7 +83,7 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
   }
   if (pending) return;
 
-  const recent = await recentThoughts(tx, a._id, 3);
+  const recent = await recentThoughts(tx, a._id, 8);
   const since = recent[0] ? tx.tick - recent[0].tick : Infinity;
   const notable = near.filter((e) => e.salience >= NOTABLE).sort((x, y) => y.salience - x.salience)[0];
   let moment: Moment | null = null;
@@ -91,9 +92,15 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
     const other = otherId ? await loadAgent(tx, otherId) : null;
     moment = { kind: 'event', event: notable, otherName: other?.name };
   } else if (decided && since >= 1) {
-    moment = { kind: 'plan', label: plan.labels[0] ?? plan.intent };
-  } else if (a.activity !== 'sleeping' && since >= IDLE_THOUGHT_TICKS) {
-    moment = { kind: 'idle', storyTitle: live.find((s) => s.participantIds.includes(a._id))?.title };
+    const step = plan.steps.map(decodeStep).find((s) => s && s.type !== 'go') ?? decodeStep(plan.steps[0]);
+    const at = step ? (STEP_SPECS[step.type].args as readonly string[]).findIndex((n) => n === 'agentId' || n === 'target') : -1;
+    const whoId = step && at >= 0 ? tx.ctx.db.normalizeId('agents', step.args[at] ?? '') : null;
+    const who = whoId ? await loadAgent(tx, whoId) : null;
+    moment = { kind: 'plan', label: plan.labels[0] ?? plan.intent, step: step?.type, place: step?.type === 'go' ? step.args[0] : undefined, otherName: who?.name };
+  } else if (!warp && a.activity !== 'sleeping' && since >= IDLE_THOUGHT_TICKS) {
+    const story = live.find((s) => s.participantIds.includes(a._id));
+    const otherId = story?.participantIds.find((id) => id !== a._id);
+    moment = { kind: 'idle', otherName: otherId ? (await loadAgent(tx, otherId))?.name : undefined };
   }
   if (!moment) return;
   if (ready) {

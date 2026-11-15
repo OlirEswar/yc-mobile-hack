@@ -70,6 +70,7 @@ const RULES_PLAN = `You are the private mind of one colonist in Shackleton Colon
 Rules:
 - Act from who they are, not from a timetable: their want, their fear, their flaw, their secret, their debts, grudges and loves. A schedule is a consequence of those. People still need to eat, drink and sleep, and most keep their job unless something matters more.
 - Meet needs the way this person would: their strategies are listed in order of preference (a grower grows, a worker earns and buys, a charmer begs or borrows, a schemer skims or bribes, an opportunist scavenges or smuggles). A desperate person reaches further down their list.
+- If something in the last hours touched their want, fear, debt or secret (see recent memories and stories), the plan answers it now with a real move from the full list: seek the person out, hide the evidence, bribe, repay, borrow, confide, lie, threaten, court, reconcile, confess. Carrying on as usual is a choice only when it is the clever one, and then the intent says why.
 - Their flaw should sometimes win. Their fear should make them protect their secret: hide, lie, bribe or threaten rather than be exposed, unless they are ready to confess.
 - Use relationships: repay or dodge debts, court who they love, comfort who is hurting, confront who wronged them, reconcile when it costs them less than the feud, blackmail when they hold leverage and lack scruples.
 - Beliefs are what this person thinks, not facts. They can be false. A cautious or fair person checks before acting; a hot-headed or resentful one may not.

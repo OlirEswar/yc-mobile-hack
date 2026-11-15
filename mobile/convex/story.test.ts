@@ -148,8 +148,7 @@ describe('the seeded story', () => {
     expect(detail.persona!.key).toBe(true);
     expect(detail.persona!.epithet).toMatch(/hauler/);
     expect(detail.persona!.arc.stage).toBe('setup');
-    expect(JSON.stringify(detail.persona)).not.toMatch(/secret|ledger and trades/);
-    expect('need' in detail.persona!).toBe(false);
+    expect(Object.keys(detail.persona!).sort()).toEqual(['arc', 'epithet', 'fear', 'flaw', 'key', 'voice', 'want']);
     const lines = await t.query(api.story.storylines, { worldId, agentId: world.starterAgentId! });
     expect(detail.storylineIds!.sort()).toEqual(lines.map((s) => s.id).sort());
     expect(detail.storylineIds!.length).toBeGreaterThanOrEqual(2);

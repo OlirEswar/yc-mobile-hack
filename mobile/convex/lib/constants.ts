@@ -30,7 +30,7 @@ export const INITIAL_TREASURY = 12_000;
  */
 export const DEFAULT_LLM_CONFIG = {
   budgetPerDay: 260,
-  maxConcurrent: 4,
+  maxConcurrent: 3,
   /** 12 simulated hours between normal LLM plans for one agent. Focus and crisis plans ignore it. */
   cooldownTicks: 72,
   focusReserve: 150,

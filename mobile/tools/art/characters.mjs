@@ -226,7 +226,7 @@ function specFor(archetype, v) {
       s.belt = [tone('metal', 1), tone('metal', 6)];
       s.boots = [tone('metal', 1), tone('metal', 0), tone('cold', 0)];
       s.hands = [tone('metal', 2), tone('metal', 1)];
-      s.hat = { kind: 'helmet', shell: 'blue', visor: 'teal', lamp: false, guard: true };
+      s.hat = { kind: 'helmet', shell: 'blue', visor: ['teal', 'green', 'red', 'teal', 'yellow', 'pink'][v], stripe: tone(['yellow', 'metal', 'red', 'teal', 'metal', 'yellow'][v], ['yellow', 'metal', 'red', 'teal', 'metal', 'yellow'][v] === 'metal' ? 8 : 4), lamp: false, guard: true };
       s.extras = ['pads', 'baton'];
       break;
     case 'official':
@@ -316,11 +316,12 @@ function drawHeadgear(img, s, view, dy) {
       const [vx0, vx1] = view === 'front' ? [9, 22] : [7, 15];
       for (let x = vx0; x <= vx1; x++) {
         img.put(x, y0 + 9, tone('cold', 1));
-        img.put(x, y0 + 10, x % 3 ? tone('teal', 5) : tone('teal', 4));
+        img.put(x, y0 + 10, x % 3 ? tone(hat.visor, 4) : tone(hat.visor, 3));
         img.put(x, y0 + 11, tone('cold', 1));
       }
     }
     img.hline(13, 18, y0 + 2, tone('blue', 5));
+    for (let y = y0 + 2; y < y0 + 8; y++) img.put(view === 'side' ? 16 : 15, y, hat.stripe);
     return;
   }
   if (hat.kind === 'helmet') {

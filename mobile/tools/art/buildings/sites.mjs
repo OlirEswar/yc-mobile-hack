@@ -21,8 +21,9 @@ function fence(img, w, h, gate) {
   }
   for (const [x, y] of posts) {
     if (inGate(x, y)) continue;
-    img.rect(x - 1, y - 5, 2, 6, tone('metal', 6));
-    img.put(x, y - 5, tone('metal', 3));
+    img.rect(x - 1, y - 6, 3, 7, tone('metal', 1));
+    img.rect(x, y - 5, 1, 5, tone('metal', 7));
+    img.put(x, y - 6, tone('yellow', 4));
   }
   if (gate)
     for (const gx of [gate.x - 18, gate.x + 17]) {
@@ -160,10 +161,10 @@ export function paintLandingPad() {
   goods(base, 37, 45, 10, 'food');
   for (let k = 0; k < 3; k++) cylinder(base, 270 + k * 14, 34, 6, 3, 18, 'metal', 6);
   base.rect(266, 56, 40, 3, tone('red', 3));
-  box(base, 248, 120, 30, 12, 8, 'yellow', 3);
-  base.rect(254, 114, 12, 7, tone('metal', 2));
-  base.rect(256, 115, 8, 3, tone('teal', 4));
-  for (const wx of [250, 274]) for (const wy of [132, 118]) base.rect(wx - 2, wy, 4, 5, INK);
+  box(base, 36, 80, 30, 12, 8, 'yellow', 3);
+  base.rect(42, 74, 12, 7, tone('metal', 2));
+  base.rect(44, 75, 8, 3, tone('teal', 4));
+  for (const wx of [38, 62]) for (const wy of [92, 78]) base.rect(wx - 2, wy, 4, 5, INK);
   // overlay: the tail fin standing up from the fuselage, with a beacon
   for (let j = 0; j < 30; j++) {
     const half = j < 4 ? 1 : 2;
@@ -290,17 +291,23 @@ export function paintQuarry() {
   const terraces = [[166, 74], [138, 60], [110, 47], [82, 34]];
   const reg = RAMPS.regolith;
   // terraced pit: each step down shows its sunlit ledge and its south-facing riser
+  const cold = RAMPS.cold;
   fill(base, 0, 0, w, h, (x, y) => {
     let level = 0;
     for (const [rx, ry] of terraces) if (((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1) level++;
     if (!level) return null;
-    let riser = false;
     const [rx, ry] = terraces[level - 1];
-    if (((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy - 9) / ry) ** 2 > 1 && y < cy) riser = true;
-    const dither = hash2(x, y, 3) < 0.18 ? -1 : 0;
-    if (riser) return reg[Math.max(1, 5 - level + dither)];
-    const lip = ((x + 0.5 - cx) / (rx - 2)) ** 2 + ((y + 0.5 - cy) / (ry - 2)) ** 2 > 1;
-    return reg[Math.max(1, (lip ? 8 : 7) - level + dither)];
+    const dither = hash2(x, y, 3) < 0.2 ? -1 : 0;
+    // the riser below each ledge on the far (north) side faces the viewer; west half catches the sun
+    if (y < cy && ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy - 10) / ry) ** 2 > 1) {
+      const lit = x < cx - rx * 0.2;
+      const k = (lit ? 6 : 4) - level + dither;
+      return k >= 2 ? reg[k] : cold[Math.max(1, k + 4)];
+    }
+    if (((x + 0.5 - cx) / (rx - 2)) ** 2 + ((y + 0.5 - cy) / (ry - 2)) ** 2 > 1) return reg[Math.max(2, 8 - level)];
+    if (hash2(x >> 2, y >> 1, 9) < 0.06) return reg[Math.max(1, 5 - level)];
+    const k = 7 - level * 1.4 + dither;
+    return k >= 2 ? reg[Math.round(k)] : cold[Math.max(1, Math.round(k + 4))];
   });
   // haul road ramping down from the gate along the west wall
   for (let t = 0; t < 120; t++) {
@@ -312,8 +319,17 @@ export function paintQuarry() {
     }
   }
   // spoil heaps and a conveyor out of the pit to the north-east
-  for (const [mx, my, r] of [[318, 34, 20], [292, 22, 14], [28, 150, 16]])
-    base.ellipse(mx, my, r, r * 0.6, (i, j) => (i + j < -r * 0.3 ? reg[8] : i + j < r * 0.3 ? reg[6] : reg[4]));
+  for (const [mx, my, r] of [[318, 40, 20], [292, 26, 14], [30, 150, 16]]) {
+    base.ellipse(mx + 4, my + 3, r, r * 0.45, fade(INK, 90));
+    for (let j = -r; j <= 0; j++)
+      for (let i = -r; i <= r; i++) {
+        const d = (i / r) ** 2 + (j / (r * 0.75)) ** 2;
+        if (d > 1) continue;
+        const slope = i - j * 0.6;
+        base.put(mx + i, my + j, slope < -r * 0.4 ? reg[8] : slope < r * 0.3 ? reg[6] : reg[4]);
+        if (hash2(mx + i, my + j, 7) < 0.08) base.put(mx + i, my + j, reg[3]);
+      }
+  }
   for (let t = 0; t < 90; t++) {
     const px = Math.round(232 + t * 0.95);
     const py = Math.round(96 - t * 0.68);

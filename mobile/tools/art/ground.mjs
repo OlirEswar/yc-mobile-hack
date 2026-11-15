@@ -263,7 +263,7 @@ export function paintGround() {
     const g = grade[i];
     if (g <= 0) continue;
     height[i] += (base[i] - height[i]) * smoothstep(0.15, 0.7, g);
-    height[i] += 1.2 * Math.max(0, 1 - Math.abs(g - 0.3) / 0.22);
+    height[i] += 0.8 * Math.max(0, 1 - Math.abs(g - 0.3) / 0.22);
     fresh[i] *= 1 - g;
     albedo[i] = albedo[i] * (1 - g * 0.5) - 0.35 * g;
   }
@@ -336,8 +336,7 @@ export function paintGround() {
         const frost = fbm(x, y, 70, 3, 53) + (1 - td) * 0.35;
         const v = 2.7 + shade * 4 + albedo[i] * 0.4 + frost * 2.6 - vignette * 0.6;
         c = cold[Math.max(0, Math.min(cold.length - 1, Math.floor(v + 0.5 + dither * 0.9)))];
-        if (frost > 0.25 && hash2(x, y, 61) < 0.0025) c = ice[hash2(x, y, 62) < 0.4 ? 3 : 2];
-        else if (frost > 0.16 && hash2(x, y, 63) < 0.03 + frost * 0.1) c = cold[6];
+        if (frost > 0.3 && hash2(x, y, 61) < 0.0015) c = ice[3];
       } else if (lit) {
         const v = 6.2 + shade * 7 + albedo[i] + fresh[i] - vignette;
         c = reg[Math.max(1, Math.min(reg.length - 1, Math.floor(v + 0.5 + dither * 0.85)))];

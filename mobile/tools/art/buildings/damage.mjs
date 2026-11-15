@@ -30,7 +30,7 @@ export function paintDamage(b, seed) {
       }
   }
   // cracks: branching random walks with a light lip
-  for (let n = 0; n < 7; n++) {
+  for (let n = 0; n < 10; n++) {
     let [x, y] = pick();
     let ang = r() * Math.PI * 2;
     const len = 18 + r() * 34;
@@ -42,7 +42,8 @@ export function paintDamage(b, seed) {
       const py = Math.round(y);
       if (!solid(px, py)) break;
       img.put(px, py, tone('cold', 0));
-      img.set(px + 1, py + 1, fade(tone('metal', 8), 90));
+      img.put(px + 1, py, tone('cold', 1));
+      img.set(px, py + 1, fade(tone('metal', 8), 110));
       if (r() < 0.08) {
         const bx = px + Math.round((r() - 0.5) * 8);
         const by = py + Math.round((r() - 0.5) * 6);
@@ -51,10 +52,10 @@ export function paintDamage(b, seed) {
     }
   }
   // debris: bent panels and chunks, glass shards near domes and sites
-  for (let n = 0; n < 16; n++) {
+  for (let n = 0; n < 26; n++) {
     const [x, y] = pick();
-    const pw = 2 + Math.floor(r() * 5);
-    const ph = 2 + Math.floor(r() * 3);
+    const pw = 3 + Math.floor(r() * 6);
+    const ph = 2 + Math.floor(r() * 4);
     img.rect(x + 1, y + 1, pw, ph, fade(INK, 120));
     img.rect(x, y, pw, ph, tone('metal', 3 + Math.floor(r() * 3)));
     img.hline(x, x + pw - 1, y, tone('metal', 7));
@@ -64,7 +65,7 @@ export function paintDamage(b, seed) {
     }
   }
   // small fires with embers
-  for (let n = 0; n < 2; n++) {
+  for (let n = 0; n < 3; n++) {
     const [x, y] = pick();
     img.ellipse(x, y + 1, 5, 2, fade(INK, 160));
     const flame = ['..r..', '.ror.', '.oyo.', 'roYor', 'royyr', '.ryr.'];

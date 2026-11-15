@@ -324,8 +324,8 @@ export function paintMarket() {
     overlay.vline(kx + 34, 112, 121, tone('metal', 2));
   }
   // barrels and sacks by the walls
-  cylinder(base, 268, 150, 6, 3, 10, 'blue', 3);
-  cylinder(base, 268, 168, 6, 3, 10, 'blue', 3);
+  cylinder(base, 268, 158, 6, 3, 10, 'blue', 3);
+  cylinder(base, 268, 176, 6, 3, 10, 'blue', 3);
   box(base, 14, 146, 12, 6, 8, 'brown', 4);
   return b;
 }

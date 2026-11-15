@@ -9,22 +9,20 @@ function growRack(img, x, y, w, seed) {
   box(img, x, y, w, 12, 8, 'metal', 6, {
     frontFn: (i, j) => (j === 3 ? tone('purple', 4) : j === 4 ? tone('purple', 2) : null),
   });
-  for (let i = 1; i < w - 1; i++)
-    for (let j = 1; j < 11; j++) {
-      const r = hash2(x + i, y + j, seed);
-      const leaf = Math.floor((i + (j % 3)) / 4) % 2 === 0;
-      let c = tone('brown', 1);
-      if (r < 0.75) c = leaf ? tone('green', j < 5 ? 5 : 4) : tone('green', 3);
-      if (r < 0.2) c = tone('green', 2);
-      if (j === 1 || i === 1) c = r < 0.6 ? tone('green', 5) : c;
-      img.put(x + i, y + j - 1, c);
-    }
-  // fruit: tomatoes and peppers on some stretches
-  for (let i = 4; i < w - 4; i += 7)
-    if (hash2(i, y, seed + 1) < 0.45) {
-      img.put(x + i, y + 4, tone('red', 3));
-      img.put(x + i + 1, y + 7, tone('red', 4));
-      img.put(x + i - 1, y + 6, hash2(i, y, seed + 2) < 0.5 ? tone('orange', 4) : tone('yellow', 4));
+  img.rect(x + 1, y + 1, w - 2, 10, tone('brown', 1));
+  // two staggered rows of leafy heads, lit from the upper left; some stretches carry fruit
+  for (const [row, dy] of [[0, 3], [1, 7]])
+    for (let i = 4 + row * 4; i < w - 3; i += 8) {
+      const cx = x + i;
+      const cy = y + dy;
+      const fruit = hash2(Math.floor(i / 24), row, seed) < 0.35;
+      img.ellipse(cx, cy, 3.5, 2.5, (a, b2) => (a + b2 < -2 ? tone('green', 5) : a + b2 < 1 ? tone('green', 4) : tone('green', 3)));
+      img.put(cx + 2, cy + 2, tone('green', 2));
+      img.put(cx - 1, cy - 2, tone('green', 5));
+      if (fruit) {
+        img.put(cx + 1, cy, tone('red', 4));
+        img.put(cx - 2, cy + 1, hash2(i, row, seed + 2) < 0.5 ? tone('orange', 4) : tone('red', 3));
+      }
     }
 }
 
@@ -119,18 +117,18 @@ export function paintDepot() {
       frontFn: (i, j) => (j === 4 || i === 7 ? tone(ramp, 1) : null),
       topFn: (i, j) => (i === 7 || j === 3 ? tone(ramp, 2) : null),
     });
-  for (const [x, y, ramp] of [[14, 54, 'green'], [32, 54, 'green'], [14, 40, 'green'], [50, 58, 'brown'], [14, 114, 'orange'], [32, 114, 'orange'], [14, 132, 'orange'], [32, 132, 'brown'], [14, 150, 'green'], [176, 54, 'orange'], [194, 54, 'orange'], [176, 114, 'green'], [194, 114, 'green'], [194, 132, 'brown'], [176, 150, 'orange']])
+  for (const [x, y, ramp] of [[14, 54, 'green'], [32, 54, 'green'], [14, 40, 'green'], [50, 58, 'brown'], [14, 114, 'orange'], [32, 114, 'orange'], [14, 132, 'orange'], [32, 132, 'brown'], [14, 150, 'green'], [176, 54, 'orange'], [194, 54, 'orange'], [176, 114, 'green'], [194, 114, 'green'], [194, 132, 'brown']])
     crate(x, y, ramp);
   for (const [x, y] of [[188, 140], [200, 158], [182, 166], [50, 156]]) cylinder(base, x, y, 6, 3, 10, 'blue', 3);
   // a parked loader bot
-  box(base, 154, 152, 20, 10, 8, 'yellow', 3);
-  base.rect(158, 147, 12, 6, tone('metal', 2));
-  base.rect(160, 148, 8, 3, tone('teal', 4));
-  base.rect(152, 166, 4, 3, INK);
-  base.rect(172, 166, 4, 3, INK);
+  box(base, 180, 156, 20, 10, 8, 'yellow', 3);
+  base.rect(184, 151, 12, 6, tone('metal', 2));
+  base.rect(186, 152, 8, 3, tone('teal', 4));
+  base.rect(178, 170, 4, 3, INK);
+  base.rect(198, 170, 4, 3, INK);
   // quartermaster's terminal
-  box(base, 64, 128, 18, 6, 9, 'metal', 6);
-  screen(base, 66, 124, 14, 5, 'teal', 7);
+  box(base, 70, 58, 18, 6, 9, 'metal', 6);
+  screen(base, 72, 54, 14, 5, 'teal', 7);
   // overhead lamps
   for (const [lx, ly] of [[60, 70], [164, 70], [60, 150], [164, 150]]) {
     overlay.rect(lx - 5, ly - 40, 10, 3, tone('metal', 2));
@@ -172,7 +170,7 @@ export function paintWorkshop() {
     floor: (x, y) => {
       if (x % 32 === 0 || y % 32 === 0) return tone('metal', 1);
       if ((x % 32 === 3 || x % 32 === 28) && (y % 32 === 3 || y % 32 === 28)) return tone('metal', 5);
-      return hash2(x >> 1, y >> 1, 9) < 0.08 ? tone('metal', 3) : tone('metal', 2);
+      return ((x >> 5) + (y >> 5)) % 2 ? tone('metal', 2) : tone('metal', 3);
     },
   });
   b.paintDoors({ doorFloor: () => tone('metal', 2) });
@@ -222,7 +220,7 @@ export function paintWorkshop() {
   for (let t = 0; t < 12; t++) base.rect(98 + t, 127 + Math.round(t * 0.3), 3, 2, tone('yellow', 3));
   base.rect(109, 130, 4, 5, tone('metal', 2));
   // parts bins by the south wall
-  for (let i = 0; i < 4; i++) box(base, 24 + i * 20, 220, 16, 6, 7, ['orange', 'blue', 'metal', 'green'][i], 3);
+  for (let i = 0; i < 4; i++) box(base, 240 + (i % 2) * 20, 186 + Math.floor(i / 2) * 22, 16, 6, 7, ['orange', 'blue', 'metal', 'green'][i], 3);
   // overlay: gantry crane beam with a hook, and forge sparks
   overlay.rect(16, 104, w - 32, 4, tone('yellow', 3));
   overlay.hline(16, w - 17, 104, tone('yellow', 4));

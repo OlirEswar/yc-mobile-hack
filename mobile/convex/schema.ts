@@ -106,7 +106,7 @@ export default defineSchema({
     /** Event ids of standing conditions, used as honest parents for the events they cause. */
     causes: v.record(str, v.id('events')),
     roles: v.record(str, v.id('agents')),
-    vacancies: v.array(v.object({ occupation: str, sinceTick: num, role: v.optional(str) })),
+    vacancies: v.array(v.object({ occupation: str, sinceTick: num, role: v.optional(str), eventId: v.optional(v.id('events')) })),
     llm: v.object({
       enabled: v.boolean(),
       callsToday: num,
@@ -133,6 +133,25 @@ export default defineSchema({
     lastBannerTick: num,
     lastDailyDay: num,
     lastPriceTick: num,
+    /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
+    sim: v.optional(
+      v.object({
+        /** Effect ids whose onset the engine has already played out. */
+        seenEffects: v.array(str),
+        /** Causes raised at the plaza, heard at the next council session. */
+        petitions: v.array(v.object({ topic: str, agentId: v.id('agents'), tick: num, eventId: v.id('events') })),
+        lastCouncilTick: num,
+        /** Sitting councilors, the chair included. */
+        council: v.array(v.id('agents')),
+        /** Open security cases: thefts reported or discovered and not yet answered. */
+        cases: v.array(v.object({ eventId: v.id('events'), suspectId: v.optional(v.id('agents')), locationId: str, tick: num })),
+        /** Depot stock taken unseen, until the quartermaster's count finds it. */
+        missing: v.object({ food: num, water: num, parts: num }),
+        missingEventId: v.optional(v.id('events')),
+        /** Tick of the last public accusation against each agent, so a crowd does not pile on. */
+        accused: v.optional(v.record(v.string(), v.number())),
+      }),
+    ),
   }).index('by_device', ['deviceId']),
 
   /** Agent ids by seq. Read only when an event fans out to many witnesses. */
@@ -277,6 +296,8 @@ export default defineSchema({
     lastReinforcedTick: num,
     hops: num,
     private: v.optional(v.boolean()),
+    /** Tick at which the holder last acted on it (investigated, accused, petitioned). */
+    acted: v.optional(num),
   })
     .index('by_agent_key', ['agentId', 'key'])
     .index('by_world_key', ['worldId', 'key']),

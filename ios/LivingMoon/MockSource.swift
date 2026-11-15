@@ -51,6 +51,8 @@ final class MockSource: WorldSource {
     private var profileSource: String?
     private var avatarId: Id?
     private var directives: [AvatarDirective] = []
+    /// The avatar's latest directive steers its routine for a few hours.
+    private var directed: (to: LocationId, text: String, until: Double)?
     private var playerName = "Player"
     private var inviteCode: String?
 
@@ -224,6 +226,10 @@ final class MockSource: WorldSource {
             agents[id]!.lite.activity = "fleeing"
             agents[id]!.lite.activityLabel = "Fleeing the storm for the Commons Plaza"
             return
+        }
+        if id == avatarId, let d = directed, tick < d.until {
+            if a.lite.locationId != d.to { return walk(id, to: d.to, why: "because their player asked") }
+            return socialise(id)
         }
         let night = h >= 22 || h < 6
         let target: LocationId
@@ -621,6 +627,7 @@ final class MockSource: WorldSource {
         agents[id]!.detail.goals.insert(contentsOf: goals, at: 0)
         avatarId = id
         directives = []
+        directed = nil
         notify()
         publishPlayer()
         return AvatarResult(ok: true, agentId: id)
@@ -644,8 +651,9 @@ final class MockSource: WorldSource {
         version += 1
         agents[id]!.detail.goals.insert(GoalPublic(id: newId("g"), kind: "custom", description: text, priority: 0.9, source: "owner", status: "active", createdAtTick: tick), at: 0)
         agents[id]!.detail.lastThought = ThoughtPublic(tick: tick, trigger: "their player asked", intent: "Do what I was asked: \"\(text)\"", source: "rules")
+        directed = (target, text, tick + 3 * Clock.ticksPerHour)
         if a.lite.locationId == target && a.lite.move == nil {
-            setActivity(id, "idle", "Seeing to it: " + text, 3)
+            socialise(id)
         } else {
             walk(id, to: target, why: "because their player asked")
         }
@@ -663,6 +671,7 @@ final class MockSource: WorldSource {
         if let id = avatarId { agents[id]?.lite.ownerName = nil; agents[id]?.detail.persona = nil; touch(id) }
         avatarId = nil
         directives = []
+        directed = nil
         notify()
         publishPlayer()
         return AvatarResult(ok: true)

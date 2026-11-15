@@ -46,6 +46,7 @@ struct YouView: View {
                 }
             }
             .navigationTitle("You")
+            .scrollDismissesKeyboard(.immediately)
             .sheet(item: $importing) { kind in
                 switch kind {
                 case .gmail: GmailImportSheet()
@@ -513,6 +514,7 @@ struct AvatarCard: View {
     var spawning: Bool
     var respawn: () -> Void
     @State private var order = ""
+    @FocusState private var typing: Bool
     @State private var sending = false
     @State private var error: String?
 
@@ -526,7 +528,7 @@ struct AvatarCard: View {
                     Text(avatar.name).font(.title2).fontDesign(.serif)
                     Text(avatar.alive ? avatar.activityLabel : "Died").font(.subheadline).lineLimit(2)
                     if avatar.alive {
-                        Text("Feels \(avatar.mood) · at \(avatar.locationId.name)").font(.caption).foregroundStyle(.secondary)
+                        Text("Feels \(avatar.mood) · \(avatar.move == nil ? "at" : "heading to") \(avatar.locationId.name)").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -547,6 +549,7 @@ struct AvatarCard: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     TextField("Tell \(avatar.first) to…", text: $order, axis: .vertical)
                         .lineLimit(1...4)
+                        .focused($typing)
                         .onChange(of: order) { if order.count > 140 { order = String(order.prefix(140)) } }
                         .submitLabel(.send)
                     Button("Send", systemImage: "arrow.up.circle.fill") { send() }
@@ -586,7 +589,10 @@ struct AvatarCard: View {
         Task {
             error = await game.direct(text)
             sending = false
-            if error == nil { order = "" }
+            if error == nil {
+                order = ""
+                typing = false
+            }
         }
     }
 }

@@ -105,6 +105,10 @@ export function paintHabitatA() {
 
 /** A two-tier bunk bed against a wall: the upper bunk on the frame top, the lower on its front. */
 function bunk(img, x, y, ramp) {
+  // ladder up the right end
+  for (let j = 0; j < 36; j++) img.put(x + 37, y + j, tone('metal', 7));
+  for (let j = 3; j < 36; j += 5) img.hline(x + 36, x + 39, y + j, tone('metal', 6));
+  for (let j = 0; j < 36; j++) img.put(x + 40, y + j, tone('metal', 4));
   box(img, x, y, 36, 10, 26, 'metal', 6, {
     topFn: (i, j) => (i > 1 && i < 34 && j > 1 && j < 9 ? (i < 9 ? tone('metal', 8) : tone(ramp, j === 2 ? 4 : 3)) : null),
     frontFn: (i, j) => {
@@ -138,8 +142,8 @@ export function paintHabitatB() {
       return x % 20 === 0 ? tone('metal', 6) : tone('metal', 7);
     },
     floor: (x, y) => {
-      if (x % 16 === 0 || y % 16 === 0) return tone('metal', 5);
-      return (Math.floor(x / 16) + Math.floor(y / 16)) % 2 ? tone('metal', 6) : tone('metal', 7);
+      if (x % 16 === 0 || y % 16 === 0) return tone('metal', 4);
+      return (Math.floor(x / 16) + Math.floor(y / 16)) % 2 ? tone('metal', 5) : tone('metal', 6);
     },
   });
   b.paintDoors({ doorFloor: () => tone('metal', 5) });
@@ -165,8 +169,13 @@ export function paintHabitatB() {
   locker(base, 284, 146, 'teal');
   // lounge: a rug and a screen on the side
   base.rect(70, 214, 200, 40, tone('blue', 2));
-  base.frame(70, 214, 200, 40, tone('blue', 3));
-  for (let i = 76; i < 266; i += 6) base.put(i, 234, tone('blue', 3));
+  base.frame(70, 214, 200, 40, tone('blue', 1));
+  base.frame(73, 217, 194, 34, tone('teal', 3));
+  for (let i = 80; i < 262; i += 10) {
+    base.put(i, 234, tone('teal', 4));
+    base.put(i + 1, 233, tone('teal', 3));
+    base.put(i + 1, 235, tone('teal', 3));
+  }
   spaceWindow(base, 300, 28, 24, 12, 31);
   screen(base, 24, 26, 20, 10, 'blue', 9);
   // overlay: ceiling light strips

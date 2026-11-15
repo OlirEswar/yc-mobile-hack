@@ -63,63 +63,52 @@ private struct OnboardingBackdrop: View {
     }
 }
 
-/// A real Liquid Glass lens. The moon and two soft lights sit behind it, so the glass bends them at its rim.
+/// The moon sitting in a real Liquid Glass disc, with two soft lights behind the glass that it bends at the rim.
 struct Orb: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         GeometryReader { geo in
             let d = min(geo.size.width, geo.size.height)
-            TimelineView(.animation(paused: reduceMotion)) { timeline in
-                let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                let drift = CGFloat(sin(t * 0.3)) * d * 0.025
-                ZStack {
-                    Circle()
-                        .fill(Color.amber.opacity(0.5))
-                        .frame(width: d * 0.7, height: d * 0.7)
-                        .blur(radius: d * 0.16)
-                        .offset(x: -d * 0.14, y: d * 0.24)
-                    Circle()
-                        .fill(Color.earth.opacity(0.32))
-                        .frame(width: d * 0.5, height: d * 0.5)
-                        .blur(radius: d * 0.14)
-                        .offset(x: -d * 0.2, y: -d * 0.18)
-                    MoonSurface()
-                        .frame(width: d * 0.5, height: d * 0.5)
-                        .opacity(0.55)
-                        .offset(x: d * 0.22 + drift, y: -d * 0.2 - drift * 0.6)
-                    Circle()
-                        .fill(.clear)
-                        .frame(width: d, height: d)
-                        .glassEffect(.clear, in: .circle)
-                        .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.04), Color.amber.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
+            ZStack {
+                Circle()
+                    .fill(Color.amber.opacity(0.5))
+                    .frame(width: d * 0.75, height: d * 0.75)
+                    .blur(radius: d * 0.16)
+                    .offset(x: d * 0.1, y: d * 0.26)
+                Circle()
+                    .fill(Color.earth.opacity(0.3))
+                    .frame(width: d * 0.55, height: d * 0.55)
+                    .blur(radius: d * 0.14)
+                    .offset(x: -d * 0.24, y: -d * 0.2)
+                Circle()
+                    .fill(.clear)
+                    .frame(width: d, height: d)
+                    .glassEffect(.clear, in: .circle)
+                    .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.04), Color.amber.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+                MoonSurface()
+                    .frame(width: d * 0.8, height: d * 0.8)
+                    .shadow(color: .black.opacity(0.7), radius: d * 0.05, y: d * 0.02)
+                Ellipse()
+                    .fill(LinearGradient(colors: [.white.opacity(0.16), .clear], startPoint: .top, endPoint: .bottom))
+                    .frame(width: d * 0.6, height: d * 0.22)
+                    .blur(radius: d * 0.025)
+                    .offset(y: -d * 0.35)
+                    .blendMode(.plusLighter)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .accessibilityHidden(true)
     }
 }
 
-/// A lit grey moon with a soft terminator, a few maria and craters.
+/// The near side of the moon, rendered from NASA's public-domain LROC colour map (CGI Moon Kit).
 private struct MoonSurface: View {
+    private static let image = (Bundle.main.url(forResource: "onboarding_moon", withExtension: "png")
+        ?? Bundle.main.url(forResource: "onboarding_moon", withExtension: "png", subdirectory: "Art"))
+        .flatMap { UIImage(contentsOfFile: $0.path) }
+
     var body: some View {
-        Canvas { ctx, size in
-            let w = size.width
-            let disc = Circle().path(in: CGRect(origin: .zero, size: size))
-            ctx.fill(disc, with: .radialGradient(Gradient(colors: [Color(white: 0.95), Color(white: 0.66), Color(white: 0.16)]),
-                                                 center: CGPoint(x: w * 0.36, y: w * 0.32), startRadius: 0, endRadius: w * 0.82))
-            ctx.clip(to: disc)
-            let maria: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [(0.22, 0.3, 0.3, 0.22), (0.5, 0.42, 0.26, 0.2), (0.34, 0.6, 0.2, 0.16)]
-            for (x, y, mw, mh) in maria {
-                ctx.fill(Ellipse().path(in: CGRect(x: w * x, y: w * y, width: w * mw, height: w * mh)), with: .color(.black.opacity(0.1)))
-            }
-            let craters: [(CGFloat, CGFloat, CGFloat)] = [(0.62, 0.22, 0.07), (0.28, 0.72, 0.06), (0.7, 0.62, 0.09), (0.46, 0.84, 0.05), (0.18, 0.5, 0.045)]
-            for (x, y, r) in craters {
-                let rect = CGRect(x: w * (x - r), y: w * (y - r), width: w * r * 2, height: w * r * 2)
-                ctx.fill(Circle().path(in: rect), with: .color(.black.opacity(0.16)))
-                ctx.stroke(Circle().path(in: rect.offsetBy(dx: w * 0.006, dy: w * 0.006)), with: .color(.white.opacity(0.18)), lineWidth: 1)
-            }
+        if let image = Self.image {
+            Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
         }
     }
 }

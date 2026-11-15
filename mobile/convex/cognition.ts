@@ -217,6 +217,7 @@ async function runJob(ctx: ActionCtx, config: ProviderConfig, jobId: Id<'cogniti
 /**
  * Records the end of a running job and, for a valid answer that still applies, commits it in the
  * same Tx: the plan through setPlan (source llm), the goal, the cooldown, and the speech line.
+ * Plans from the focus and crisis lanes start now; normal ones start when the current step ends.
  * Returns the outcome, e.g. "done: committed" or "stale: mind moved".
  */
 export const finish = internalMutation({
@@ -309,7 +310,8 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
   });
   mind.llmCooldownUntilTick = tx.tick + tx.world.config.llm.cooldownTicks;
   touchMind(tx, mind);
-  if (plan.speech) {
+  // A plan that starts later would say its line at the wrong moment.
+  if (plan.speech && job.lane !== 'normal') {
     agent.speech = plan.speech;
     touch(tx, agent);
   }

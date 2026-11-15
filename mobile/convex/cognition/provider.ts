@@ -1,16 +1,18 @@
 /**
  * The model client: one OpenAI-compatible chat completion over fetch, no SDK. Configured by the
- * deployment env: LLM_API_KEY (required), LLM_BASE_URL and LLM_MODEL (optional). The default is
- * OpenAI with a small, fast model and strict structured output; any other base URL gets plain
- * JSON mode, which every OpenAI-compatible provider supports.
+ * deployment env: LLM_API_KEY (required), LLM_BASE_URL and LLM_MODEL (optional), and
+ * LLM_REASONING_EFFORT for a reasoning model, which takes an effort instead of a temperature.
+ * The default is OpenAI's gpt-6-luna with no reasoning (about 2 s per plan) and strict structured
+ * output; any other base URL gets plain JSON mode, which every OpenAI-compatible provider supports.
  */
 
 export const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-export const DEFAULT_MODEL = 'gpt-4.1-mini';
+export const DEFAULT_MODEL = 'gpt-6-luna';
+const DEFAULT_REASONING_EFFORT = 'none';
 const TIMEOUT_MS = 20_000;
 const RETRY_DELAY_MS = 600;
 
-export type ProviderConfig = { apiKey: string; baseUrl: string; model: string; provider: string };
+export type ProviderConfig = { apiKey: string; baseUrl: string; model: string; provider: string; reasoningEffort?: string };
 
 /** Null when no key is configured, so the world runs on rule-based plans alone. */
 export function providerConfig(): ProviderConfig | null {
@@ -19,7 +21,9 @@ export function providerConfig(): ProviderConfig | null {
   const baseUrl = (process.env.LLM_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
   const host = new URL(baseUrl).hostname;
   const provider = host === 'api.openai.com' ? 'openai' : host.replace(/^api\./, '');
-  return { apiKey, baseUrl, model: process.env.LLM_MODEL || DEFAULT_MODEL, provider };
+  const model = process.env.LLM_MODEL || DEFAULT_MODEL;
+  const reasoningEffort = process.env.LLM_REASONING_EFFORT || (model === DEFAULT_MODEL ? DEFAULT_REASONING_EFFORT : undefined);
+  return { apiKey, baseUrl, model, provider, reasoningEffort };
 }
 
 export type ChatRequest = {
@@ -62,7 +66,7 @@ async function chatOnce(config: ProviderConfig, request: ChatRequest): Promise<C
       { role: 'system', content: request.system },
       { role: 'user', content: request.user },
     ],
-    temperature: request.temperature ?? 0.8,
+    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : { temperature: request.temperature ?? 0.8 }),
     response_format:
       openai && request.schema
         ? { type: 'json_schema', json_schema: { name: request.schema.name, strict: true, schema: request.schema.schema } }

@@ -99,7 +99,7 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
       fail('expected ' + required + ' args');
       continue;
     }
-    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, living, person, belief });
+    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, householdId: c.householdId, living, person, belief });
     if (typeof encoded === 'string') {
       fail(encoded);
       continue;
@@ -129,6 +129,7 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
 
 type Lookup = {
   here: LocationId;
+  householdId?: string;
   living: (value: string) => PersonRef | undefined;
   person: (value: string) => PersonRef | undefined;
   belief: (value: string) => PlanContext['beliefs'][number] | undefined;
@@ -191,8 +192,14 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
       if (!(RESOURCES as readonly string[]).includes(resource)) return 'unknown resource';
       const n = amount(resource, args[2]);
       if (n === null) return 'bad quantity';
-      if (args[0].trim() === 'depot') return { args: ['depot', resource, String(n)], label: 'Steal ' + resource + ' from the depot' };
-      const who = l.living(args[0]);
+      const target = args[0].trim();
+      if (target === 'depot') return { args: ['depot', resource, String(n)], label: 'Steal ' + resource + ' from the depot' };
+      if (target.startsWith('pantry:')) {
+        const owner = l.person(target.slice(7));
+        if (!owner?.householdId || owner.householdId === l.householdId) return 'unknown pantry';
+        return { args: ['pantry:' + owner.householdId, resource, String(n)], label: 'Steal ' + resource + ' from the ' + owner.name.split(' ').slice(1).join(' ') + ' pantry' };
+      }
+      const who = l.living(target);
       if (!who) return 'unknown target';
       return { args: [who.id, resource, String(n)], label: 'Steal ' + resource + ' from ' + who.name };
     }

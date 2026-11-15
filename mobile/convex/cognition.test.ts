@@ -85,7 +85,7 @@ test('a valid answer commits an llm plan, goal, cooldown and counters in one ver
   const t = newTest();
   const { worldId, agents } = await setup(t);
   const agent = agents[0];
-  const jobId = await queue(t, worldId, agent._id);
+  const jobId = await queue(t, worldId, agent._id, { lane: 'crisis' });
   const calls = mockModel(GOOD_PLAN);
   const versionBefore = (await t.run((ctx) => ctx.db.get(worldId)))!.version;
 
@@ -94,7 +94,7 @@ test('a valid answer commits an llm plan, goal, cooldown and counters in one ver
 
   expect(calls.length).toBe(1);
   expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions');
-  expect(calls[0].body.response_format.type).toBe('json_schema');
+  expect(calls[0].body).toMatchObject({ model: 'gpt-6-luna', reasoning_effort: 'none', response_format: { type: 'json_schema' } });
   expect(calls[0].body.messages[1].content).toContain(agent.name);
   const { job, a, mind, world } = await t.run(async (ctx) => {
     const a = (await ctx.db.get(agent._id))!;

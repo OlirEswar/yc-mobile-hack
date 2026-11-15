@@ -21,6 +21,7 @@ export type PersonRef = {
   usualPlace: string;
   /** How the agent knows them, e.g. "friend, trusts a lot". */
   tie?: string;
+  householdId?: Id<'households'>;
 };
 
 export type BeliefRef = {
@@ -52,6 +53,7 @@ export type PlanContext = {
   credits: number;
   inv: Doc<'agents'>['inv'];
   household?: string;
+  householdId?: Id<'households'>;
   locationId: LocationId;
   homeLocationId: string;
   workLocationId?: string;
@@ -76,6 +78,7 @@ export type SpeechContext = {
   mood: string;
   doing: string;
   place: string;
+  prices: string;
   partner: PersonRef;
   /** What the agent believes about the partner, strongest first. */
   aboutPartner: string[];
@@ -115,6 +118,9 @@ export function describeValues(values: Doc<'minds'>['values']): string {
   const ranked = VALUE_KEYS.slice().sort((a, b) => values[b] - values[a]);
   return 'cares most about ' + ranked[0] + ' and ' + ranked[1] + ', least about ' + ranked[ranked.length - 1];
 }
+
+const describePrices = (world: Doc<'worlds'>): string =>
+  'Exchange prices in credits per unit: ' + Object.entries(world.prices).map(([r, p]) => r + ' ' + p).join(', ');
 
 const level = (pressure: number): string => (pressure >= 80 ? 'desperate' : pressure >= 60 ? 'strong' : pressure >= 40 ? 'moderate' : 'low');
 
@@ -211,6 +217,7 @@ export async function loadJobContext(
       present: extra.present ?? false,
       usualPlace: doc.workLocationId ?? doc.homeLocationId,
       tie: extra.tie,
+      householdId: doc.householdId,
     };
     people.push(person);
     byId.set(id, person);
@@ -238,6 +245,7 @@ export async function loadJobContext(
         mood: agent.mood,
         doing: agent.activityLabel,
         place: placeName(agent.locationId),
+        prices: describePrices(world),
         partner,
         aboutPartner: beliefDocs.filter((b) => b.subjectAgentId === partner.id).slice(0, 3).map((b) => b.text + ' (confidence ' + b.confidence.toFixed(1) + ')'),
         trigger: job.trigger,
@@ -282,7 +290,7 @@ export async function loadJobContext(
   for (const e of world.activeEffects) worldLines.push('ACTIVE: ' + e.label + ' (severity ' + e.severity.toFixed(1) + ', ends in ' + span(e.endTick - world.tick) + ')');
   const damaged = Object.entries(world.damage).filter(([, d]) => d > 0.05);
   if (damaged.length > 0) worldLines.push('Damaged buildings: ' + damaged.map(([loc, d]) => placeName(loc) + ' ' + Math.round(d * 100) + '%').join(', '));
-  worldLines.push('Exchange prices in credits: ' + Object.entries(world.prices).map(([r, p]) => r + ' ' + p).join(', '));
+  worldLines.push(describePrices(world));
   worldLines.push('Depot rations: ' + ['full', 'reduced', 'emergency'][world.econ.rationLevel] + '. Depot reserve: ' + Object.entries(world.stockpiles.depot ?? {}).map(([r, n]) => r + ' ' + Math.round(n)).join(', '));
   if (world.econ.wagesUnpaid > 0) worldLines.push('The treasury is behind on wages.');
   worldLines.push('Population ' + world.population.alive + ' alive, ' + world.population.dead + ' dead.');
@@ -308,6 +316,7 @@ export async function loadJobContext(
       household: household
         ? household.name + ' at ' + placeName(household.homeLocationId) + ', pantry ' + household.pantry.food + ' food and ' + household.pantry.water + ' water'
         : undefined,
+      householdId: agent.householdId,
       locationId: agent.locationId as LocationId,
       homeLocationId: agent.homeLocationId,
       workLocationId: agent.workLocationId,

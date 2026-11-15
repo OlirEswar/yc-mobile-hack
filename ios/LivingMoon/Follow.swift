@@ -211,24 +211,17 @@ struct FollowView: View {
             }
             Text(where_(c, partner: partner, nearby: nearby.count)).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                Button { game.skipToNotable() } label: {
-                    Label(game.skipping ? "Skipping…" : "Next moment", systemImage: "forward.end.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(game.skipping)
-                Menu {
-                    ForEach([Power.whisper, .supplyDrop, .rumor, .endLife]) { p in
-                        Button(p.title, systemImage: p.symbol) {
-                            game.powerTarget = c.id
-                            power = p
-                        }
+            Menu {
+                ForEach([Power.whisper, .supplyDrop, .rumor, .endLife]) { p in
+                    Button(p.title, systemImage: p.symbol) {
+                        game.powerTarget = c.id
+                        power = p
                     }
-                } label: {
-                    Label("Powers", systemImage: "hand.point.up.left.fill").padding(.horizontal, 4)
                 }
-                .buttonStyle(.glass)
+            } label: {
+                Label("Powers", systemImage: "hand.point.up.left.fill").frame(maxWidth: .infinity)
             }
+            .buttonStyle(.glassProminent)
             .controlSize(.large)
         }
     }

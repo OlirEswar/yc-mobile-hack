@@ -94,7 +94,6 @@ final class Game: SourceSink {
     var showPatron = false
     var chronicleEventID: Id?
     var toast: Toast?
-    var skipping = false
     var backendNote: String?
 
     /// The world's introduction, when the backend has one.
@@ -346,22 +345,6 @@ final class Game: SourceSink {
     func unfollow() {
         followingID = nil
         Task { await source?.setFocus(nil) }
-    }
-
-    func skipToNotable() {
-        guard !skipping, let source else { return }
-        skipping = true
-        Task {
-            defer { skipping = false }
-            do {
-                let r = try await source.skipToNotable(agentId: followingID)
-                let hours = (r.advancedTicks / Clock.ticksPerHour * 10).rounded() / 10
-                let e = events.first { $0.id == r.eventId }
-                show(.info, e.map { "Skipped \(hours.formatted())h: \($0.summary)" } ?? "Skipped \(hours.formatted())h. Nothing notable happened.")
-            } catch {
-                show(.error, unsupported(error, "skip ahead"))
-            }
-        }
     }
 
     /// Sends a power. Returns nil on success, else a message for the sheet.

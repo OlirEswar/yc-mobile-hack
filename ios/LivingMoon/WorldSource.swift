@@ -24,7 +24,6 @@ protocol WorldSource: AnyObject {
     func heartbeat() async
     func setFocus(_ agentId: Id?) async
     func setSpeed(_ speed: Double) async throws
-    func skipToNotable(agentId: Id?) async throws -> (advancedTicks: Double, eventId: Id?)
     /// agents:get, reactive. Returns a cancel closure.
     func watchDetail(_ agentId: Id, _ onDetail: @escaping (AgentDetail?) -> Void) -> () -> Void
     func chain(_ eventId: Id) async throws -> [WorldEventPublic]

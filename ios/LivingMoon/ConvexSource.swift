@@ -57,14 +57,6 @@ final class ConvexSource: WorldSource {
         let _: Ok = try await client.mutation("world:setSpeed", with: ["sessionToken": sessionToken, "worldId": worldId, "speed": speed])
     }
 
-    private struct Skip: Decodable { let advancedTicks: Double; let eventId: String? }
-    func skipToNotable(agentId: Id?) async throws -> (advancedTicks: Double, eventId: Id?) {
-        var args: [String: ConvexEncodable?] = ["sessionToken": sessionToken, "worldId": worldId]
-        if let agentId { args["agentId"] = agentId }
-        let r: Skip = try await client.mutation("world:skipToNotable", with: args)
-        return (r.advancedTicks, r.eventId)
-    }
-
     func watchDetail(_ agentId: Id, _ onDetail: @escaping (AgentDetail?) -> Void) -> () -> Void {
         let c = watch("agents:get", ["worldId": worldId, "agentId": agentId], as: AgentDetail?.self, onError: { _ in onDetail(nil) }, onDetail)
         return { c.cancel() }

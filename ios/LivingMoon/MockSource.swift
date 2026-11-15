@@ -724,21 +724,6 @@ final class MockSource: WorldSource {
         schedule()
         notify()
     }
-    func skipToNotable(agentId: Id?) async throws -> (advancedTicks: Double, eventId: Id?) {
-        let startCount = events.count
-        var advanced = 0.0
-        var found: WorldEventPublic?
-        while advanced < 36 && found == nil {
-            stepTick()
-            advanced += 1
-            found = events.suffix(from: min(startCount, events.count)).first { e in
-                e.salience >= 0.6 || (agentId != nil && e.salience >= 0.3 && (e.actorId == agentId || e.participantIds.contains(agentId!)))
-            }
-        }
-        notify()
-        schedule()
-        return (advanced, found?.id)
-    }
     func watchDetail(_ agentId: Id, _ onDetail: @escaping (AgentDetail?) -> Void) -> () -> Void {
         let key = UUID()
         detailWatchers[agentId, default: [:]][key] = onDetail

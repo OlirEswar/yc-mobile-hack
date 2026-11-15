@@ -28,6 +28,11 @@ export type ApiContract = {
    * only ticks while a heartbeat is fresh (60 seconds), so a closed app pauses its world.
    */
   'session:heartbeat': { args: { sessionToken: string }; returns: { ok: boolean } };
+  /**
+   * mutation. Tells the backend which colonist the player is following, or null in the wide view.
+   * A followed colonist gets priority in the LLM planning queue; it never changes the simulation.
+   */
+  'session:setFocus': { args: { sessionToken: string; agentId: Id | null }; returns: { ok: boolean } };
 
   // ----- world -----
   /** query. Reactive. Changes every tick, so it also serves as the clock. */

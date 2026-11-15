@@ -49,6 +49,8 @@ import type * as seed_keyCharacters from "../seed/keyCharacters.js";
 import type * as seed_names from "../seed/names.js";
 import type * as session from "../session.js";
 import type * as sim from "../sim.js";
+import type * as society_hooks from "../society/hooks.js";
+import type * as society_steps from "../society/steps.js";
 import type * as storyteller_director from "../storyteller/director.js";
 import type * as sync from "../sync.js";
 import type * as world from "../world.js";
@@ -101,6 +103,8 @@ declare const fullApi: ApiFromModules<{
   "seed/names": typeof seed_names;
   session: typeof session;
   sim: typeof sim;
+  "society/hooks": typeof society_hooks;
+  "society/steps": typeof society_steps;
   "storyteller/director": typeof storyteller_director;
   sync: typeof sync;
   world: typeof world;

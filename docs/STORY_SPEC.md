@@ -125,3 +125,40 @@ come from story:intro and advance on player actions.
 LLM calls go where the player is looking: the followed character (plans, monologue, answers)
 first, then storyline participants at high tension, then crises, then everyone else. The budget is
 configurable per world (world.config.llm) and the world keeps working on rules when it runs out.
+
+## 8. Society: the world grows its own institutions and culture
+
+Inspired by Dwarf Fortress: the colony's institutions, families, knowledge and culture are
+simulated, so stories come from them rather than from a script. **None of it is shown as a stat
+screen.** The player meets it through people: a monologue line, a banner ("Rosa founded the Rust
+Choir"), a storyline, a line in the inspector in words ("a respected elder", "obsessed with finding
+the drill saboteur"), and an Almanac view that reads like the colony's history book.
+
+- **Organizations** (organizations table): companies, guilds, cults, gangs, militias, parties,
+  schools, troupes and breakaways (defectors who claim territory and declare their own rules).
+  Agents found, join, leave, recruit, preach, pay dues, meet, raid, protect, make deals, hold rituals
+  and expel. Organizations have creeds, treasuries, hidden reputation, leaders and rivals, and they
+  split, merge, go to war (raids, sabotage) and collapse.
+- **Social status** (minds.society.status, hidden): prestige from job, wealth, fame, rank, deeds and
+  scandal. It changes who listens to whom, who gets hired, married or followed, and who is envied.
+- **Families**: partners (court, propose), children born into households who grow up (ageBand
+  'child', then young adults choosing careers), inherit traits and grudges; pets with names and
+  bonds (and grief when they die).
+- **Education and jobs**: study (Observatory school, a teacher, self-taught), teach, mastery of
+  skills, apply for jobs, promotions, firing, unemployment, careers that change identity.
+- **Building and invention**: structures from a catalogue (shared/society.ts STRUCTURES) built
+  from resources, and a long tree of discoveries (DISCOVERIES, 50+) made by experimenting, each
+  with prerequisites and a real effect on the world (new structures, better yields, new medicine,
+  new art forms, new risks).
+- **Arts and culture**: murals, songs, poems, sculptures, plays, holos and stories with quality and
+  fame; striving artists, famous artists, rivalries between them, works inspired by real events,
+  performances that shift moods and beliefs.
+- **Obsessions**: occasionally someone becomes obsessed with a goal (a person, a discovery, a
+  grudge, a masterpiece, a lost relic of the Long Dark). It overrides routine and drives extreme
+  choices until fulfilled or broken.
+- **Random events**: a scheduler of sudden happenings independent of the player (a quake, a
+  shuttle with a stranger, a disease outbreak, a strange signal from the crater, a reactor scare, a
+  festival, a pet escaping, a lucky ice strike), tuned to keep the story fresh without chaos.
+- **Belief and status change through experience**: what people live through (being helped,
+  betrayed, saved, humiliated, inspired by a work of art) shifts their beliefs, values, status and
+  relationships over time.

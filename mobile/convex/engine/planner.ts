@@ -5,6 +5,7 @@
  * commits the best one with setPlan as a short plan with a specific intent and step labels.
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
+import { societyChoices } from '../society/hooks';
 import { BASE_PRICES, BONUS_AT, CUT_AT, RESERVE_FLOOR } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
 import type { CognitionRequest } from './core';
@@ -136,6 +137,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   choices.push(...(await beliefChoices(c)));
   choices.push(await duty(c));
   choices.push(await mischief(c));
+  choices.push(...(await societyChoices(tx, a, mind, c.free)));
   choices.push({ score: 0.05, routine: true, intent: 'Taking a breather', steps: [encodeStep('rest', 3)], labels: ['Taking a breather at ' + locName(a.locationId)] });
 
   let best: Choice | null = null;

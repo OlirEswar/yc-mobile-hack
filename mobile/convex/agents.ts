@@ -1,7 +1,8 @@
 import { v } from 'convex/values';
 import { query } from './_generated/server';
 import { asAgentId, asWorldId } from './lib/auth';
-import { toAgentLite, toEventPublic, toGoalPublic } from './lib/public';
+import { toAgentLite, toEventPublic, toGoalPublic, toPersonaPublic } from './lib/public';
+import { liveStorylines } from './story';
 import type { LocationId, ResourceId } from '../shared/colony';
 import type { AgentDetail, AgentLite, BeliefPublic, PlanPublic, RelationshipPublic, WorldEventPublic } from '../shared/types';
 
@@ -125,6 +126,8 @@ export const get = query({
         ? { tick: mind.lastThought.tick, trigger: mind.lastThought.trigger, intent: mind.lastThought.intent, source: mind.lastThought.source as 'llm' | 'rules' }
         : undefined,
       death: mind.death,
+      persona: mind.persona ? toPersonaPublic(mind.persona) : undefined,
+      storylineIds: (await liveStorylines(ctx, worldId)).filter((s) => s.participantIds.includes(agentId)).map((s) => s._id),
     };
   },
 });

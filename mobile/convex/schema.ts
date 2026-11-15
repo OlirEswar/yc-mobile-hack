@@ -154,6 +154,8 @@ export default defineSchema({
     focusWarp: v.optional(v.boolean()),
     /** The colonist the story introduction starts the player on. */
     starterAgentId: v.optional(v.id('agents')),
+    /** Authored character key (seed/keyCharacters.ts, e.g. 'ines', 'dmitri') to agent id, for story:intro. */
+    keyAgents: v.optional(v.record(v.string(), v.id('agents'))),
     /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
     sim: v.optional(
       v.object({

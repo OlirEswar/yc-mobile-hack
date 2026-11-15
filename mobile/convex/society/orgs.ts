@@ -238,10 +238,12 @@ function breakawayTerritory(a: AgentDoc): string {
   return a.homeLocationId === 'habitat_b' ? 'habitat_b' : 'quarry';
 }
 
-function creedFor(tx: Tx, kind: string, a: AgentDoc, mind: MindDoc): string {
+function creedFor(tx: Tx, kind: string, a: AgentDoc, mind: MindDoc, taken: string[]): string {
   const ob = mind.society?.obsession;
   if (kind === 'cult' && ob?.kind === 'long_dark') return 'The truth of the Long Dark is out there in the crater, and we will find it.';
-  return pick(kindDef(kind).creeds, roll(tx, a.seq, 'creed'));
+  const creeds = kindDef(kind).creeds;
+  const start = Math.floor(roll(tx, a.seq, 'creed') * creeds.length);
+  return creeds.map((_, i) => creeds[(start + i) % creeds.length]).find((c) => !taken.includes(c)) ?? creeds[start];
 }
 
 // ---------- steps ----------
@@ -259,7 +261,7 @@ export async function foundOrg(tx: Tx, a: AgentDoc, mind: MindDoc, kind: string,
   const stake = Math.min(Math.floor(a.inv.credits * 0.3), 60);
   a.inv.credits = round2(a.inv.credits - stake);
   const home = kind === 'breakaway' ? breakawayTerritory(a) : kind === 'company' || kind === 'school' ? a.workLocationId ?? kindDef(kind).home : kindDef(kind).home;
-  const creed = creedFor(tx, kind, a, mind);
+  const creed = creedFor(tx, kind, a, mind, orgs.map((o) => o.creed));
   const org = await insertOrg(tx, {
     worldId: tx.world._id,
     key: kind + '-' + tx.tick + '-' + a.seq,

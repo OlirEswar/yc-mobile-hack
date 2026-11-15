@@ -81,6 +81,22 @@ export const personaV = v.object({
   hook: v.optional(str),
 });
 
+/** The engine's per-colonist bookkeeping (engine/ledger.ts): debts, hidden goods, what worked, deeds, favours owed. */
+export const ledgerV = v.object({
+  /** What this colonist owes and to whom. The lender holds a 'debt' belief about it. */
+  owes: v.array(v.object({ to: v.id('agents'), toName: str, res: str, qty: num, tick: num, dueTick: num, pressed: num, eventId: v.optional(v.id('events')) })),
+  /** Goods hidden at home, safe from thieves and searches until someone finds them. */
+  stash: resourcesV,
+  /** Recent ways they tried to meet a need (persona strategies) and whether it worked, newest last. */
+  tried: v.array(v.object({ s: str, ok: v.boolean(), tick: num })),
+  /** The strategy behind the plan in progress, settled when the need is met or the plan fails. */
+  pending: v.optional(v.object({ s: str, res: str, tick: num })),
+  /** Hidden wrongdoing an investigation can uncover, counted by kind (saboteur, smuggler, liar, briber, blackmailer). */
+  deeds: v.record(str, num),
+  /** Favours bought from this colonist with a bribe or extorted by blackmail. */
+  favors: v.array(v.object({ forId: v.id('agents'), kind: str, until: num })),
+});
+
 export const llmConfigV = v.object({
   budgetPerDay: num,
   maxConcurrent: num,
@@ -173,6 +189,10 @@ export default defineSchema({
         accused: v.optional(v.record(v.string(), v.number())),
         /** Tick security last fined a thief or searched a hoarder, so a closed case is not reopened. */
         punished: v.optional(v.record(v.string(), v.number())),
+        /** Causes being rallied for in the plaza today, with everyone who has stood up for each. */
+        rallies: v.optional(v.array(v.object({ topic: str, organizerId: v.id('agents'), supporters: v.array(v.id('agents')), tick: num, eventId: v.id('events') }))),
+        /** A walkout in progress: who called it, what they demand, and when it ends. */
+        strike: v.optional(v.object({ leaderId: v.id('agents'), demand: str, startTick: num, untilTick: num, eventId: v.id('events'), answered: v.optional(v.boolean()) })),
       }),
     ),
   }).index('by_device', ['deviceId']),
@@ -278,6 +298,8 @@ export default defineSchema({
     nextGoalSeq: num,
     /** The character's story (docs/STORY_SPEC.md 3.1). Absent on worlds seeded before iteration 2. */
     persona: v.optional(personaV),
+    /** Engine bookkeeping, created on first use. */
+    ledger: v.optional(ledgerV),
   }).index('by_agent', ['agentId']),
 
   relationships: defineTable({

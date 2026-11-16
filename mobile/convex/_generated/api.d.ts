@@ -83,6 +83,7 @@ import type * as story from "../story.js";
 import type * as storyteller_director from "../storyteller/director.js";
 import type * as storyteller_hooks from "../storyteller/hooks.js";
 import type * as storyteller_monologue from "../storyteller/monologue.js";
+import type * as storyteller_plant from "../storyteller/plant.js";
 import type * as storyteller_prose from "../storyteller/prose.js";
 import type * as storyteller_spotlight from "../storyteller/spotlight.js";
 import type * as storyteller_storylines from "../storyteller/storylines.js";
@@ -179,6 +180,7 @@ declare const fullApi: ApiFromModules<{
   "storyteller/director": typeof storyteller_director;
   "storyteller/hooks": typeof storyteller_hooks;
   "storyteller/monologue": typeof storyteller_monologue;
+  "storyteller/plant": typeof storyteller_plant;
   "storyteller/prose": typeof storyteller_prose;
   "storyteller/spotlight": typeof storyteller_spotlight;
   "storyteller/storylines": typeof storyteller_storylines;

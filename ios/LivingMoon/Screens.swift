@@ -94,24 +94,16 @@ struct ColonyView: View {
                     .tint(.white)
                     .accessibilityLabel("\(game.stamp), simulation speed")
                 }
-<<<<<<< HEAD
                 ToolbarItem(placement: .topBarLeading) {
                     Button(game.speed == 0 ? "Resume" : "Pause", systemImage: game.speed == 0 ? "play.fill" : "pause.fill") { game.togglePause() }
                         .tint(.white)
                 }
-                if game.intro != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Story so far", systemImage: "book.pages") { game.showIntro = true }.tint(.white)
-                    }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                }
-=======
->>>>>>> origin/Onboarding
                 ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Skip ahead…", systemImage: "hourglass") { game.showTimeskip = true }
+                        if game.intro != nil { Button("Story so far", systemImage: "book.pages") { game.showIntro = true } }
                         Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
                         Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
                     } label: {

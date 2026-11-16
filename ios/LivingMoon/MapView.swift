@@ -110,11 +110,8 @@ struct MapView: View {
     @State private var center = CGPoint(x: 640, y: 960)
     /// Starts zoomed in past the fit so the map pans both ways; pinching out to 1 shows the whole map.
     @State private var zoom: CGFloat = 1.6
-<<<<<<< HEAD
     @State private var glide: (from: CGPoint, start: Date)?
     @State private var lastCenter = LastCenter()
-=======
->>>>>>> origin/Onboarding
     @GestureState private var drag: CGSize = .zero
     @GestureState private var pinch: CGFloat = 1
 

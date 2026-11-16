@@ -23,14 +23,10 @@ struct RootView: View {
         @Bindable var game = game
 
         if !onboarded {
-<<<<<<< HEAD
             OnboardingView {
                 withAnimation(.smooth(duration: 0.6)) { onboarded = true }
                 game.showIntro = game.intro != nil
             }
-=======
-            OnboardingView { withAnimation(.smooth(duration: 0.6)) { onboarded = true } }
->>>>>>> origin/Onboarding
                 .transition(.opacity)
         } else {
             switch game.phase {
@@ -48,7 +44,6 @@ struct RootView: View {
             case .ready:
                 TabView(selection: $game.tab) {
                     Tab("Colony", systemImage: "moon.fill", value: .colony) { ColonyView() }
-<<<<<<< HEAD
                     Tab("Stories", systemImage: "book.pages.fill", value: .stories) { StoriesView() }
                     Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
                     Tab("Chronicle", systemImage: "scroll.fill", value: .chronicle) { ChronicleView() }
@@ -56,10 +51,6 @@ struct RootView: View {
                 .onChange(of: game.tab) { _, tab in
                     if tab == .chronicle { game.didAct(.open_chronicle) }
                     if tab == .stories { game.didAct(.open_storylines) }
-=======
-                    Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
-                    Tab("Chronicle", systemImage: "book.fill", value: .chronicle) { ChronicleView() }
->>>>>>> origin/Onboarding
                 }
                 .tabViewBottomAccessory { TickerView() }
                 // One inspector, one power sheet and one follow cover serve every tab.
@@ -79,7 +70,6 @@ struct RootView: View {
                 .fullScreenCover(isPresented: Binding(get: { game.followingID != nil }, set: { if !$0 { game.unfollow() } })) {
                     FollowView()
                 }
-<<<<<<< HEAD
                 .fullScreenCover(isPresented: $game.showIntro) {
                     if let intro = game.intro { StoryIntroView(intro: intro) }
                 }
@@ -88,8 +78,6 @@ struct RootView: View {
                         CoachCard().padding(.horizontal, 16).padding(.bottom, 120)
                     }
                 }
-=======
->>>>>>> origin/Onboarding
                 .overlay(alignment: .top) { ToastView() }
             }
         }

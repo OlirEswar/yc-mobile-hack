@@ -13,6 +13,7 @@ import { clamp, round2 } from '../lib/rng';
 import { loadMind, touchMind } from '../engine/core';
 import type { AgentDoc, MindDoc, StepType, Tx } from '../engine/core';
 import { allAgents } from '../engine/state';
+import { chaosHourly, startChaosStep } from './chaos';
 import { choicesFor } from './choices';
 import { buildDone, buildStart, experimentDone, experimentStart, mechanicsDaily, observatoryHourly, productionHourly } from './craft';
 import { createArtDone, createArtStart, cultureDaily, performDone, performStart } from './culture';
@@ -54,6 +55,7 @@ export async function societyTick(tx: Tx): Promise<void> {
     await missingHourly(tx, meta);
     await territoriesHourly(tx);
     await randomEventsHourly(tx, meta);
+    await chaosHourly(tx);
     await saveMeta(tx);
   }
   const day = Math.floor(tx.tick / TICKS_PER_DAY);
@@ -145,7 +147,7 @@ export async function startSocietyStep(tx: Tx, a: AgentDoc, type: StepType, args
     case 'propose':
       return propose(tx, a, mind, x);
     default:
-      return -1;
+      return (await startChaosStep(tx, a, mind, type, args)) ?? -1;
   }
 }
 

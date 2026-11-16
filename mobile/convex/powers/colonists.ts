@@ -5,7 +5,7 @@
  */
 import { LOCATIONS, RESOURCES, RESOURCE_LABELS } from '../../shared/colony';
 import type { LocationId, ResourceId } from '../../shared/colony';
-import { agentsAt, emitEvent, enqueueCognition, killAgent, learnBelief, loadAgent, MAX_WITNESSES, touch } from '../engine/core';
+import { agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, killAgent, learnBelief, loadAgent, MAX_WITNESSES, touch } from '../engine/core';
 import type { AgentDoc } from '../engine/core';
 import { MAX_GRANT } from '../lib/constants';
 import { round2 } from '../lib/rng';
@@ -62,6 +62,8 @@ export const grant: Power<{ agent: AgentDoc; resource: ResourceId; amount: numbe
       const witness = (await loadAgent(tx, id))!;
       await learnBelief(tx, witness, { ...belief, valence: -round2(0.1 + 0.3 * (1 - witness.traits.empathy)), confidence: 0.8, sourceType: 'observed' });
     }
+    // The lucky one celebrates where everyone can see; the greediest bystander starts to covet it.
+    if (agent.activity !== 'sleeping') interrupt(tx, agent, [encodeStep('celebrate', 2)]);
     return { affectedAgentIds: [agent._id, ...witnessIds] };
   },
 };
@@ -109,6 +111,8 @@ export const kill: Power<{ agent: AgentDoc; cause: string }> = {
       if (!witnesses.includes(mourner._id)) await learnBelief(tx, mourner, { ...belief, confidence: 0.95, sourceType: 'told' });
       await enqueueCognition(tx, mourner, { kind: 'plan', trigger: agent.name + ' died', detail: cause, priority: 0.85, lane: 'crisis', eventId });
     }
-    return { affectedAgentIds: [...new Set([agent._id, ...witnesses, ...close.map((a) => a._id)])] };
+    // Most affected first: a loved one who saw it, then the other witnesses, then loved ones elsewhere.
+    const lovedHere = close.filter((a) => witnesses.includes(a._id)).map((a) => a._id);
+    return { affectedAgentIds: [...new Set([...lovedHere, ...witnesses, ...close.map((a) => a._id), agent._id])] };
   },
 };

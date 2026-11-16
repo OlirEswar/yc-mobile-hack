@@ -34,6 +34,16 @@ async function scene(t: Awaited<ReturnType<typeof colony>>['t'], worldId: Id<'wo
       .query('agents')
       .withIndex('by_world_seq', (q) => q.eq('worldId', worldId))
       .collect();
+    // Colonists now make trouble on their own (society/chaos.ts): everyone outside the scene sleeps through it.
+    for (const doc of all) {
+      const a = (await loadAgent(tx, doc._id))!;
+      a.activity = 'sleeping';
+      a.cur = undefined;
+      a.q = [];
+      a.move = undefined;
+      a.busyUntilTick = tx.tick + 500;
+      touch(tx, a);
+    }
     await body(new Scene(ctx, tx, all.filter((a) => a.alive && a.occupation !== 'security')));
     await commitTx(tx);
   });

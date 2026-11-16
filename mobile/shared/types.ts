@@ -59,6 +59,14 @@ export type AgentLite = {
   busyUntilTick: Tick;
   /** The other party in a talk, trade, gift, theft or help, for speech bubbles and links. */
   interactingWithId?: Id;
+  /**
+   * The step the agent is executing right now, set when the step starts and absent while idle or
+   * walking between steps. kind is the step type (fight, rob, extort, vandalize, intimidate, gamble,
+   * carouse, dance, ritual, pray, chase, kiss, cry, celebrate, duel, spy, gloat, rush, inspect, loot,
+   * steal, sabotage, preach, recruit, perform, mourn, flee, work, sleep, eat, talk ...); targetId is
+   * the other agent involved, if any (it can be a dead agent for mourn, gloat, rush, inspect).
+   */
+  act?: { kind: string; targetId?: Id; startTick: Tick };
   /** Short line of dialogue for a speech bubble, when the current interaction has one. */
   speech?: string;
   mood: string;
@@ -398,8 +406,13 @@ export type FocusState = {
   thoughts: ThoughtLine[]; // newest first
   hooks: StoryHook[];
   storylines: StorylinePublic[];
-  /** True while the world is fast-forwarding through the followed colonist's routine. */
+  /** True only while the world fast-forwards through the followed colonist's sleep. */
   warping: boolean;
+  /**
+   * One or two sentences for a viewer who just arrived: who this person is and what they are in the
+   * middle of right now (epithet, want, their hottest storyline's latest beat, current aim).
+   */
+  recap: string;
 };
 
 export type AskTurn = { id: Id; tick: Tick; question: string; answer: string };

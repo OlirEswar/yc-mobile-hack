@@ -66,6 +66,7 @@ struct RootView: View {
                     .presentationDetents(power == .arrival || power.believed ? [.large] : [.medium, .large])
                 }
                 .sheet(isPresented: $game.showPatron) { PatronSheet() }
+                .sheet(isPresented: $game.showTimeskip) { TimeskipView() }
                 .fullScreenCover(isPresented: Binding(get: { game.followingID != nil }, set: { if !$0 { game.unfollow() } })) {
                     FollowView()
                 }

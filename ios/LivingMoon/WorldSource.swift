@@ -42,5 +42,9 @@ protocol WorldSource: AnyObject {
     func ask(_ agentId: Id, question: String) async throws -> AskResult
     func apply(_ intervention: Intervention, commandId: String) async throws -> InterventionResult
     func checkoutURL() async throws -> URL
+    /// world:timeskip. Starts a skip, or returns the one already running.
+    func startTimeskip(span: TimeskipSpan) async throws -> TimeskipStartResult
+    /// timeskip:get, reactive: progress and, once done, the chronicle. Returns a cancel closure.
+    func watchTimeskip(_ timeskipId: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void
     func stop()
 }

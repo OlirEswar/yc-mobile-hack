@@ -103,6 +103,17 @@ final class ConvexSource: WorldSource {
         return { c.cancel() }
     }
 
+    func startTimeskip(span: TimeskipSpan) async throws -> TimeskipStartResult {
+        try await client.mutation("world:timeskip", with: ["sessionToken": sessionToken, "worldId": worldId, "span": span.rawValue])
+    }
+
+    func watchTimeskip(_ timeskipId: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void {
+        var args: [String: ConvexEncodable?] = ["worldId": worldId]
+        if let timeskipId { args["timeskipId"] = timeskipId }
+        let c = watch("timeskip:get", args, as: TimeskipPublic?.self, onError: { _ in onValue(nil) }, onValue)
+        return { c.cancel() }
+    }
+
     func ask(_ agentId: Id, question: String) async throws -> AskResult {
         try await client.action("focus:ask", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "question": question])
     }

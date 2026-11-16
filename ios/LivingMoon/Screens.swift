@@ -104,6 +104,7 @@ struct ColonyView: View {
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button("Skip ahead…", systemImage: "hourglass") { game.showTimeskip = true }
                         Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
                         Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
                     } label: {

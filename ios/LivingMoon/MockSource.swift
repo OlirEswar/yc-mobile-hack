@@ -415,6 +415,7 @@ final class MockSource: WorldSource {
             for a in all where a.lite.alive && ids.contains(a.lite.locationId) {
                 hit.append(a.lite.id)
                 agents[a.lite.id]!.lite.health = clamp(a.lite.health - severity * 25 * rand())
+                agents[a.lite.id]!.detail.lastThought = ThoughtPublic(tick: tick, trigger: "meteors hit \(a.lite.locationId.name)", intent: pick(["Get under a roof, then find out who else was out there.", "Check on the household before anything else.", "Someone has to start the repairs. Might as well be me.", "This colony was never built to survive out here."]), source: "rules")
                 agents[a.lite.id]!.lite.busyUntilTick = tick
                 decide(a.lite.id)
             }

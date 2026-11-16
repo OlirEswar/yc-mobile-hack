@@ -264,8 +264,15 @@ struct InspectSheet: View {
                 }
 
                 Section("Doing") {
-                    Text(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel)
-                    if let plan = detail?.plan { Text(plan.intent).foregroundStyle(.secondary) }
+                    Label(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel, systemImage: c.alive ? Mind.symbol(activity: c.activity) : "moon.zzz")
+                }
+
+                if c.alive {
+                    Section("On their mind") {
+                        ThoughtCard(agent: c, detail: detail, nowTick: game.world?.tick ?? 0)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    }
                 }
 
                 Section("Needs") {
@@ -322,13 +329,6 @@ struct InspectSheet: View {
                                 Text(t.kind.capitalized)
                             }
                         }
-                    }
-                }
-
-                if let thought = detail?.lastThought {
-                    Section("Why") {
-                        Text(thought.intent)
-                        Text("after " + thought.trigger).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -662,10 +662,12 @@ struct CreatorSheet: View {
 struct FollowView: View {
     @Environment(Game.self) private var game
     @State private var detail: AgentDetail?
+    /// Shows the colony through the colonist's eyes: who they know, what they believe, what they think.
+    @State private var mind = false
 
     var body: some View {
         ZStack {
-            MapView(focus: game.followingID)
+            MapView(focus: game.followingID, lens: mind ? detail : nil)
             if let c = game.colonist(game.followingID) {
                 VStack {
                     HStack {
@@ -673,6 +675,14 @@ struct FollowView: View {
                             Label("Colony", systemImage: "chevron.left").padding(.horizontal, 4)
                         }
                         .buttonStyle(.glass)
+                        Button { withAnimation(.smooth) { mind.toggle() } } label: {
+                            Image(systemName: mind ? "brain.head.profile.fill" : "brain.head.profile")
+                                .symbolEffect(.bounce, value: mind)
+                        }
+                        .buttonStyle(.glass)
+                        .tint(mind ? .earth : nil)
+                        .foregroundStyle(mind ? Color.earth : .primary)
+                        .accessibilityLabel(mind ? "Hide their mind" : "See through their eyes")
                         Spacer()
                         Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
                             Image(systemName: "pause.fill").tag(0.0)
@@ -681,13 +691,13 @@ struct FollowView: View {
                             Text("8×").tag(8.0)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 190)
+                        .frame(width: 170)
                     }
                     if let toast = game.toast {
                         Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
                     }
                     Spacer()
-                    hud(c)
+                    if mind { mindHud(c).transition(.move(edge: .bottom).combined(with: .opacity)) } else { hud(c) }
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
@@ -698,25 +708,57 @@ struct FollowView: View {
         }
     }
 
+    private func header(_ c: AgentLite) -> some View {
+        HStack(spacing: 12) {
+            Avatar(spriteId: c.spriteId)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(c.name).font(.title3).fontDesign(.serif)
+                Text("\(occupation(c.occupation).label) · \(game.stamp)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 5) {
+                MiniBar(label: "Hunger", value: c.needs.hunger, tint: .amber)
+                MiniBar(label: "Rest", value: 100 - c.needs.fatigue, tint: .white)
+                MiniBar(label: "Health", value: c.health, tint: .green)
+            }
+        }
+    }
+
+    /// The follow card in mind mode: what they are thinking, the plan it led to, and a key to the map.
+    private func mindHud(_ c: AgentLite) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header(c)
+            ThoughtCard(agent: c, detail: detail, nowTick: game.world?.tick ?? 0)
+            HStack(spacing: 14) {
+                legend("Family", .amber)
+                legend("Friend", .green)
+                legend("Rival", .red)
+                legend("Belief", .earth)
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(Color.earth.opacity(0.12)), in: .rect(cornerRadius: 30))
+    }
+
+    private func legend(_ label: String, _ tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(tint).frame(width: 7, height: 7)
+            Text(label)
+        }
+    }
+
     private func hud(_ c: AgentLite) -> some View {
         let nearby = game.agents.filter { $0.id != c.id && $0.alive && $0.move == nil && $0.locationId == c.locationId }.prefix(2).map(\.name)
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Avatar(spriteId: c.spriteId)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(c.name).font(.title3).fontDesign(.serif)
-                    Text("\(occupation(c.occupation).label) · \(game.stamp)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 5) {
-                    MiniBar(label: "Hunger", value: c.needs.hunger, tint: .amber)
-                    MiniBar(label: "Rest", value: 100 - c.needs.fatigue, tint: .white)
-                    MiniBar(label: "Health", value: c.health, tint: .green)
-                }
-            }
+            header(c)
             Divider()
             Grid(alignment: .topLeading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow { key("Doing"); Text(c.activityLabel) }
+                GridRow { key("Doing"); Label(c.activityLabel, systemImage: Mind.symbol(activity: c.activity)) }
+                if let thought = detail?.lastThought {
+                    GridRow { key("Thinks"); Text("\u{201C}" + thought.intent + "\u{201D}").fontDesign(.serif).italic().foregroundStyle(Color.earth) }
+                }
                 if let goal = detail?.goals.first { GridRow { key("Wants"); Text(goal.description) } }
                 if let beliefs = detail?.beliefs.prefix(2), !beliefs.isEmpty {
                     GridRow {

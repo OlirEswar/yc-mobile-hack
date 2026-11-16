@@ -197,7 +197,10 @@ async function go(tx: Tx, a: AgentDoc, to: string, label: string | undefined, fl
   a.move = { from: a.locationId, to, departTick: tx.tick, arriveTick: tx.tick + path.ticks };
   a.locationId = to;
   act(tx, a, fleeing ? 'fleeing' : 'walking', label ?? (fleeing ? 'Running for cover at ' : 'Walking to ') + locName(to));
-  return path.ticks;
+  // Brisk: half the route time, so little of a day goes on corridors. The client animates depart to arrive.
+  const ticks = Math.max(1, Math.ceil(path.ticks / 2));
+  a.move.arriveTick = tx.tick + ticks;
+  return ticks;
 }
 
 // ---------- work ----------
@@ -368,15 +371,38 @@ async function consume(tx: Tx, a: AgentDoc, res: 'food' | 'water'): Promise<numb
     econ.unmet[res] += 1;
     return fail(tx, a, 'Found nothing to ' + (res === 'food' ? 'eat' : 'drink') + ' at ' + locName(a.locationId));
   }
-  if (res === 'food') a.needs.hunger = Math.max(0, a.needs.hunger - MEAL_RELIEF);
-  else a.needs.thirst = Math.max(0, a.needs.thirst - DRINK_RELIEF);
+  // A proper meal: a second helping from the same source when still hungry, so people eat and drink half as often.
+  let helpings = 1;
+  const left = (res === 'food' ? a.needs.hunger : a.needs.thirst) - (res === 'food' ? MEAL_RELIEF : DRINK_RELIEF);
+  if (left > 10) {
+    const household = label.endsWith('at home') ? await loadHousehold(tx, a.householdId) : null;
+    if (/own (supplies|flask)$/.test(label) && a.inv[res] >= 1) {
+      a.inv[res] -= 1;
+      helpings = 2;
+    } else if (household && household.pantry[res] >= 1) {
+      household.pantry[res] = round2(household.pantry[res] - 1);
+      touchHousehold(tx, household);
+      helpings = 2;
+    } else if (label.includes('Canteen') && stock(tx.world, 'canteen', res) >= 1) {
+      const fee = Math.max(1, Math.round(tx.world.prices[res] * 0.5));
+      if (a.inv.credits >= fee) {
+        a.inv.credits = round2(a.inv.credits - fee);
+        econ.treasury = round2(econ.treasury + fee);
+        addStock(tx.world, 'canteen', res, -1);
+        helpings = 2;
+      }
+    }
+    if (helpings === 2) econ.demand[res] += 1;
+  }
+  if (res === 'food') a.needs.hunger = Math.max(0, a.needs.hunger - MEAL_RELIEF * helpings);
+  else a.needs.thirst = Math.max(0, a.needs.thirst - DRINK_RELIEF * helpings);
   const mind = await loadMind(tx, a);
   if (mind?.ledger?.pending?.res === res) {
     settleStrategy(tx, mind, true);
     touchMind(tx, mind);
   }
   act(tx, a, res === 'food' ? 'eating' : 'drinking', label);
-  return res === 'food' ? 2 : 1;
+  return 1;
 }
 
 /** Someone at home finds the pantry short and blames the person they trust least. */
@@ -453,7 +479,7 @@ async function ration(tx: Tx, a: AgentDoc): Promise<number> {
       witnesses: 'location',
     });
   }
-  return 2;
+  return 1;
 }
 
 /** A seller's price, and what it feels like to this buyer given how they get on. */

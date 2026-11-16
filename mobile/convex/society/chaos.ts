@@ -577,19 +577,34 @@ export async function chaosChoices(c: Ctx): Promise<Choice[]> {
   }
   if (is('vengeful') && !enemy && tx.world.econ.rationLevel >= 1) out.push({ w: 1, key: 'vandalize', intent: 'Making the council feel it', plan: at('depot').add('vandalize', ['depot'], 'Smashing up the Supply Depot') });
 
+  if (watched) {
+    // The player is watching: what they do next should be with someone.
+    const friendTie = c.ties.filter((t) => t.toAlive && t.affinity > 0.25).sort((x, y) => y.affinity - x.affinity)[Math.floor(roll('fr') * 3)];
+    const friend = friendTie ? await findable(c, friendTie.toAgentId) : null;
+    const hot = a.topics[0];
+    if (friend) {
+      const fn = firstName(friend.name);
+      out.push({ w: 2.5, key: 'confide', intent: 'Finding ' + friend.name + '; there are things I can only say to them', plan: at(friend.locationId).add(['grieving', 'afraid', 'shaken'].includes(friend.mood) ? 'comfort' : 'confide', [friend._id], 'Opening up to ' + fn) });
+      if (hot) out.push({ w: 2, key: 'gossip', intent: 'Telling ' + friend.name + ' what I heard before someone else does', plan: at(friend.locationId).add('talk', [friend._id, hot], 'Telling ' + fn + ' the news') });
+    }
+    if (stranger) out.push({ w: 2, key: 'talk', intent: 'Sounding out ' + stranger.name, plan: new Plan(a.locationId).add('talk', hot ? [stranger._id, hot] : [stranger._id], 'Talking with ' + firstName(stranger.name)) });
+    if (enemy && !calm) out.push({ w: 2, key: 'confront', intent: 'Having it out with ' + enemy.name + ', in words first', plan: at(enemy.locationId).add('intimidate', [enemy._id], 'Confronting ' + firstName(enemy.name)) });
+    const org = gang ?? cult;
+    if (org && stranger && outsider(stranger)) out.push({ w: 2, key: 'recruit', intent: 'Bringing ' + stranger.name + ' into ' + org.name, plan: new Plan(a.locationId).add('recruit', [stranger._id, org._id], 'Recruiting ' + firstName(stranger.name)) });
+  }
   const total = out.reduce((s, x) => s + x.w, 0);
   if (total <= 0) return [];
   let x = roll('pick') * total;
   const chosen = out.find((o) => (x -= o.w) <= 0) ?? out[0];
   return [
     {
-      score: chosen.score ?? 0.8 + (vice ? 0.06 : 0) + (watched ? 0.08 : 0) + (c.free ? 0.05 : 0),
+      score: chosen.score ?? 0.8 + (vice ? 0.06 : 0) + (watched ? 0.14 : 0) + (c.free ? 0.05 : 0),
       routine: false,
       intent: chosen.intent,
       steps: chosen.plan.steps,
       labels: chosen.plan.labels,
       trigger: chosen.key === 'avenge' ? 'a death to answer for' : vice ? VICE_WHY[vice] : 'restless',
-      cooldown: { key: chosen.key === 'ritual' ? 'ritual' : 'chaos', ticks: chosen.key === 'ritual' ? 30 : watched ? 2 : 7 },
+      cooldown: { key: chosen.key === 'ritual' ? 'ritual' : 'chaos', ticks: chosen.key === 'ritual' ? 30 : watched ? 1 : 7 },
     },
   ];
 }

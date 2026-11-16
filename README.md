@@ -16,7 +16,8 @@ from it, tell it what you want, and invite friends into the same world with thei
 
 ## Demo
 
-[Watch the demo video](docs/demo.mp4): the team and the live iPhone app, side by side.
+[Watch the demo on YouTube](https://youtu.be/0KJyHVxcibY): the team and the live iPhone app, side by side.
+There's also a copy in the repo: [docs/demo.mp4](docs/demo.mp4).
 
 ## Contents
 

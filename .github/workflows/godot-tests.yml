@@ -1,0 +1,38 @@
+name: Godot tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/godot-dl
+          key: godot-${{ runner.os }}-${{ hashFiles('game/GODOT_VERSION') }}
+
+      - name: Install Godot
+        run: game/tools/install_godot.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check art is on palette
+        run: |
+          pip install -q pillow
+          git ls-files 'game/assets/*.png' game/icon.png | xargs python3 art/tools/pixel_cleanup.py check
+
+      - name: Scenes are up to date with their builders
+        run: |
+          scripts/build_scenes.sh
+          git diff --exit-code -- game/scenes game/assets
+
+      - name: Run GUT
+        run: scripts/test.sh

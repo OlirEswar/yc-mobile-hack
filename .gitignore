@@ -1,0 +1,12 @@
+# Godot
+game/.godot/
+game/build/
+*.tmp
+
+# Art pipeline scratch
+art/.build/
+
+# Local renders (commit curated ones elsewhere)
+renders/
+
+__pycache__/

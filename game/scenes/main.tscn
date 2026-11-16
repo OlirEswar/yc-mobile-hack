@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="TileSet" path="res://assets/tiles/terrain_tileset.tres" id="1_sugp2"]
+[ext_resource type="Script" path="res://scripts/world/terrain_map.gd" id="2_jyhfs"]
+[ext_resource type="Script" path="res://scripts/camera/touch_camera.gd" id="3_tbgi4"]
+
+[node name="Main" type="Node2D" unique_id=133589018]
+
+[node name="Terrain" type="TileMapLayer" parent="." unique_id=458663874]
+tile_set = ExtResource("1_sugp2")
+script = ExtResource("2_jyhfs")
+
+[node name="Camera" type="Camera2D" parent="." unique_id=344424293]
+position = Vector2(768, 512)
+script = ExtResource("3_tbgi4")
+bounds = Rect2(0, 0, 1536, 1024)

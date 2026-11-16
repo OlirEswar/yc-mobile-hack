@@ -43,6 +43,84 @@ enum Art {
     }
 }
 
+/// How each kind of action looks on the map: a floating emote and a way of moving.
+enum ActionFX {
+    enum Style { case aggressive, bouncy, sneaky, sad, busy, calm }
+
+    static func kind(of a: AgentLite) -> String? {
+        if let k = a.act?.kind { return k }
+        switch a.activity {
+        case "sleeping": return "sleep"
+        case "eating": return "eat"
+        case "drinking": return "drink"
+        case "working": return "work"
+        case "stealing": return "steal"
+        case "mourning": return "mourn"
+        case "helping": return "help"
+        case "giving": return "give"
+        case "trading": return "barter"
+        case "investigating": return "investigate"
+        default: return nil
+        }
+    }
+
+    static func style(_ kind: String) -> Style {
+        switch kind {
+        case "fight", "duel", "rob", "extort", "threaten", "intimidate", "vandalize", "sabotage", "kill", "attack", "brawl", "chase", "arrest": return .aggressive
+        case "dance", "carouse", "celebrate", "perform", "kiss", "rally", "strike", "ritual", "preach", "gamble", "propose": return .bouncy
+        case "steal", "spy", "eavesdrop", "hide", "smuggle", "lie", "blackmail": return .sneaky
+        case "cry", "mourn", "beg", "confess": return .sad
+        case "work", "build", "repair", "experiment", "create_art", "study", "grow", "scavenge", "teach", "investigate": return .busy
+        default: return .calm
+        }
+    }
+
+    static func emote(_ kind: String) -> String? {
+        switch kind {
+        case "fight", "brawl", "attack", "threaten", "intimidate", "arrest": return "💢"
+        case "duel", "kill": return "⚔️"
+        case "rob", "extort", "bribe", "borrow", "repay", "sell", "buy": return "💰"
+        case "vandalize": return "💥"
+        case "sabotage", "repair", "build": return "🔨"
+        case "steal", "lie", "confide": return "🤫"
+        case "spy", "eavesdrop": return "👂"
+        case "hide": return "👀"
+        case "smuggle", "barter", "give": return "📦"
+        case "blackmail": return "✉️"
+        case "preach": return "📣"
+        case "ritual": return "🕯️"
+        case "recruit", "help", "join_org", "found_org", "reconcile": return "🤝"
+        case "perform": return "🎵"
+        case "dance": return "🎶"
+        case "carouse": return "🍺"
+        case "gamble": return "🎲"
+        case "court": return "💕"
+        case "kiss": return "❤️"
+        case "propose": return "💍"
+        case "comfort", "care": return "🫂"
+        case "cry", "mourn": return "💧"
+        case "celebrate": return "🎉"
+        case "accuse", "confess": return "❗"
+        case "rally", "org_action": return "✊"
+        case "strike", "petition": return "📜"
+        case "study", "teach": return "📖"
+        case "experiment": return "⚗️"
+        case "create_art": return "🎨"
+        case "work": return "⚙️"
+        case "grow": return "🌱"
+        case "scavenge": return "🔩"
+        case "investigate": return "🔍"
+        case "sleep", "rest": return "💤"
+        case "eat", "ration": return "🍽️"
+        case "drink": return "🥤"
+        case "flee", "chase": return "💨"
+        case "beg": return "🙏"
+        case "adopt_pet": return "🐾"
+        default: return nil
+        }
+    }
+}
+
 /// Where a colonist stands or walks at a given (fractional) tick, in world pixels.
 @MainActor
 enum Placement {
@@ -285,24 +363,87 @@ struct MapView: View {
         for a in game.agents where !a.alive {
             guard let grave = Art.map(IconArt.grave) else { break }
             let p = Placement.stand(a.id, at: a.locationId)
+            // The body lies where they fell for a while before the grave marks the spot.
+            let since = game.diedAt[a.id].map { date.timeIntervalSince($0) } ?? 999
+            if since < 40, let sprite = Art.sprite(a.spriteId, direction: 0, frame: 0) {
+                var body = map
+                body.translateBy(x: p.x, y: p.y - 5)
+                body.rotate(by: .degrees(90 * min(1, since / 0.5)))
+                body.opacity = since > 34 ? max(0, (40 - since) / 6) : 1
+                body.fill(Path(ellipseIn: CGRect(x: -16, y: -9, width: 30, height: 18)), with: .color(.red.opacity(0.28 * min(1, since / 6))))
+                body.draw(sprite, in: CGRect(x: -CharacterArt.feet.x, y: -CharacterArt.feet.y + 6, width: CharacterArt.frame.width, height: CharacterArt.frame.height))
+                if since < 34 { continue }
+            }
             map.draw(Image(uiImage: grave).interpolation(.none), in: CGRect(x: p.x - grave.size.width / 2, y: p.y - grave.size.height + 2, width: grave.size.width, height: grave.size.height))
         }
 
         let seconds = date.timeIntervalSinceReferenceDate
         let frame = Int(seconds * 8) % CharacterArt.framesPerDirection
         let marked = focus ?? game.selectedID
-        let placed = Placement.placements(game.agents, at: tick)
-            .sorted { ($0.0.id == marked ? 1 : 0, $0.1.point.y) < ($1.0.id == marked ? 1 : 0, $1.1.point.y) }
+        var placed = Placement.placements(game.agents, at: tick)
+        // Whoever acts on someone steps up beside them, so a fight, a kiss or a shakedown reads at a glance.
+        var spot: [Id: Int] = [:]
+        for (i, e) in placed.enumerated() { spot[e.0.id] = i }
+        var facing: [Id: Int] = [:]
+        var struck: Set<Id> = []
+        for i in placed.indices {
+            let a = placed[i].0
+            guard placed[i].1.heading == nil, let act = a.act, let tid = act.targetId, let j = spot[tid], placed[j].1.heading == nil, placed[j].0.locationId == a.locationId else { continue }
+            let other = placed[j].0
+            if other.act?.targetId == a.id, other.id < a.id { continue }
+            let from = placed[i].1.point, to = placed[j].1.point
+            let side: CGFloat = from.x <= to.x ? -1 : 1
+            let u = CGFloat(min(1, max(0, (tick - act.startTick) / 0.5)))
+            let e = u * u * (3 - 2 * u)
+            let goal = CGPoint(x: to.x + side * 15, y: to.y + 1)
+            placed[i].1.point = CGPoint(x: from.x + (goal.x - from.x) * e, y: from.y + (goal.y - from.y) * e)
+            facing[a.id] = side < 0 ? 2 : 1
+            if facing[other.id] == nil { facing[other.id] = side < 0 ? 1 : 2 }
+            if ActionFX.style(act.kind) == .aggressive, e > 0.9 { struck.insert(other.id) }
+        }
+        placed.sort { ($0.0.id == marked ? 1 : 0, $0.1.point.y) < ($1.0.id == marked ? 1 : 0, $1.1.point.y) }
         let feet = CharacterArt.feet, fsize = CharacterArt.frame
+        let close = cam.k >= fit(size) * 2.2
         for (a, pos) in placed {
-            let p = pos.point
+            var p = pos.point
+            let kind = pos.heading == nil ? ActionFX.kind(of: a) : (a.act?.kind == "flee" || a.act?.kind == "chase" ? a.act?.kind : nil)
+            let style = kind.map(ActionFX.style) ?? .calm
+            let phase = Double(a.id.utf8.reduce(0) { ($0 &+ Int($1)) % 97 }) / 9.7
+            let t = seconds + phase
+            var opacity = 1.0
+            if pos.heading == nil {
+                switch style {
+                case .aggressive:
+                    let dir: CGFloat = facing[a.id] == 1 ? -1 : 1
+                    p.x += dir * CGFloat(max(0, sin(t * 9))) * 4
+                    p.y -= CGFloat(abs(sin(t * 9))) * 1.5
+                case .bouncy: p.y -= CGFloat(abs(sin(t * 6))) * 4
+                case .busy: p.y -= CGFloat(abs(sin(t * 5))) * 1.2
+                case .sneaky: opacity = 0.6
+                case .sad, .calm: break
+                }
+                if struck.contains(a.id) { p.x += CGFloat(sin(t * 34)) * 1.4 }
+            }
             if a.id == marked {
                 let ring = CGRect(x: p.x - 13, y: p.y - 4.5, width: 26, height: 9)
                 map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.22)))
                 map.stroke(Path(ellipseIn: ring), with: .color(.amber.opacity(0.9)), lineWidth: 1)
             }
-            if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? 0, frame: pos.heading == nil ? 0 : frame) {
-                map.draw(sprite, in: CGRect(x: p.x - feet.x, y: p.y - feet.y, width: fsize.width, height: fsize.height))
+            if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? facing[a.id] ?? 0, frame: pos.heading == nil ? 0 : frame) {
+                var body = map
+                body.opacity = opacity
+                body.draw(sprite, in: CGRect(x: p.x - feet.x, y: p.y - feet.y, width: fsize.width, height: fsize.height))
+                if struck.contains(a.id), sin(t * 9) > 0.55 {
+                    map.draw(Text("💥").font(.system(size: 11)), at: CGPoint(x: p.x, y: p.y - fsize.height * 0.45), anchor: .center)
+                }
+            }
+            // The action's emote drifts up from their head; quiet ones only when the camera is close.
+            if let kind, let emote = ActionFX.emote(kind), close || style == .aggressive || style == .bouncy || style == .sad {
+                let u = (t * 0.7).truncatingRemainder(dividingBy: 1)
+                var fx = map
+                fx.opacity = (u < 0.15 ? u / 0.15 : 1 - max(0, (u - 0.6) / 0.4)) * (style == .busy || style == .calm ? 0.8 : 1)
+                let lift: CGFloat = a.id == marked ? 16 : 4
+                fx.draw(Text(emote).font(.system(size: style == .busy || style == .calm ? 8 : 10)), at: CGPoint(x: p.x + 7, y: p.y - feet.y - lift - CGFloat(u) * 8), anchor: .center)
             }
             if a.id == marked, let pointer = Art.map(IconArt.selection) {
                 let bob = CGFloat(sin(seconds * 4)) * 2

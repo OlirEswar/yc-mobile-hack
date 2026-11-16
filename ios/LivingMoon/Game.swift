@@ -109,7 +109,13 @@ final class Game: SourceSink {
     private(set) var tutorialIndex = 0
 
     /// When the current world tick arrived, so the map can interpolate between ticks.
-    @ObservationIgnored private(set) var tickArrivedAt = Date()
+    @ObservationIgnored private var tickArrivedAt = Date()
+    @ObservationIgnored private var shownTick = 0.0
+    @ObservationIgnored private var shownAt = Date()
+    /// Measured ticks per real second, so movement runs at the pace ticks actually arrive.
+    @ObservationIgnored private var tickRate = 1 / Clock.secondsPerTick
+    /// When each colonist was first seen dead, so the map can show the body before the grave.
+    @ObservationIgnored private(set) var diedAt: [Id: Date] = [:]
     @ObservationIgnored private var source: WorldSource?
     @ObservationIgnored private var heartbeatTimer: Timer?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
@@ -232,17 +238,20 @@ final class Game: SourceSink {
     // MARK: SourceSink
 
     func received(world next: WorldPublic) {
+        if let old = world?.tick, next.tick > old {
+            let elapsed = Date().timeIntervalSince(tickArrivedAt)
+            if elapsed > 0.2, elapsed < 12 { tickRate = tickRate * 0.6 + (next.tick - old) / elapsed * 0.4 }
+        }
         if next.tick != world?.tick { tickArrivedAt = Date() }
         world = next
     }
 
     func received(agents next: [AgentLite]) {
+        if !agents.isEmpty {
+            for a in next where !a.alive && colonist(a.id)?.alive == true { diedAt[a.id] = Date() }
+        }
         agents = next
         index = Dictionary(uniqueKeysWithValues: next.enumerated().map { ($1.id, $0) })
-        if let f = followingID, colonist(f)?.alive == false {
-            followingID = nil
-            show(.info, (colonist(f)?.name ?? "They") + " has died. Back to the colony view.")
-        }
     }
 
     func received(events next: [WorldEventPublic]) { events = next }
@@ -256,11 +265,15 @@ final class Game: SourceSink {
     func colonist(_ id: Id?) -> AgentLite? { id.flatMap { index[$0] }.map { agents[$0] } }
 
     /// The world tick with the fraction elapsed since it arrived, for smooth movement.
+    /// Trails the latest tick at the pace ticks arrive, so nobody jumps when one lands.
     func displayTick(at date: Date) -> Double {
         guard let world else { return 0 }
-        guard world.running else { return world.tick }
-        let fraction = date.timeIntervalSince(tickArrivedAt) / (Clock.secondsPerTick / world.speed)
-        return world.tick + min(1, max(0, fraction))
+        let dt = min(0.25, max(0, date.timeIntervalSince(shownAt)))
+        shownAt = date
+        let behind = world.tick - shownTick
+        if behind > 6 || behind < 0 { shownTick = world.tick - min(1, max(0, behind)) }
+        shownTick = min(world.tick, shownTick + dt * tickRate * (world.tick - shownTick > 1.3 ? 1.6 : 1))
+        return shownTick
     }
 
     var stamp: String { world.map { Clock.stamp($0.tick) } ?? "" }
@@ -401,6 +414,10 @@ final class Game: SourceSink {
             show(.ok, resultText(intervention, r))
             didAct(.use_power)
             if let created = r.createdAgentId { selectedID = created }
+            // From the wide view, go to whoever it hit hardest.
+            if followingID == nil, let hit = r.affectedAgentIds.first(where: { colonist($0)?.alive == true }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { if self.followingID == nil { self.follow(hit) } }
+            }
             return nil
         } catch {
             return unsupported(error, "reach the colony") + " Nothing was changed. You can try again."

@@ -251,7 +251,7 @@ struct FollowView: View {
     }
 }
 
-/// The newest thought, floating over the map as the character's inner voice.
+/// The followed colonist's inner monologue, and the field where the player plants thoughts.
 struct MindPane: View {
     @Environment(Game.self) private var game
     var colonist: AgentLite

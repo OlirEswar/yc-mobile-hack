@@ -555,6 +555,28 @@ export default defineSchema({
   }).index('by_owner', ['ownerId']),
 
   /** Inner monologue lines (docs/STORY_SPEC.md 5). */
+  /** Multi-line conversations of the followed colonist and their orbit (storyteller/dialogue.ts). */
+  dialogues: defineTable({
+    worldId: v.id('worlds'),
+    live: v.boolean(),
+    aId: v.id('agents'),
+    bId: v.id('agents'),
+    aName: str,
+    bName: str,
+    kind: str,
+    lines: v.array(v.object({ speakerId: v.id('agents'), text: str })),
+    /** Lines revealed so far. */
+    shown: num,
+    startTick: num,
+    source: str,
+    outcome: v.optional(str),
+    summary: v.optional(str),
+    applied: v.boolean(),
+  })
+    .index('by_world_live', ['worldId', 'live'])
+    .index('by_a', ['aId', 'startTick'])
+    .index('by_b', ['bId', 'startTick']),
+
   thoughts: defineTable({
     worldId: v.id('worlds'),
     agentId: v.id('agents'),

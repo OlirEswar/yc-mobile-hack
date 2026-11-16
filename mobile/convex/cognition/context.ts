@@ -149,7 +149,10 @@ export type SpeechContext = {
   detail?: string;
 };
 
-export type JobContext = PlanContext | SpeechContext | ThoughtContext;
+export type DialogueSide = { name: string; identity: string; personality: string; mood: string; voice?: string; want?: string; fear?: string; secret?: string; feels: string; believes: string[]; lately: string[] };
+export type DialogueContext = { kind: 'dialogue'; dialogueId: Id<'dialogues'>; a: DialogueSide; b: DialogueSide; place: string; what: string; storylines: string[]; debts: string[]; news: string[] };
+
+export type JobContext = PlanContext | SpeechContext | ThoughtContext | DialogueContext;
 
 const MAX_BELIEFS = 8;
 const MAX_TIES = 8;
@@ -290,6 +293,10 @@ export async function loadJobContext(
   const mind = agent.mindId ? await ctx.db.get(agent.mindId) : null;
   if (!mind) return { ok: false, reason: 'no mind' };
   if (job.kind === 'thought') return { ok: true, mindVersion: mind.stateVersion, context: await thoughtContext(ctx, world, agent, mind, job) };
+  if (job.kind === 'dialogue') {
+    const context = await dialogueContext(ctx, world, agent, mind, job);
+    return context ? { ok: true, mindVersion: mind.stateVersion, context } : { ok: false, reason: 'conversation over' };
+  }
   if (job.kind === 'speech') {
     const context = await speechContext(ctx, world, agent, mind, job);
     return context ? { ok: true, mindVersion: mind.stateVersion, context } : { ok: false, reason: 'no interaction' };
@@ -356,6 +363,48 @@ async function speechContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'ag
     aboutPartner: beliefDocs.filter((b) => b.subjectAgentId === partner.id).slice(0, 3).map((b) => b.text + ' (confidence ' + b.confidence.toFixed(1) + ')'),
     trigger: job.trigger,
     detail: job.detail,
+  };
+}
+
+async function dialogueContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'agents'>, mind: Doc<'minds'>, job: Doc<'cognitionJobs'>): Promise<DialogueContext | null> {
+  const id = job.detail ? ctx.db.normalizeId('dialogues', job.detail) : null;
+  const d = id ? await ctx.db.get(id) : null;
+  if (!d || !d.live) return null;
+  const other = await ctx.db.get(d.bId);
+  const om = other?.mindId ? await ctx.db.get(other.mindId) : null;
+  if (!other?.alive || !om) return null;
+  const side = async (x: Doc<'agents'>, m: Doc<'minds'>, y: Doc<'agents'>): Promise<DialogueSide> => {
+    const tie = await ctx.db
+      .query('relationships')
+      .withIndex('by_from_to', (q) => q.eq('fromAgentId', x._id).eq('toAgentId', y._id))
+      .first();
+    const p = m.persona;
+    return {
+      name: x.name,
+      identity: identityOf(x, m.ageBand, await factionOf(ctx, world, x)),
+      personality: describeTraits(x.traits),
+      mood: x.mood,
+      voice: p?.voice,
+      want: p?.want,
+      fear: p?.fear,
+      secret: p?.secret && p.secret.exposedAtTick === undefined ? p.secret.text : undefined,
+      feels: tie ? describeTie(tie) : 'barely knows them',
+      believes: (await sortedBeliefs(ctx, x._id)).filter((b) => b.subjectAgentId === y._id).slice(0, 3).map((b) => b.text),
+      lately: await memoryLines(ctx, world, x._id, 4),
+    };
+  };
+  const owes = (m: Doc<'minds'>, from: Doc<'agents'>, to: Doc<'agents'>) => (m.ledger?.owes ?? []).filter((o) => o.to === to._id).map((o) => from.name + ' owes ' + to.name + ' ' + o.qty + ' ' + o.res);
+  const live = (await liveStorylines(ctx.db, world._id)).filter((s) => s.participantIds.includes(agent._id) || s.participantIds.includes(other._id));
+  return {
+    kind: 'dialogue',
+    dialogueId: d._id,
+    a: await side(agent, mind, other),
+    b: await side(other, om, agent),
+    place: placeName(agent.locationId),
+    what: d.kind,
+    storylines: live.slice(0, 3).map(describeStoryline),
+    debts: [...owes(mind, agent, other), ...owes(om, other, agent)],
+    news: (await sortedBeliefs(ctx, agent._id)).filter((b) => b.subjectAgentId && b.subjectAgentId !== other._id && b.subjectAgentId !== agent._id && b.confidence >= 0.4).slice(0, 3).map((b) => b.text),
   };
 }
 

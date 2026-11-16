@@ -5,6 +5,7 @@
  */
 import { societyTick } from '../society/hooks';
 import { directorTick } from '../storyteller/director';
+import { dialogueTick, startDialogue } from '../storyteller/dialogue';
 import { AGENT_STEPS_PER_TICK, LEVY_FREE, LEVY_RATE } from '../lib/constants';
 import { round2 } from '../lib/rng';
 import { locName, scarcityCause } from './conditions';
@@ -38,6 +39,7 @@ export async function advance(tx: Tx, ticks: number, options: AdvanceOptions = {
     tx.world.tick = tx.tick;
     const firstEvent = tx.eventIds.length;
     await runSystems(tx);
+    await dialogueTick(tx);
     const ready = [...tx.agents.values()]
       .filter((a) => a.alive && a.busyUntilTick <= tx.tick)
       .sort((x, y) => x.busyUntilTick - y.busyUntilTick || x.seq - y.seq)
@@ -83,7 +85,7 @@ async function stepAgent(tx: Tx, a: AgentDoc): Promise<void> {
     if (ticks > 0) {
       a.cur = next;
       a.curStartTick = tx.tick;
-      a.busyUntilTick = tx.tick + ticks;
+      a.busyUntilTick = tx.tick + Math.max(ticks, await startDialogue(tx, a, next.split('|')[0]));
       touch(tx, a);
       return;
     }

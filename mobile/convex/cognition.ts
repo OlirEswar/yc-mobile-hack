@@ -17,10 +17,11 @@ import type { AgentDoc, MindDoc, Tx } from './engine/core';
 import { LANE_RANK, admits, charge, recordSpend, rollDay } from './cognition/budget';
 import { loadJobContext } from './cognition/context';
 import type { JobContext } from './cognition/context';
-import { planRequest, speechRequest, thoughtRequest } from './cognition/prompt';
+import { dialogueRequest, planRequest, speechRequest, thoughtRequest } from './cognition/prompt';
+import { commitDialogue } from './storyteller/dialogue';
 import { chat, providerConfig } from './cognition/provider';
 import type { ChatResult, ProviderConfig } from './cognition/provider';
-import { parseJson, validatePlan, validateSpeech, validateThought } from './cognition/validate';
+import { parseJson, validateDialogue, validatePlan, validateSpeech, validateThought } from './cognition/validate';
 import { writeThought } from './storyteller/monologue';
 import type { ValidGoal, ValidPlan } from './cognition/validate';
 
@@ -120,7 +121,7 @@ export const claim = internalMutation({
         await end(job, 'dropped', off);
         continue;
       }
-      const staleAfter = job.kind === 'speech' ? SPEECH_STALE_TICKS : job.kind === 'thought' ? THOUGHT_STALE_TICKS : PLAN_STALE_TICKS;
+      const staleAfter = job.kind === 'speech' || job.kind === 'dialogue' ? SPEECH_STALE_TICKS : job.kind === 'thought' ? THOUGHT_STALE_TICKS : PLAN_STALE_TICKS;
       if (tx.tick - job.enqueuedTick > staleAfter) {
         await end(job, 'stale', 'waited too long');
         continue;
@@ -179,7 +180,7 @@ async function runJob(ctx: ActionCtx, config: ProviderConfig, jobId: Id<'cogniti
     return { jobId, outcome: await ctx.runMutation(internal.cognition.finish, { ...meta, status: 'stale', reason: loaded.reason }) };
   }
   const c = loaded.context;
-  const request = c.kind === 'plan' ? planRequest(c) : c.kind === 'thought' ? thoughtRequest(c) : speechRequest(c);
+  const request = c.kind === 'dialogue' ? dialogueRequest(c) : c.kind === 'plan' ? planRequest(c) : c.kind === 'thought' ? thoughtRequest(c) : speechRequest(c);
   const promptChars = request.system.length + request.user.length;
   const report: JobReport = { jobId, outcome: '', promptChars, approxPromptTokens: Math.round(promptChars / 4), prompt: { system: request.system, user: request.user } };
   let result: ChatResult;
@@ -194,6 +195,18 @@ async function runJob(ctx: ActionCtx, config: ProviderConfig, jobId: Id<'cogniti
   Object.assign(report, usage, { raw: result.text });
   const parsed = parseJson(result.text);
   const trace = { promptChars, raw: result.text.slice(0, 2000) };
+  if (c.kind === 'dialogue') {
+    const checked = validateDialogue(parsed);
+    report.outcome = await ctx.runMutation(internal.cognition.finish, {
+      ...meta,
+      usage,
+      status: checked.ok ? 'done' : 'rejected',
+      reason: checked.ok ? undefined : checked.reason,
+      dialogue: checked.ok ? { dialogueId: c.dialogueId, lines: checked.lines, outcome: checked.outcome, summary: checked.summary } : undefined,
+      trace,
+    });
+    return report;
+  }
   if (c.kind === 'plan') {
     const checked = validatePlan(parsed, c);
     report.dropped = checked.dropped;
@@ -248,6 +261,7 @@ export const finish = internalMutation({
     plan: v.optional(planV),
     speech: v.optional(v.object({ line: v.string(), partnerId: v.id('agents') })),
     thought: v.optional(v.object({ text: v.string(), mood: v.optional(v.string()) })),
+    dialogue: v.optional(v.object({ dialogueId: v.id('dialogues'), lines: v.array(v.object({ speaker: v.string(), text: v.string() })), outcome: v.string(), summary: v.optional(v.string()) })),
     usage: v.optional(v.object({ tokensIn: v.number(), tokensOut: v.number(), latencyMs: v.number() })),
     provider: v.string(),
     model: v.string(),
@@ -279,7 +293,7 @@ export const finish = internalMutation({
     if (a.status === 'failed') await recordFailure(tx, outcome);
     else if (a.status === 'done' && !a.commit) outcome = 'dry run';
     else if (a.status === 'done') {
-      const stale = a.plan ? await commitPlan(tx, job, a.plan) : a.thought ? await commitThought(tx, job, a.thought) : await commitSpeech(tx, job, a.speech!);
+      const stale = a.dialogue ? await commitDialogue(tx, a.dialogue.dialogueId, a.dialogue) : a.plan ? await commitPlan(tx, job, a.plan) : a.thought ? await commitThought(tx, job, a.thought) : await commitSpeech(tx, job, a.speech!);
       status = stale ? 'stale' : 'done';
       outcome = stale ?? 'committed';
     }

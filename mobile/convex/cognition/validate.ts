@@ -11,7 +11,7 @@ import { STEP_SPECS, encodeStep } from '../engine/core';
 import type { StepType } from '../engine/core';
 import { validateSocietyArgs } from '../society/validate';
 import type { PersonRef, PlanContext } from './context';
-import { BEG_RESOURCES, BRIBE_FAVORS, GOAL_KINDS, LIE_KINDS, MAX_ANSWER_CHARS, MAX_SPEECH_CHARS, MAX_STEPS, MAX_THOUGHT_CHARS, PETITION_TOPICS, RALLY_TOPICS } from './prompt';
+import { BEG_RESOURCES, BRIBE_FAVORS, GOAL_KINDS, LIE_KINDS, DIALOGUE_OUTCOMES, MAX_ANSWER_CHARS, MAX_DIALOGUE_LINE_CHARS, MAX_SPEECH_CHARS, MAX_STEPS, MAX_THOUGHT_CHARS, PETITION_TOPICS, RALLY_TOPICS } from './prompt';
 
 export type ValidGoal = { kind: string; description: string; priority: number; targetAgentId?: Id<'agents'> };
 
@@ -348,6 +348,20 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
     default:
       return validateSocietyArgs(type, args, { living: l.living, ...l.society });
   }
+}
+
+/** Checks a dialogue job's output: 4 to 8 spoken lines, an outcome and a summary. */
+export function validateDialogue(raw: unknown): { ok: true; lines: { speaker: string; text: string }[]; outcome: string; summary?: string } | { ok: false; reason: string } {
+  const out = asRecord(raw);
+  const lines: { speaker: string; text: string }[] = [];
+  for (const item of Array.isArray(out?.lines) ? out.lines : []) {
+    const rec = asRecord(item);
+    const text = cleanText(rec?.text, MAX_DIALOGUE_LINE_CHARS);
+    if (text && (rec?.speaker === 'A' || rec?.speaker === 'B') && lines.length < 8) lines.push({ speaker: rec.speaker, text });
+  }
+  if (lines.length < 3 || !lines.some((l) => l.speaker === 'A') || !lines.some((l) => l.speaker === 'B')) return { ok: false, reason: 'no conversation' };
+  const outcome = typeof out?.outcome === 'string' && DIALOGUE_OUTCOMES.includes(out.outcome) ? out.outcome : 'none';
+  return { ok: true, lines, outcome, summary: cleanText(out?.summary, 220) };
 }
 
 /** Checks a thought job's output. */

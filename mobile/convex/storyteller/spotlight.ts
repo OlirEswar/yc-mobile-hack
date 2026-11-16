@@ -10,6 +10,7 @@ import { providerConfig } from '../cognition/provider';
 import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind, tiesOf, touchMind } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
 import { cool, cooling, debtsTo } from '../engine/ledger';
+import { inDialogue } from './dialogue';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
 import { describeStoryline, involvedIn } from './storylines';
@@ -80,7 +81,7 @@ async function speakInCharacter(tx: Tx, a: AgentDoc): Promise<void> {
   }
   for (const p of speakers) {
     const mind = await loadMind(tx, p);
-    if (!mind || cooling(mind, 'llm-speech', tx.tick)) continue;
+    if (!mind || cooling(mind, 'llm-speech', tx.tick) || (await inDialogue(tx, p._id))) continue;
     const queued = await enqueueCognition(tx, p, { kind: 'speech', trigger: p.activityLabel, priority: p._id === a._id ? 0.85 : 0.75, lane: p._id === a._id ? 'focus' : 'orbit' });
     if (!queued) continue;
     cool(tx, mind, 'llm-speech', SPEECH_GAP);

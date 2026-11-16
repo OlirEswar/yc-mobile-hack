@@ -93,6 +93,9 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
     if (s.origin === 'seed') for (const b of s.beats) console.log('      ' + b.tick + ': ' + b.text.slice(0, 130));
   }
   if (focus) {
+    const talks = await t.run((ctx) => ctx.db.query('dialogues').collect());
+    console.log('\nConversations (' + talks.length + '):');
+    for (const d of talks.slice(0, 12)) console.log('  [' + d.kind + ' -> ' + d.outcome + ', tick ' + d.startTick + ']\n' + d.lines.map((l) => '    ' + (l.speakerId === d.aId ? d.aName : d.bName).split(' ')[0] + ': ' + l.text).join('\n'));
     const MEANINGFUL = /conversation|rumor|talk|confide|comfort|court|romance|threat|blackmail|bribe|accus|theft|fight|loan|borrow|repay|beg|barter|eavesdrop|secret|rally|strike|petition|marri|propos|reconcil|storyline|perform|recruit|preach|gift|aid|confess|lie|smear|investigat|arrest/;
     const mine = events.filter((e) => (e.actorId === focus._id || e.participantIds.includes(focus._id)) && (MEANINGFUL.test(e.eventType) || e.salience >= 0.5));
     const moments = [...new Set(mine.map((e) => e.tick))].sort((x, y) => x - y);

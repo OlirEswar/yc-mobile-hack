@@ -7,7 +7,7 @@ import { LOCATIONS, LOCATION_IDS, RESOURCES, TRADED_RESOURCES } from '../../shar
 import type { GoalKind } from '../../shared/types';
 import { STEP_SPECS } from '../engine/core';
 import { SOCIETY_ARG_KINDS } from '../society/validate';
-import type { AskContext, PersonaContext, PlanContext, SpeechContext, ThoughtContext } from './context';
+import type { AskContext, DialogueContext, DialogueSide, PersonaContext, PlanContext, SpeechContext, ThoughtContext } from './context';
 import type { ChatRequest } from './provider';
 
 export const GOAL_KINDS: readonly GoalKind[] = [
@@ -159,6 +159,62 @@ export const THOUGHT_SCHEMA = {
   name: 'colonist_thought',
   schema: { type: 'object', additionalProperties: false, required: ['thought', 'mood'], properties: { thought: { type: 'string' }, mood: { type: 'string' } } },
 };
+
+export const MAX_DIALOGUE_LINE_CHARS = 200;
+export const DIALOGUE_OUTCOMES = ['warmer', 'colder', 'promise', 'secret', 'fight', 'refusal', 'none'];
+export const DIALOGUE_SCHEMA = {
+  name: 'colonist_dialogue',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['lines', 'outcome', 'summary'],
+    properties: {
+      lines: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['speaker', 'text'], properties: { speaker: { type: 'string', enum: ['A', 'B'] }, text: { type: 'string' } } } },
+      outcome: { type: 'string', enum: DIALOGUE_OUTCOMES },
+      summary: { type: 'string' },
+    },
+  },
+};
+
+const SYSTEM_DIALOGUE = [
+  'You write one short scene of real conversation between two colonists of Shackleton Colony, a cramped Moon base of about 100 people where water is scarce and everyone knows everyone. The player is watching and should feel they are overhearing two real lives.',
+  '- 4 to 8 lines, alternating between A and B, A speaks first. Each line is 1 or 2 natural spoken sentences in the voice of whoever is speaking: the way people actually talk, with interruptions, dodges and things left unsaid. Never quips, slogans, narration, stage directions, quotes or emojis.',
+  '- Ground it in what is given: how each feels about the other, what they believe about each other, debts, secrets, what has happened lately and the stories they are caught up in. Use names. Never invent facts that contradict what is given.',
+  '- Subtext: each wants something from the other and does not say all of it. A secret shows only as evasion or pressure unless its keeper chooses to reveal it.',
+  '- The scene must TURN: someone reveals something, refuses, lies, gives in, threatens, or says the thing they came to say. It ends changed from how it began.',
+  '- outcome: how it leaves them. warmer (closer), colder (worse), promise (an agreement or pledge was made), secret (something private was revealed or shared), fight (it is about to come to blows), refusal (a request was turned down), none.',
+  '- summary: one past-tense sentence with both names saying what happened between them, for the colony chronicle.',
+  'Reply with JSON {"lines": [{"speaker": "A" or "B", "text": string}], "outcome": string, "summary": string}.',
+].join('\n');
+
+function sideLines(tag: string, s: DialogueSide, other: string): string[] {
+  const first = s.name.split(' ')[0];
+  return [
+    tag + ': ' + s.name + ', ' + s.identity + '. Personality: ' + s.personality + '. Mood: ' + s.mood + '.' + (s.voice ? ' Voice: ' + s.voice + '.' : ''),
+    ...(s.want ? [first + ' wants: ' + s.want + '. Fears: ' + (s.fear ?? 'losing what little they have') + '.'] : []),
+    ...(s.secret ? [first + "'s secret, which they guard: " + s.secret] : []),
+    'How ' + first + ' feels about ' + other + ': ' + s.feels + '.' + (s.believes.length > 0 ? ' Believes about them (may be false): ' + s.believes.join(' ') : ''),
+    ...(s.lately.length > 0 ? ['Lately for ' + first + ': ' + s.lately.join(' | ')] : []),
+  ];
+}
+
+/** The full request for a multi-line conversation between two colonists. */
+export function dialogueRequest(c: DialogueContext): ChatRequest {
+  const a = c.a.name.split(' ')[0];
+  const b = c.b.name.split(' ')[0];
+  const lines = [
+    ...sideLines('A', c.a, b),
+    '',
+    ...sideLines('B', c.b, a),
+    '',
+    'They are at ' + c.place + '. ' + a + ' has come to ' + c.what.replace(/_/g, ' ') + ' (with) ' + b + '.',
+    ...(c.debts.length > 0 ? ['Debts between them: ' + c.debts.join('; ') + '.'] : []),
+    ...(c.news.length > 0 ? ['What ' + a + ' has heard lately and might bring up: ' + c.news.join(' ')] : []),
+    ...(c.storylines.length > 0 ? ['Stories they are caught up in: ' + c.storylines.join(' | ')] : []),
+    'Write their conversation.',
+  ];
+  return { system: SYSTEM_DIALOGUE, user: lines.join('\n'), maxTokens: 700, schema: DIALOGUE_SCHEMA, temperature: 0.95 };
+}
 
 export const ASK_SCHEMA = {
   name: 'colonist_answer',

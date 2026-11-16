@@ -413,6 +413,11 @@ export type FocusState = {
    * middle of right now (epithet, want, their hottest storyline's latest beat, current aim).
    */
   recap: string;
+  /**
+   * Their latest conversations, newest first (at most 3). A conversation in progress grows one line
+   * at a time, in step with the speech bubbles on AgentLite.speech of the two speakers.
+   */
+  dialogue?: { withId: Id; withName: string; lines: { speakerId: Id; text: string }[]; tick: Tick }[];
 };
 
 export type AskTurn = { id: Id; tick: Tick; question: string; answer: string };

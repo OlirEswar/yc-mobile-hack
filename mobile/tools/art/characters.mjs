@@ -1,727 +1,948 @@
 /**
- * The colonists: 10 archetypes x 6 variants, each in 4 directions x 4 walk frames of 32x40, plus a
- * 64x64 portrait drawn from the same parts. Bodies are stamped from small templates whose letters
- * map to a per-colonist palette, then outlined; side views are drawn facing left and mirrored.
+ * The colonists: 10 archetypes x 16 variants, each in 4 directions x 4 walk frames of 48x96 art px
+ * (24x48 world px at ART_SCALE 2), plus a 128x128 portrait. Every sprite is assembled from a seeded
+ * spec (build, skin, age, hairstyle and colour, facial hair, outfit silhouette with its own colours,
+ * one or two accessories), so no two look alike. Figures are about 6.3 heads tall and shaded per
+ * material on five-tone ramps with hue-shifted shadows and highlights, folds, a cool rim light on the
+ * right and a selective (colour-matched) outline. Side views are drawn facing left and mirrored.
  */
-import { Img } from './lib/image.mjs';
-import { INK, RAMPS, fade, tone } from './lib/palette.mjs';
-import { rgba } from './lib/image.mjs';
+import { Img, rgba } from './lib/image.mjs';
+import { INK, fade } from './lib/palette.mjs';
+import { rng } from './lib/noise.mjs';
 import { SPRITE_ARCHETYPES, SPRITE_VARIANTS } from './lib/layout.mjs';
 
-/** Frames are designed on a 32x40 world-pixel grid and finished at 2x (ART_SCALE). */
-const BASE_W = 32;
-const BASE_H = 40;
-export const FRAME_W = BASE_W * 2;
-export const FRAME_H = BASE_H * 2;
+export const FRAME_W = 48;
+export const FRAME_H = 96;
 export const FRAMES = 4;
 /** The point between the feet in atlas pixels, which sits on the colonist's world position. */
-export const FEET = { x: 32, y: 74 };
+export const FEET = { x: 24, y: 90 };
 export const PORTRAIT = 128;
 
-const ramp3 = (...h) => h.map((c) => rgba(c));
-const SKINS = [
-  ramp3('#f7dcc4', '#e9b996', '#c98d6c'),
-  ramp3('#f0c79e', '#d9a173', '#ab7350'),
-  ramp3('#dba46c', '#bc8048', '#8c5a31'),
-  ramp3('#b67d52', '#93603a', '#6b4227'),
-  ramp3('#8d5a37', '#6e4127', '#4d2b19'),
-  ramp3('#654030', '#4c2e21', '#331d14'),
-];
-const HAIRS = {
-  black: ramp3('#4a4352', '#2e2934', '#18151d'),
-  brown: ramp3('#9a6a42', '#6e4629', '#45291a'),
-  blonde: ramp3('#f4dc94', '#d9b25a', '#a57f34'),
-  red: ramp3('#de7a46', '#b04a2a', '#76281a'),
-  grey: ramp3('#d2d2da', '#a0a0ae', '#6c6c7a'),
-  blue: ramp3('#5a92cc', '#33609a', '#1e3a60'),
-  white: ramp3('#f4f4f8', '#d6d6e0', '#a4a4b4'),
-};
-const r3 = (name, i) => [tone(name, i + 1), tone(name, i), tone(name, i - 1)];
-
-// ---------- templates ----------
-// Keys: K k q skin (light, mid, shade); H h j hair; S s z suit; a accent; T t belt; L l m pants;
-// B b o boots and sole; g hands; e w eye dark and highlight; n mouth; c cheek.
-
-const HEAD_FRONT = [
-  '....kkkkkk....',
-  '..kkKKKKKKkk..',
-  '.kKKKKKKKKKKk.',
-  '.kKKKKKKKKKKq.',
-  'kKKKKKKKKKKKKq',
-  'kKKKKKKKKKKKKq',
-  'kKKweKKKKweKkq',
-  'kKKeeKKKKeeKkq',
-  'kKcKKKKKKKKckq',
-  '.kKKKKKKKKKkq.',
-  '.qkKKKnnKKkkq.',
-  '..qqkkkkkkqq..',
-  '....qqqqqq....',
-];
-const HEAD_SIDE = [
-  '...kkkkkk...',
-  '.kkKKKKKKkk.',
-  'kKKKKKKKKKKk',
-  'kKKKKKKKKKKq',
-  'KKKKKKKKKKkq',
-  'KKKKKKKKKKkq',
-  'KweKKKKKKKkq',
-  'KeeKKKKKKkkq',
-  'KcKKKKKKKkkq',
-  'KKKKKKKKKkq.',
-  'nKKKKKKKkkq.',
-  '.qkkkkkkkqq.',
-  '...qqqqqq...',
-];
-const HEAD_BACK = HEAD_FRONT.map((r) => r.replace(/[ewnc]/g, 'K'));
-
-/** Hair per style and view, origin (8, 2), 16 wide. '.' leaves the head showing. */
-const HAIR = {
-  short: {
-    front: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHhHHHHHhhj.', '.jhHhhHhhHHhhhj.', '.jhh.hh..hhh.hj.', '.jh..........hj.', '.jh..........jj.', '..j...........j.'],
-    side: ['', '', '......jhhhhj....', '....jhHHHHHhhj..', '...jhHHHHHHHhhj.', '..jhHHHHHHHhhhj.', '..jhhHhHHHhhhhj.', '..jh.h.hhhhhhhj.', '..j......hhhhjj.', '.........hhhhj..', '.........jhhhj..', '..........jjj...'],
-    back: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHHhhj.', '.jhHHhHHHHhHhhj.', '.jhhHhhHHhhhhhj.', '.jhhhhhhhhhhhhj.', '.jhhhhhhhhhhhjj.', '.jjhhhhhhhhhjj..', '..jjhhhhhhhjj...', '....jjjjjjjj....'],
-  },
-  long: {
-    front: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHhHHHHhhj.', '.jhHHhhHhhHhhhj.', '.jhhh.h..hh.hhj.', 'jhhh........hhhj', 'jhh..........hhj', 'jhh..........hhj', 'jhh..........hhj', 'jhh..........hhj', 'jhj..........jhj', 'jhj..........jhj', 'jj............jj', 'j..............j'],
-    side: ['', '', '......jhhhhj....', '....jhHHHHHhhj..', '...jhHHHHHHHhhj.', '..jhHHHHHHHhhhj.', '..jhhHhHHHhhhhj.', '..jh.h.hhhhhhhhj', '..j......hhhhhhj', '.........hhhhhhj', '.........hhhhhhj', '.........jhhhhhj', '.........jhhhhj.', '.........jhhhhj.', '..........jhhj..', '..........jjj...'],
-    back: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHHhhj.', '.jhHHhHHHHhHhhj.', '.jhhHhhHHhhhhhj.', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhhHhhhhHhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', '.jhhhhhhhhhhhhj.', '.jjhhhhhhhhhhjj.', '...jjjjjjjjjj...'],
-  },
-  curly: {
-    front: ['', '....jhhjjhhj....', '..jhHHhHHhHHhj..', '.jhHHhHHHHhHHhj.', 'jhHhHHHhHHHhHhhj', 'jhHHhHHHHhHHhhhj', 'jhhHHhhHhhHhhhhj', 'jhhh.hh.hh.hhhhj', 'jhh..........hhj', '.jh..........hj.', '.jh..........hj.', '..j..........j..'],
-    side: ['', '.....jhhjjhhj...', '...jhHHhHHhHHhj.', '..jhHHhHHHHhHHhj', '.jhHhHHHhHHHhHhj', '.jhHHhHHHHhHHhhj', '.jhhHhhHhhHhhhhj', '.jh.h.hhhhhhhhhj', '.j.......hhhhhhj', '.........hhhhhhj', '.........jhhhhj.', '..........jjjj..'],
-    back: ['', '....jhhjjhhj....', '..jhHHhHHhHHhj..', '.jhHHhHHHHhHHhj.', 'jhHhHHHhHHHhHhhj', 'jhHHhHHHHhHHhhhj', 'jhhHHhhHhhHhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhHhhhhhHhhhhj', 'jhhhhhhhhhhhhhhj', '.jhhhhhhhhhhhhj.', '.jjhhhhhhhhhhjj.', '...jjjjjjjjjj...'],
-  },
-  bun: {
-    front: ['......jhhj......', '.....jHHHhj.....', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHHhhj.', '.jhHhhhhhhhhhhj.', '.jhh........hhj.', '.jh..........hj.', '.jh..........jj.', '..j...........j.'],
-    side: ['........jhhj....', '.......jHHHhj...', '.......jhhhhj...', '....jhHHHHHhhj..', '...jhHHHHHHHhhj.', '..jhHHHHHHHhhhj.', '..jhhhhhhhhhhhj.', '..jh.....hhhhhj.', '..j......hhhhjj.', '.........hhhhj..', '.........jhhhj..', '..........jjj...'],
-    back: ['......jhhj......', '.....jHHHhj.....', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHHhhj.', '.jhHHhHHHHhHhhj.', '.jhhHhhHHhhhhhj.', '.jhhhhhhhhhhhhj.', '.jhhhhhhhhhhhjj.', '.jjhhhhhhhhhjj..', '..jjhhhhhhhjj...', '....jjjjjjjj....'],
-  },
-  buzz: {
-    front: ['', '', '', '....jhhhhhhj....', '..jhhHhHhHhhhj..', '.jhhhhhhhhhhhhj.', '.jh..........hj.', '.j............j.'],
-    side: ['', '', '', '.....jhhhhhhj...', '...jhhHhHhhhhhj.', '..jhhhhhhhhhhhj.', '..j.......hhhhj.', '..........hhhj..', '..........jjj...'],
-    back: ['', '', '', '....jhhhhhhj....', '..jhhHhHhHhhhj..', '.jhhhhhhhhhhhhj.', '.jhhhhhhhhhhhhj.', '.jhhhhhhhhhhhhj.', '.jhhhhhhhhhhhhj.', '..jhhhhhhhhhhj..', '...jjjjjjjjjj...'],
-  },
-  bob: {
-    front: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHhhhj.', '.jhHHHHHHhhhhhj.', '.jhHHHHHhhhhhhj.', 'jhhh.......hhhhj', 'jhh.........hhhj', 'jhh..........hhj', 'jhh..........hhj', '.jj..........jj.'],
-    side: ['', '', '......jhhhhj....', '....jhHHHHHhhj..', '...jhHHHHHHHhhj.', '..jhHHHHHHHhhhj.', '..jhHHHHhhhhhhj.', '..jhhh.hhhhhhhhj', '..jh.....hhhhhhj', '..j......hhhhhhj', '.........hhhhhhj', '.........jhhhhhj', '..........jjjjj.'],
-    back: ['', '', '.....jhhhhj.....', '...jhhHHHHhhj...', '..jhHHHHHHHHhj..', '.jhHHHHHHHHHhhj.', '.jhHHhHHHHhHhhj.', '.jhhHhhHHhhhhhj.', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', 'jhhhhhhhhhhhhhhj', '.jjhhhhhhhhhhjj.', '...jjjjjjjjjj...'],
-  },
-};
-
-const TORSO_FRONT = [
-  '...sSSaaSSsz..',
-  '.sSSSSSaSSSssz',
-  'sSSSSSSaSSSssz',
-  'sSSSSSSaSSSssz',
-  'sSSSSSSaSSSssz',
-  'sSSSSSSaSSSssz',
-  'sSSSSSSaSSsszz',
-  'zsssssSassszzz',
-  'TTTTTTTtTTTTTT',
-  'lLLLLLLLLLLLlm',
-  'lLLLLLLmLLLLlm',
-];
-const TORSO_BACK = TORSO_FRONT.map((r, i) => (i === 0 ? '...sSSSSSSsz..' : r.replace('a', i < 7 ? 'S' : 's').replace('t', 'T').replace('aa', 'SS')));
-const TORSO_SIDE = ['...sSSSsz..', '..sSSSSSsz.', '.sSSSSSSSz.', '.sSSSSSSSz.', '.sSSSSSSSz.', '.sSSSSSSSz.', '.sSSSSSSzz.', '.ssssssszz.', '.TTTTTTTTT.', '.lLLLLLLLm.', '.lLLLLLLLm.'];
-const ARM_FRONT = ['.sS', 'sSS', 'sSs', 'sSs', 'sSs', 'sSs', 'sSs', 'ssz', 'gGg', '.gg'];
-const ARM_FRONT_R = ['Ss.', 'Ssz', 'ssz', 'ssz', 'ssz', 'ssz', 'ssz', 'szz', 'gGg', 'gg.'];
-const ARM_BACK_L = ['.ss', 'sss', 'ssz', 'ssz', 'ssz', 'ssz', 'ssz', 'szz', 'ggg', '.gg'];
-const ARM_SIDE = ['sSs', 'sSs', 'sSs', 'sSz', 'sSz', 'sSz', 'ssz', 'ssz', 'gGg', 'ggg'];
-
-/** Front/back legs per frame, origin (10, 30). */
-const LEGS_FRONT = [
-  ['lLLLm..lLLLm', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'bBBBb..bBBBb', 'bBBBb..bBBBb', 'obbbo..obbbo'],
-  ['', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'lLLLm..bBBBb', 'lLLLm..bBBBb', 'bBBBb..obbbo', 'bBBBb.......', 'obbbo.......'],
-  ['lLLLm..lLLLm', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'bBBBb..bBBBb', 'bBBBb..bBBBb', 'obbbo..obbbo'],
-  ['', 'lLLLm..lLLLm', 'lLLLm..lLLLm', 'bBBBb..lLLLm', 'bBBBb..lLLLm', 'obbbo..bBBBb', '.......bBBBb', '.......obbbo'],
-];
-const BODY_DY = [0, 1, 0, 1];
-
-// ---------- costumes ----------
-
-const ACCENTS = ['red', 'teal', 'yellow', 'purple', 'orange', 'pink', 'blue', 'green'];
-
-/** Everything that varies per sprite: palette, hair, headgear and costume flags. */
-function specFor(archetype, v) {
-  const skin = SKINS[[0, 2, 4, 1, 5, 3][v]];
-  const hairNames = ['black', 'brown', 'blonde', 'red', 'black', 'grey'];
-  const styles = ['short', 'long', 'curly', 'bun', 'bob', 'buzz'];
-  const hairName = hairNames[(v + archetype.length) % 6];
-  const style = styles[(v * 5 + archetype.length * 2) % 6];
-  const accent = ACCENTS[(v * 3 + archetype.length) % ACCENTS.length];
-  const base = {
-    skin,
-    hair: HAIRS[hairName],
-    style,
-    hat: null,
-    suit: r3('metal', 5),
-    accent: tone(accent, 4),
-    accentRamp: accent,
-    pants: r3('metal', 3),
-    belt: [tone('metal', 2), tone('metal', 6)],
-    boots: [tone('metal', 3), tone('metal', 2), tone('metal', 0)],
-    hands: null,
-    extras: [],
-  };
-  const s = { ...base };
-  switch (archetype) {
-    case 'farmer':
-      s.suit = r3('green', 3 + (v % 2));
-      s.pants = r3('green', 2);
-      s.accent = tone('yellow', 4);
-      s.belt = [tone('brown', 2), tone('yellow', 3)];
-      s.boots = [tone('brown', 3), tone('brown', 2), tone('brown', 0)];
-      s.hands = [tone('brown', 4), tone('brown', 3)];
-      s.hat = v % 3 === 2 ? null : { kind: 'sunhat', ramp: ['yellow', 'brown', 'green'][v % 3], band: tone(['red', 'green', 'teal'][v % 3], 3) };
-      s.extras = ['pocketLeaf'];
-      break;
-    case 'miner':
-      s.suit = r3('orange', 3);
-      s.pants = r3('orange', 2);
-      s.accent = tone('metal', 7);
-      s.belt = [tone('metal', 2), tone('yellow', 4)];
-      s.boots = [tone('metal', 3), tone('metal', 2), tone('metal', 0)];
-      s.hands = [tone('metal', 4), tone('metal', 3)];
-      s.hat = { kind: 'helmet', shell: v % 2 ? 'metal' : 'orange', visor: 'teal', lamp: true };
-      s.extras = ['stripes', 'pack'];
-      break;
-    case 'engineer':
-      s.suit = r3('yellow', 3);
-      s.pants = r3('yellow', 2);
-      s.accent = tone('metal', 7);
-      s.belt = [tone('brown', 2), tone('metal', 6)];
-      s.boots = [tone('brown', 2), tone('brown', 1), tone('brown', 0)];
-      s.hands = [tone('metal', 3), tone('metal', 2)];
-      s.hat = { kind: 'hardhat', ramp: ['metal', 'orange', 'blue', 'metal', 'red', 'orange'][v], k: [7, 3, 3, 7, 3, 4][v] };
-      s.extras = ['toolbelt', 'stripes'];
-      break;
-    case 'medic':
-      s.suit = r3('metal', 7);
-      s.pants = r3('metal', 6);
-      s.accent = tone('red', 3);
-      s.belt = [tone('metal', 5), tone('red', 3)];
-      s.boots = [tone('metal', 7), tone('metal', 5), tone('metal', 2)];
-      s.hands = [tone('teal', 4), tone('teal', 3)];
-      s.hat = v % 2 ? { kind: 'headband', ramp: 'red' } : null;
-      s.extras = ['cross'];
-      break;
-    case 'scientist':
-      s.suit = r3('metal', 7);
-      s.pants = r3('metal', 2);
-      s.accent = tone(['blue', 'purple', 'teal', 'blue', 'green', 'red'][v], 3);
-      s.belt = [tone('metal', 6), tone('metal', 6)];
-      s.boots = [tone('metal', 2), tone('metal', 1), tone('metal', 0)];
-      s.extras = ['coat', v % 3 !== 1 ? 'glasses' : null, 'tablet'];
-      break;
-    case 'merchant':
-      s.suit = r3('purple', 3);
-      s.pants = r3('purple', 1);
-      s.accent = tone('yellow', 4);
-      s.belt = [tone('yellow', 2), tone('yellow', 4)];
-      s.boots = [tone('brown', 3), tone('brown', 2), tone('brown', 0)];
-      s.hat = v % 2 === 0 ? { kind: 'cap', ramp: ['purple', 'teal', 'red'][v % 3], k: 2 } : null;
-      s.extras = ['trim', 'satchel'];
-      break;
-    case 'guard':
-      s.suit = r3('blue', 2);
-      s.pants = r3('blue', 1);
-      s.accent = tone('teal', 5);
-      s.belt = [tone('metal', 1), tone('metal', 6)];
-      s.boots = [tone('metal', 1), tone('metal', 0), tone('cold', 0)];
-      s.hands = [tone('metal', 2), tone('metal', 1)];
-      s.hat = { kind: 'helmet', shell: 'blue', visor: ['teal', 'green', 'red', 'teal', 'yellow', 'pink'][v], stripe: tone(['yellow', 'metal', 'red', 'teal', 'metal', 'yellow'][v], ['yellow', 'metal', 'red', 'teal', 'metal', 'yellow'][v] === 'metal' ? 8 : 4), lamp: false, guard: true };
-      s.extras = ['pads', 'baton'];
-      break;
-    case 'official':
-      s.suit = r3('metal', 4);
-      s.pants = r3('metal', 3);
-      s.accent = tone('metal', 8);
-      s.belt = [tone('metal', 2), tone('yellow', 4)];
-      s.boots = [tone('metal', 1), tone('metal', 0), tone('cold', 0)];
-      s.extras = ['sash', 'pin'];
-      s.sash = tone(['red', 'yellow', 'blue', 'red', 'yellow', 'teal'][v], 3);
-      s.sashDark = tone(['red', 'yellow', 'blue', 'red', 'yellow', 'teal'][v], 2);
-      if (s.style === 'long' || s.style === 'curly') s.style = 'short';
-      break;
-    case 'worker':
-      s.suit = r3('brown', 3);
-      s.pants = r3('brown', 2);
-      s.accent = tone('brown', 5);
-      s.belt = [tone('brown', 1), tone('metal', 6)];
-      s.boots = [tone('brown', 2), tone('brown', 1), tone('brown', 0)];
-      s.hat = v % 3 === 1 ? null : { kind: 'beanie', ramp: ['red', 'teal', 'yellow', 'blue', 'orange', 'green'][v], k: 3 };
-      s.extras = ['sleeves', v % 3 === 1 ? 'apron' : null];
-      break;
-    case 'civilian': {
-      const top = ['teal', 'pink', 'yellow', 'red', 'blue', 'green'][v];
-      s.suit = r3(top, top === 'yellow' ? 3 : 3);
-      s.pants = r3('blue', 2);
-      s.accent = tone(top, 5);
-      s.belt = [tone('blue', 1), tone('blue', 1)];
-      s.boots = [tone('metal', 8), tone('metal', 6), tone('metal', 3)];
-      s.extras = ['tee'];
-      break;
-    }
-  }
-  s.extras = s.extras.filter(Boolean);
-  return s;
-}
-
-function paletteOf(s) {
-  const [K, k, q] = s.skin;
-  const [H, h, j] = s.hair;
-  const [S, sm, z] = s.suit;
-  const [L, l, m] = s.pants;
-  const hands = s.hands ?? [k, q];
-  return {
-    K, k, q, H, h, j, S, s: sm, z, L, l, m,
-    a: s.accent,
-    T: s.belt[0],
-    t: s.belt[1],
-    B: s.boots[0],
-    b: s.boots[1],
-    o: s.boots[2],
-    g: hands[1],
-    G: hands[0],
-    e: tone('cold', 0),
-    w: tone('metal', 8),
-    n: q,
-    c: fade(tone('red', 4), 140),
-  };
-}
-
-function stamp(img, x, y, rows, pal) {
-  rows.forEach((row, j) => {
-    for (let i = 0; i < row.length; i++) {
-      const c = pal[row[i]];
-      if (c) img.put(x + i, y + j, c);
-    }
-  });
-}
-
-// ---------- drawing one frame, facing down, up or left ----------
-
-function drawHeadgear(img, s, view, dy) {
-  const hat = s.hat;
-  if (!hat) return;
-  const y0 = 2 + dy;
-  if (hat.kind === 'helmet' && hat.guard) {
-    const cx = 15.5;
-    for (let y = y0 + 1; y < y0 + 14; y++)
-      for (let x = 7; x < 25; x++) {
-        const d = ((x + 0.5 - cx) / 8.5) ** 2 + ((y + 0.5 - (y0 + 10)) / 9) ** 2;
-        if (d > 1 || y > y0 + 12) continue;
-        let c = x + y < cx + y0 + 5 ? tone('blue', 4) : d > 0.75 ? tone('blue', 1) : tone('blue', 2);
-        if (view === 'side' && x > 18 && y > y0 + 9) c = tone('blue', 1);
-        img.put(x, y, c);
-      }
-    if (view !== 'back') {
-      const [vx0, vx1] = view === 'front' ? [9, 22] : [7, 15];
-      for (let x = vx0; x <= vx1; x++) {
-        img.put(x, y0 + 9, tone('cold', 1));
-        img.put(x, y0 + 10, x % 3 ? tone(hat.visor, 4) : tone(hat.visor, 3));
-        img.put(x, y0 + 11, tone('cold', 1));
-      }
-    }
-    img.hline(13, 18, y0 + 2, tone('blue', 5));
-    for (let y = y0 + 2; y < y0 + 8; y++) img.put(view === 'side' ? 16 : 15, y, hat.stripe);
-    return;
-  }
-  if (hat.kind === 'helmet') {
-    // a bubble helmet: shell around the head, visor where the face is
-    const shell = hat.shell;
-    const cx = view === 'side' ? 15.5 : 15.5;
-    for (let y = y0; y < y0 + 18; y++)
-      for (let x = 6; x < 26; x++) {
-        const d = ((x + 0.5 - cx) / 9.5) ** 2 + ((y + 0.5 - (y0 + 9.5)) / 9.5) ** 2;
-        if (d > 1) continue;
-        const k = shell === 'metal' ? 6 : 3;
-        let c = d > 0.8 ? tone(shell, k - 1) : x + y < cx + y0 + 4 ? tone(shell, k + 1) : tone(shell, k);
-        const inVisor = view === 'front' ? x >= 9 && x <= 22 && y >= y0 + 7 && y <= y0 + 14 : view === 'side' ? x >= 7 && x <= 15 && y >= y0 + 7 && y <= y0 + 14 : false;
-        if (inVisor) {
-          const face = img.get(x, y);
-          c = face[3] && (x + y) % 5 !== 0 ? mix(face, tone('teal', 2), 0.35) : tone('teal', 1);
-          if (x + (y - y0) === 18) c = tone('ice', 4);
-        }
-        img.put(x, y, c);
-      }
-    if (hat.lamp) {
-      const lx = view === 'side' ? 9 : 14;
-      if (view !== 'back') {
-        img.rect(lx, y0 + 1, 4, 3, tone('metal', 2));
-        img.rect(lx + 1, y0 + 1, 2, 2, tone('yellow', 4));
-        img.put(lx + 1, y0, fade(tone('yellow', 4), 160));
-      } else img.rect(14, y0 + 1, 4, 2, tone('metal', 3));
-    }
-    return;
-  }
-  if (hat.kind === 'hardhat') {
-    for (let y = y0 + 1; y < y0 + 8; y++)
-      for (let x = 8; x < 24; x++) {
-        const d = ((x + 0.5 - 15.5) / 8) ** 2 + ((y + 0.5 - (y0 + 8)) / 6.5) ** 2;
-        if (d <= 1) img.put(x, y, x < 13 && y < y0 + 5 ? tone(hat.ramp, hat.k + 1) : x > 19 ? tone(hat.ramp, hat.k - 1) : tone(hat.ramp, hat.k));
-      }
-    const brimY = y0 + 7;
-    const [bx0, bx1] = view === 'side' ? [5, 22] : [7, 24];
-    for (let x = bx0; x <= bx1; x++) img.put(x, brimY, tone(hat.ramp, hat.k - 1));
-    img.put(15, y0 + 2, tone(hat.ramp, hat.k + 1));
-    img.put(16, y0 + 2, tone(hat.ramp, hat.k + 1));
-    if (view === 'front') {
-      img.rect(10, brimY + 1, 12, 2, tone('metal', 2));
-      img.rect(11, brimY + 1, 3, 2, tone('teal', 4));
-      img.rect(18, brimY + 1, 3, 2, tone('teal', 4));
-    }
-    return;
-  }
-  if (hat.kind === 'sunhat') {
-    const brimY = y0 + 7;
-    for (let x = 4; x < 28; x++) {
-      const t = Math.abs(x + 0.5 - 16) / 12;
-      if (t > 1) continue;
-      img.put(x, brimY, tone(hat.ramp, 3));
-      if (t < 0.92) img.put(x, brimY + 1, tone(hat.ramp, 2));
-    }
-    for (let y = y0 + 1; y < brimY; y++)
-      for (let x = 9; x < 23; x++) {
-        const d = ((x + 0.5 - 16) / 7) ** 2 + ((y + 0.5 - brimY) / 6.5) ** 2;
-        if (d <= 1) img.put(x, y, y === brimY - 2 ? hat.band : x < 14 ? tone(hat.ramp, 4) : tone(hat.ramp, 3));
-      }
-    return;
-  }
-  if (hat.kind === 'cap' || hat.kind === 'beanie') {
-    const ry = hat.kind === 'beanie' ? 7 : 6;
-    for (let y = y0 + 1; y < y0 + 9; y++)
-      for (let x = 7; x < 25; x++) {
-        const d = ((x + 0.5 - 16) / 8.5) ** 2 + ((y + 0.5 - (y0 + 9)) / ry) ** 2;
-        if (d <= 1) img.put(x, y, x < 13 && y < y0 + 5 ? tone(hat.ramp, hat.k + 1) : x > 20 ? tone(hat.ramp, hat.k - 1) : tone(hat.ramp, hat.k));
-      }
-    if (hat.kind === 'beanie') {
-      img.hline(8, 23, y0 + 8, tone(hat.ramp, hat.k - 1));
-      img.hline(8, 23, y0 + 7, tone(hat.ramp, hat.k + 1));
-      for (let x = 9; x < 23; x += 2) img.put(x, y0 + 4, tone(hat.ramp, hat.k - 1));
-    } else if (view === 'front') img.hline(9, 22, y0 + 8, tone(hat.ramp, hat.k - 1));
-    else if (view === 'side') for (let x = 5; x < 12; x++) img.put(x, y0 + 8, tone(hat.ramp, hat.k - 1));
-    if (hat.kind === 'cap') img.put(16, y0 + 1, tone('yellow', 4));
-    return;
-  }
-  if (hat.kind === 'headband') {
-    const y = y0 + 6;
-    const [x0, x1] = view === 'side' ? [10, 21] : [9, 22];
-    img.hline(x0, x1, y, tone(hat.ramp, 3));
-    img.hline(x0, x1, y + 1, tone(hat.ramp, 2));
-  }
-}
-
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const mix = (a, b, t) => [Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t), 255];
 
-function legLine(img, hx, hy, fx, fy, pal, dark) {
-  const len = Math.max(1, Math.hypot(fx - hx, fy - hy));
-  for (let t = 0; t <= len; t++) {
-    const x = Math.round(hx + ((fx - hx) * t) / len);
-    const y = Math.round(hy + ((fy - hy) * t) / len);
-    img.put(x - 2, y, dark ? pal.m : pal.l);
-    img.put(x - 1, y, dark ? pal.l : pal.L);
-    img.put(x, y, dark ? pal.l : pal.L);
-    img.put(x + 1, y, pal.m);
+// ---------- colour ramps with hue-shifted shadows and highlights ----------
+
+function hexHsl(hex) {
+  const [r, g, b] = rgba(hex).map((v) => v / 255);
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  let h = 230;
+  let s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
   }
-  // boot, toe pointing left
-  img.rect(fx - 4, fy - 1, 6, 2, dark ? pal.b : pal.B);
-  img.hline(fx - 4, fx + 1, fy + 1, pal.o);
-  img.put(fx - 4, fy - 1, pal.b);
+  return [h, s, l];
 }
 
-function drawFrame(img, s, dir, frame, hi = false) {
-  const pal = paletteOf(s);
-  const dy = BODY_DY[frame];
-  const view = dir === 0 ? 'front' : dir === 3 ? 'back' : 'side';
-  // At full resolution the face is painted after the upscale, so the head is stamped as bare skin.
-  const headPal = hi ? { ...pal, e: pal.K, w: pal.K, n: pal.K, c: pal.K } : pal;
-  if (hi) img.face = { view, dy, pal, s };
-  const coat = s.extras.includes('coat');
-  const coatPal = coat ? { ...pal, S: tone('metal', 8), s: tone('metal', 7), z: tone('metal', 5), a: s.accent } : pal;
-  if (view !== 'side') {
-    // legs, then arms behind (back view), torso, arms in front, head, hair, headgear
-    stamp(img, 10, 30, LEGS_FRONT[frame], pal);
-    const swing = frame === 1 ? 1 : frame === 3 ? -1 : 0;
-    const torso = view === 'front' ? TORSO_FRONT : TORSO_BACK;
-    stamp(img, 9, 19 + dy, torso, coatPal);
-    const armPal = s.extras.includes('sleeves') ? { ...pal, s: pal.k, S: pal.K, z: pal.q } : coatPal;
-    const armRows = (rows) => (s.extras.includes('sleeves') ? rows.map((r, i) => (i < 4 ? r.replace(/[sSz]/g, (c) => ({ s: 's', S: 'S', z: 'z' })[c]) : r)) : rows);
-    if (view === 'front') {
-      stamp(img, 6, 20 + dy + swing, armRows(ARM_FRONT), armPal);
-      stamp(img, 23, 20 + dy - swing, armRows(ARM_FRONT_R), armPal);
-    } else {
-      stamp(img, 6, 20 + dy - swing, ARM_BACK_L, coatPal);
-      stamp(img, 23, 20 + dy + swing, ARM_FRONT_R, coatPal);
+function hslRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255), 255];
+}
+
+const towards = (h, t, amt) => {
+  const d = ((t - h + 540) % 360) - 180;
+  return h + Math.sign(d) * Math.min(Math.abs(d), amt);
+};
+
+/** Five tones, dark to light: shadows drift towards blue-violet, highlights towards warm yellow. */
+function ramp(hex) {
+  const [h, s, l] = hexHsl(hex);
+  return [
+    hslRgb(towards(h, 250, 30), clamp(s * 0.8 + 0.08, 0, 1), l * 0.4),
+    hslRgb(towards(h, 250, 15), clamp(s * 0.95 + 0.04, 0, 1), l * 0.68),
+    hslRgb(h, s, l),
+    hslRgb(towards(h, 50, 10), clamp(s * 0.95, 0, 1), l + (1 - l) * 0.28),
+    hslRgb(towards(h, 50, 18), clamp(s * 0.8, 0, 1), l + (1 - l) * 0.55),
+  ];
+}
+
+const RIM = rgba('#bfe2ff');
+const EYE = rgba('#16121c');
+const WHITE = rgba('#f4f1ea');
+
+// ---------- shaded primitives ----------
+
+const idxOf = (I) => (I < 0.16 ? 0 : I < 0.42 ? 1 : I < 0.74 ? 2 : I < 0.93 ? 3 : 4);
+const lightAt = (u, v) => 0.6 - 0.42 * u - 0.1 * v + 0.28 * (Math.sqrt(Math.max(0, 1 - u * u)) - 0.75);
+
+/** Fills rows y0..y1 between edges(y) = [left, right], shaded as a cylinder lit from the upper left. */
+function band(img, y0, y1, edges, mat, o = {}) {
+  for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
+    const e = edges(y + 0.5, (y + 0.5 - y0) / Math.max(1, y1 - y0));
+    if (!e) continue;
+    const [l, r] = e;
+    const mid = (l + r) / 2;
+    const half = Math.max(0.5, (r - l) / 2);
+    for (let x = Math.floor(l); x < Math.ceil(r); x++) {
+      if (x + 0.5 < l || x + 0.5 > r) continue;
+      const u = (x + 0.5 - mid) / half;
+      const v = (y + 0.5 - y0) / Math.max(1, y1 - y0);
+      if (o.skip && o.skip(x, y, u, v)) continue;
+      const k = idxOf(lightAt(u, v) + (o.bias ?? 0)) + (o.fold ? o.fold(x, y, u, v) : 0);
+      img.put(x, y, mat[clamp(k, 0, 4)]);
     }
-    if (coat) {
-      // coat tails over the thighs, shirt showing at the neck
-      for (let y = 29 + dy; y < 33 + dy; y++) for (let x = 9; x < 23; x++) if (!(view === 'front' && x >= 15 && x <= 16 && y > 29 + dy)) img.put(x, y, x < 11 ? coatPal.S : x > 20 ? coatPal.z : coatPal.s);
-      if (view === 'front') {
-        img.rect(14, 19 + dy, 4, 6, s.accent);
-        img.vline(15, 25 + dy, 32 + dy, tone('metal', 5));
-        img.put(13, 19 + dy, coatPal.S);
-        img.put(18, 19 + dy, coatPal.S);
+  }
+}
+
+/** A tapered capsule from (x0, y0) to (x1, y1), shaded across its width. */
+function limb(img, x0, y0, x1, y1, r0, r1, mat, o = {}) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len2 = dx * dx + dy * dy || 1;
+  const len = Math.sqrt(len2);
+  const R = Math.max(r0, r1) + 1;
+  for (let y = Math.floor(Math.min(y0, y1) - R); y <= Math.ceil(Math.max(y0, y1) + R); y++)
+    for (let x = Math.floor(Math.min(x0, x1) - R); x <= Math.ceil(Math.max(x0, x1) + R); x++) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      const t = clamp(((px - x0) * dx + (py - y0) * dy) / len2, 0, 1);
+      const ox = px - (x0 + dx * t);
+      const oy = py - (y0 + dy * t);
+      const r = r0 + (r1 - r0) * t;
+      if (ox * ox + oy * oy > r * r) continue;
+      const u = clamp(((ox * dy - oy * dx) / len) / r, -1, 1);
+      const k = idxOf(lightAt(u, t) + (o.bias ?? 0)) + (o.fold ? o.fold(x, y, u, t) : 0);
+      img.put(x, y, mat[clamp(k, 0, 4)]);
+    }
+}
+
+/** A shaded ellipse; skip(dx, dy) can cut it. */
+function blob(img, cx, cy, rx, ry, mat, o = {}) {
+  for (let y = Math.floor(cy - ry - 1); y <= Math.ceil(cy + ry + 1); y++)
+    for (let x = Math.floor(cx - rx - 1); x <= Math.ceil(cx + rx + 1); x++) {
+      const dx = (x + 0.5 - cx) / rx;
+      const dy = (y + 0.5 - cy) / ry;
+      const d = dx * dx + dy * dy;
+      if (d > 1 || (o.skip && o.skip(dx, dy))) continue;
+      const I = 0.62 - 0.4 * dx - 0.3 * dy + 0.2 * (Math.sqrt(1 - d) - 0.6) + (o.bias ?? 0);
+      img.put(x, y, mat[clamp(idxOf(I) + (o.shift ?? 0), 0, 4)]);
+    }
+}
+
+function rect(img, x, y, w, h, c) {
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) img.put(Math.round(x) + i, Math.round(y) + j, c);
+}
+
+// ---------- the spec: everything that varies per colonist ----------
+
+const SKINS = ['#f6d6bf', '#ecc19f', '#dcaa82', '#c58f63', '#a8714a', '#8a5735', '#6a4027', '#4a2c1c'];
+const HAIR_NATURAL = ['#1d1a20', '#2e221c', '#4a3022', '#6e4429', '#8f3d20', '#b6652e', '#c99a4a', '#e3c47e'];
+const HAIR_DYED = ['#2aa5a0', '#d4548f', '#7d54c8', '#3d6fd8', '#e8e2d2', '#c63b3b', '#79c24a'];
+const HAIR_AGED = ['#8f8e96', '#b9b8c0', '#e0dfe5'];
+const CLOTH = ['#4b5a6b', '#6d4c3a', '#3f5d45', '#8a7a5c', '#5a3f5e', '#2f3a4e', '#7b3b33', '#a65c2a', '#c9a14a', '#4f6f78', '#7d8086', '#d6d0c2', '#2c2c33', '#6e7d3a', '#9c4a62', '#3e7f8c', '#b8b2a4', '#56483e'];
+const STYLES = ['buzz', 'short', 'sidepart', 'pixie', 'undercut', 'mohawk', 'bob', 'long', 'longwavy', 'ponytail', 'braids', 'afro', 'curly', 'bun', 'topknot', 'dreads', 'bald'];
+const BUILDS = [
+  { H: 74, sw: 7.5, hw: 5.6, limb: 0.95 },
+  { H: 78, sw: 8.4, hw: 6.1, limb: 1 },
+  { H: 80, sw: 7.6, hw: 5.6, limb: 0.92 },
+  { H: 80, sw: 8.6, hw: 6.3, limb: 1 },
+  { H: 82, sw: 10, hw: 7.1, limb: 1.15 },
+  { H: 84, sw: 8.2, hw: 5.9, limb: 0.95 },
+  { H: 86, sw: 9.4, hw: 6.6, limb: 1.08 },
+  { H: 76, sw: 9.8, hw: 7.4, limb: 1.15 },
+];
+
+const OUTFITS = {
+  farmer: ['overalls', 'coverall', 'apron', 'poncho', 'jacket', 'tee', 'overalls'],
+  miner: ['suit', 'suit', 'coverall', 'jacket', 'poncho', 'hoodie'],
+  engineer: ['coverall', 'overalls', 'jacket', 'suit', 'apron', 'coverall'],
+  medic: ['scrubs', 'labcoat', 'scrubs', 'longcoat', 'jacket'],
+  scientist: ['labcoat', 'labcoat', 'longcoat', 'robe', 'hoodie', 'cloak'],
+  merchant: ['longcoat', 'cloak', 'poncho', 'robe', 'jacket', 'apron'],
+  guard: ['armor', 'armor', 'longcoat', 'suit', 'jacket', 'armor'],
+  official: ['longcoat', 'robe', 'jacket', 'cloak', 'longcoat'],
+  worker: ['apron', 'overalls', 'coverall', 'hoodie', 'tee', 'jacket', 'poncho'],
+  civilian: ['tee', 'hoodie', 'jacket', 'cloak', 'robe', 'poncho', 'longcoat', 'tee', 'hoodie'],
+};
+const ACCESSORIES = {
+  farmer: ['bandana', 'satchel', 'scarf', 'hat', 'backpack', 'goggles'],
+  miner: ['tank', 'respirator', 'hardhat', 'goggles', 'toolbelt', 'prosthetic', 'backpack'],
+  engineer: ['toolbelt', 'goggles', 'hardhat', 'prosthetic', 'headset', 'backpack', 'polearm'],
+  medic: ['headset', 'satchel', 'goggles', 'scarf', 'respirator'],
+  scientist: ['goggles', 'headset', 'satchel', 'backpack', 'visor', 'scarf'],
+  merchant: ['satchel', 'scarf', 'backpack', 'bandana', 'goggles', 'prosthetic'],
+  guard: ['visor', 'headset', 'polearm', 'respirator', 'prosthetic', 'toolbelt'],
+  official: ['scarf', 'headset', 'satchel', 'visor'],
+  worker: ['toolbelt', 'bandana', 'beanie', 'backpack', 'respirator', 'prosthetic', 'satchel'],
+  civilian: ['scarf', 'backpack', 'beanie', 'bandana', 'satchel', 'goggles', 'polearm', 'headset'],
+};
+const SUIT_COLOURS = ['#d8d2c4', '#c9732f', '#8d9299', '#c9a14a', '#6c7f8c'];
+const ARMOR_COLOURS = ['#2f3a4e', '#3a3d44', '#4b5a6b', '#5a4a3a', '#2c2c33'];
+
+const used = new Set();
+
+function hash(str) {
+  let h = 2166136261;
+  for (const ch of str) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return h >>> 0;
+}
+
+function specFor(archetype, v) {
+  for (let attempt = 0; ; attempt++) {
+    const r = rng(hash(archetype + ':' + v + ':' + attempt));
+    const pick = (a) => a[Math.floor(r() * a.length)];
+    const age = r() < 0.18 ? 'elder' : r() < 0.2 ? 'young' : 'adult';
+    const build = BUILDS[Math.floor(r() * BUILDS.length)];
+    const skin = SKINS[Math.floor(r() * SKINS.length)];
+    const style = pick(STYLES);
+    const hairHex = age === 'elder' ? pick(HAIR_AGED) : r() < 0.16 ? pick(HAIR_DYED) : pick(HAIR_NATURAL);
+    const facial = r() < 0.38 ? pick(['stubble', 'mustache', 'beard', 'goatee', 'beard']) : null;
+    const outfit = r() < 0.75 ? pick(OUTFITS[archetype]) : pick(Object.values(OUTFITS).flat());
+    const top = outfit === 'suit' ? pick(SUIT_COLOURS) : outfit === 'labcoat' ? '#e4e1d8' : pick(CLOTH);
+    let bottom = pick(CLOTH);
+    if (bottom === top) bottom = '#3a3a42';
+    const accent = pick(CLOTH.filter((c) => c !== top));
+    const boots = pick(['#3a2a22', '#2a2a30', '#5a3f2c', '#6c6f76', '#40342c']);
+    const pool = ACCESSORIES[archetype];
+    const acc = [pick(pool)];
+    if (r() < 0.55) {
+      const second = pick(pool);
+      if (!acc.includes(second)) acc.push(second);
+    }
+    const hood = (outfit === 'cloak' || outfit === 'robe' || outfit === 'hoodie') && r() < 0.5 && !acc.includes('hardhat');
+    const helmet = outfit === 'suit' && r() < 0.5;
+    const sig = [style, hairHex, skin, outfit, top, build.H, build.sw].join('|');
+    if (used.has(sig) && attempt < 20) continue;
+    used.add(sig);
+    return {
+      archetype, age, ...build, sw: build.sw + 1.4, hw: build.hw + 0.9, limb: build.limb * 1.18, style, facial, outfit, acc, hood, helmet,
+      harness: (outfit === 'coverall' || outfit === 'suit') && r() < 0.5,
+      emblem: archetype === 'medic' ? 'cross' : archetype === 'guard' ? 'badge' : r() < 0.3 ? 'patch' : null,
+      sleeves: outfit === 'tee' || outfit === 'overalls' || (outfit === 'apron' && r() < 0.5) ? 'short' : 'long',
+      patches: Array.from({ length: 2 }, () => [Math.floor(r() * 9) - 4, Math.floor(r() * 12)]),
+      m: {
+        skin: ramp(skin),
+        hair: ramp(hairHex),
+        top: ramp(top),
+        bottom: ramp(outfit === 'coverall' || outfit === 'scrubs' || outfit === 'suit' ? top : bottom),
+        accent: ramp(accent),
+        boots: ramp(boots),
+        metal: ramp('#8c96a8'),
+        dark: ramp('#3b4252'),
+        leather: ramp(pick(['#6b4a30', '#4e3a2a', '#7c5a3a'])),
+        armor: ramp(pick(ARMOR_COLOURS)),
+        glass: ramp(pick(['#3fb6b0', '#d0603c', '#6f9be0', '#9ad04a'])),
+        gold: ramp('#d4a640'),
+        apron: ramp(pick(['#d6d0c2', '#6b4a30', '#4f6f78', '#7b3b33'])),
+      },
+    };
+  }
+}
+
+// ---------- hair ----------
+
+/** Hair coverage at a head-relative point (dx, dy in head radii, dx < 0 is the face side in side view): 0 none, 1 hair, 2 shaved. */
+function hairAt(style, view, dx, dy) {
+  const r = Math.hypot(dx, dy);
+  const inHead = r <= 1;
+  const front = view === 'front';
+  const side = view === 'side';
+  const cover = (nape) => (front ? dy < -0.38 + 0.4 * dx * dx : side ? dy < -0.4 || (dx > 0.05 && dy < nape) : dy < nape);
+  const top = (vol, nape) => (inHead && cover(nape)) || (r <= vol && r > 1 && dy < -0.15);
+  const shaved = inHead && cover(0.3) ? 2 : 0;
+  switch (style) {
+    case 'bald':
+      return 0;
+    case 'buzz':
+      return shaved;
+    case 'short':
+      return top(1.13, 0.35) ? 1 : 0;
+    case 'sidepart':
+      return top(1.16, 0.35) || (front && dx < 0.1 && dy < -0.15 && r < 1.08) || (side && dy < -0.2 && r < 1.12) ? 1 : 0;
+    case 'pixie':
+      return top(1.12, 0.25) || (front && dy < -0.2 && r < 1.05 && Math.abs(dx) > 0.25) ? 1 : 0;
+    case 'undercut':
+      if (r <= 1.24 && dy < -0.3 && Math.abs(dx) < 0.7 && (r > 1 || cover(0.3))) return 1;
+      return shaved;
+    case 'mohawk':
+      if ((front || view === 'back' ? Math.abs(dx) < 0.3 : true) && dy < -0.35 && r < (side ? 1.5 : 1.55) && (side ? dx > -0.6 : true)) return 1;
+      return shaved;
+    case 'bob':
+      return top(1.2, 0.75) || (!side && Math.abs(dx) > 0.58 && dy > -0.6 && dy < 0.78 && r < 1.32) || (side && dx > -0.3 && dy < 0.78 && r < 1.28) ? 1 : 0;
+    case 'long':
+    case 'longwavy': {
+      const w = 1.32 + (style === 'longwavy' ? 0.14 * Math.sin(dy * 7) : 0);
+      if (top(1.15, 1)) return 1;
+      if (dy < -0.4) return 0;
+      if (front) return Math.abs(dx) > 0.62 && Math.abs(dx) < w && dy < 2.3 ? 1 : 0;
+      if (side) return dx > -0.2 && dx < w - 0.1 && dy < 2.2 ? 1 : 0;
+      return Math.abs(dx) < w && dy < 2.3 ? 1 : 0;
+    }
+    case 'ponytail':
+      if (top(1.1, 0.4)) return 1;
+      if (view === 'back') return Math.abs(dx) < 0.32 && dy > 0.2 && dy < 2 ? 1 : 0;
+      if (side) return dx > 0.75 && dx < 1.45 && dy > -0.3 && dy < 1.9 - (dx - 0.75) ? 1 : 0;
+      return 0;
+    case 'braids':
+      if (top(1.1, 0.5)) return 1;
+      if (side) return Math.abs(dx - 0.55) < 0.3 && dy > 0 && dy < 2.1 ? 1 : 0;
+      return Math.abs(Math.abs(dx) - 1) < 0.28 && dy > 0 && dy < 2.1 ? 1 : 0;
+    case 'afro': {
+      const ra = Math.hypot(dx * 0.95, dy + 0.3);
+      if (ra > 1.5) return 0;
+      if (front && inHead && dy > -0.38 + 0.4 * dx * dx) return 0;
+      if (side && inHead && dx < 0.05 && dy > -0.4) return 0;
+      return 1;
+    }
+    case 'curly': {
+      const a = Math.atan2(dy, dx);
+      return top(1.24 + 0.08 * Math.sin(a * 9), 0.5) || (!front && r < 1.2 + 0.08 * Math.sin(a * 9) && dy < 0.55 && (side ? dx > 0 : true)) ? 1 : 0;
+    }
+    case 'bun':
+      if (top(1.08, 0.4)) return 1;
+      return (side ? Math.hypot(dx - 0.55, dy + 0.95) : Math.hypot(dx, dy + 1.15)) < 0.5 ? 1 : 0;
+    case 'topknot':
+      if (Math.hypot(dx, dy + 1.12) < 0.38 || (Math.abs(dx) < 0.12 && dy < -0.95 && dy > -1.35)) return 1;
+      return shaved;
+    case 'dreads':
+      if (top(1.15, 0.8)) return 1;
+      if (dy < -0.4) return 0;
+      if (front) return Math.abs(dx) > 0.56 && Math.abs(dx) < 1.3 && dy < 1.7 ? 1 : 0;
+      if (side) return dx > -0.1 && dx < 1.25 && dy < 1.7 ? 1 : 0;
+      return Math.abs(dx) < 1.3 && dy < 1.8 ? 1 : 0;
+  }
+  return 0;
+}
+
+function drawHair(img, s, view, hx, hy, rx, ry, layer) {
+  const m = s.m.hair;
+  for (let y = Math.floor(hy - ry * 2.6); y <= Math.ceil(hy + ry * 2.4); y++)
+    for (let x = Math.floor(hx - rx * 1.7); x <= Math.ceil(hx + rx * 1.7); x++) {
+      const dx = (x + 0.5 - hx) / rx;
+      const dy = (y + 0.5 - hy) / ry;
+      // the back layer is hair that hangs behind the body; the front layer is everything on the head
+      const behind = dy > 0.9 && view !== 'back';
+      if (behind !== (layer === 'back')) continue;
+      const h = hairAt(s.style, view, dx, dy);
+      if (!h) continue;
+      if (h === 2) {
+        if ((x + y) % 2 === 0) img.put(x, y, mix(img.get(x, y)[3] ? img.get(x, y) : m[1], m[1], 0.65));
+        continue;
       }
+      let I = 0.66 - 0.32 * dx - 0.3 * dy;
+      if (layer === 'back') I -= 0.25;
+      let k = idxOf(I);
+      if (s.style === 'dreads' && x % 2 === 0) k -= 1;
+      else if (s.style === 'braids' && Math.abs(dy) > 0 && y % 3 === 0 && dy > 0.2) k -= 1;
+      else if ((s.style === 'afro' || s.style === 'curly') && (x * 7 + y * 13) % 5 === 0) k -= 1;
+      else if ((s.style === 'long' || s.style === 'longwavy' || s.style === 'bob') && x % 3 === 0 && dy > -0.6) k -= 1;
+      else if (dy < -0.5 && (x + y * 2) % 7 === 0) k += 1;
+      img.put(x, y, m[clamp(k, 0, 4)]);
     }
-    costumeFront(img, s, pal, view, dy);
-    stamp(img, 9, 6 + dy, view === 'front' ? HEAD_FRONT : HEAD_BACK, headPal);
-    if (view === 'front' && s.extras.includes('glasses')) {
-      img.rect(11, 11 + dy, 4, 3, tone('metal', 1));
-      img.rect(17, 11 + dy, 4, 3, tone('metal', 1));
-      img.rect(12, 12 + dy, 2, 1, tone('ice', 3));
-      img.rect(18, 12 + dy, 2, 1, tone('ice', 3));
-      img.hline(15, 16, 11 + dy, tone('metal', 1));
-    }
-    if (!s.hat || s.hat.kind !== 'helmet') stamp(img, 8, 2 + dy, HAIR[s.style][view], pal);
-    drawHeadgear(img, s, view, dy);
-    if (view === 'front' && s.extras.includes('tablet')) {
-      img.rect(21, 25 + dy, 6, 5, tone('metal', 1));
-      img.rect(22, 26 + dy, 4, 3, tone('teal', 4));
-    }
-    if (view === 'back' && s.extras.includes('pack')) {
-      img.rect(10, 20 + dy, 12, 9, tone('metal', 5));
-      img.rect(10, 20 + dy, 12, 1, tone('metal', 7));
-      img.rect(11, 22 + dy, 4, 5, tone('metal', 3));
-      img.rect(17, 22 + dy, 4, 5, tone('metal', 3));
-      img.put(20, 21 + dy, tone('green', 5));
-    }
-    if (view === 'back' && s.extras.includes('cross')) {
-      img.rect(14, 21 + dy, 4, 6, tone('red', 3));
-      img.rect(13, 22 + dy, 6, 3, tone('red', 3));
-    }
-    return;
+}
+
+// ---------- one frame ----------
+
+function geometry(s, f) {
+  const bob = [0, -1, 0, -1][f];
+  const ground = FEET.y;
+  const top = ground - s.H + bob;
+  const headH = Math.round(s.H / 5.8);
+  const ry = headH / 2;
+  const rx = ry * 0.82;
+  const headCy = top + ry;
+  const chin = top + headH;
+  const shoulderY = chin + 3;
+  const hipY = ground - Math.round(s.H * 0.47) + bob;
+  const kneeY = Math.round((hipY + ground) / 2) + 1;
+  return { bob, ground, top, ry, rx, headCy, chin, shoulderY, hipY, kneeY, cx: 24 };
+}
+
+const COATS = new Set(['labcoat', 'longcoat', 'robe']);
+
+function drawFigure(img, s, dir, f) {
+  const view = dir === 0 ? 'front' : dir === 3 ? 'back' : 'side';
+  const G = geometry(s, f);
+  const { cx, ground, shoulderY, hipY, kneeY } = G;
+  const m = s.m;
+  const swing = [0, 1, 0, -1][f];
+  const suit = s.outfit === 'suit';
+  const bulk = suit ? 1.2 : s.outfit === 'armor' ? 0.6 : 0;
+  const sleeve = s.outfit === 'labcoat' || s.outfit === 'longcoat' ? m.top : s.outfit === 'overalls' ? m.accent : m.top;
+  const has = (a) => s.acc.includes(a);
+  const side = view === 'side';
+
+  if (side) return drawSide(img, s, G, swing, bulk, sleeve, has);
+
+  const back = view === 'back';
+  // behind the body
+  if (!back) {
+    if (has('polearm')) polearm(img, m, cx - 10, hipY + 8, cx + 11, shoulderY - 12);
+    if (has('tank')) for (const sx of [-4, 4]) limb(img, cx + sx, shoulderY - 4, cx + sx, hipY - 2, 2.6, 2.6, m.accent, { bias: -0.1 });
+    if (has('backpack')) band(img, shoulderY, hipY - 2, () => [cx - s.sw - 1.5, cx + s.sw + 1.5], m.leather, { bias: -0.25 });
+    if (s.outfit === 'cloak') band(img, shoulderY - 1, Math.min(ground - 4, kneeY + 14), (y, t) => [cx - s.sw - 2 - t * 4, cx + s.sw + 2 + t * 4], m.top, { bias: -0.3, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
+    drawHair(img, s, view, cx, G.headCy, G.rx, G.ry, 'back');
   }
-  // side view, facing left
-  const swing = frame === 1 ? 1 : frame === 3 ? -1 : 0;
-  const hip = { x: 16, y: 30 + dy };
-  // far leg and far arm first, darker
-  legLine(img, hip.x + 1, hip.y, hip.x + 1 + swing * 4, 36 - (swing > 0 ? 1 : 0), pal, true);
-  stamp(img, 15 - swing * 3, 20 + dy, ARM_SIDE.map((r) => r.replace(/S/g, 's').replace(/s/g, 'z')), coatPal);
-  legLine(img, hip.x - 1, hip.y, hip.x - 1 - swing * 4, 36 - (swing < 0 ? 1 : 0), pal, false);
-  stamp(img, 11, 19 + dy, TORSO_SIDE, coatPal);
-  if (coat) for (let y = 29 + dy; y < 33 + dy; y++) for (let x = 12; x < 22; x++) img.put(x, y, x < 14 ? coatPal.S : x > 19 ? coatPal.z : coatPal.s);
-  costumeSide(img, s, pal, dy);
-  stamp(img, 14 + swing * 3, 20 + dy, ARM_SIDE, s.extras.includes('sleeves') ? { ...coatPal } : coatPal);
-  stamp(img, 10, 6 + dy, HEAD_SIDE, headPal);
-  img.put(9, 14 + dy, pal.k);
-  img.put(9, 13 + dy, pal.K);
-  if (s.extras.includes('glasses')) {
-    img.rect(9, 11 + dy, 4, 3, tone('metal', 1));
-    img.rect(10, 12 + dy, 2, 1, tone('ice', 3));
-    img.hline(13, 16, 11 + dy, tone('metal', 1));
+  if (s.hood === false && (s.outfit === 'hoodie')) band(img, shoulderY - 3, shoulderY + 2, () => [cx - 5, cx + 5], m.top, { bias: -0.15 });
+
+  // legs and boots
+  for (const sd of [-1, 1]) {
+    const lift = (f === 1 && sd === -1) || (f === 3 && sd === 1) ? 2 : 0;
+    const lx = cx + sd * s.hw * 0.5;
+    const thigh = 3 * s.limb + bulk * 0.5;
+    const calf = 2.3 * s.limb + bulk * 0.5;
+    const bootTop = ground - 9 - lift;
+    band(img, hipY - 1, bootTop + 1, (y) => {
+      const t = clamp((y - hipY) / (ground - hipY), 0, 1);
+      const r = thigh - (thigh - calf) * t;
+      return [lx - r, lx + r];
+    }, m.bottom, { fold: (x, y, u) => (y === kneeY && x % 2 === 0 ? -1 : u * sd > 0.5 && y > kneeY && y < kneeY + 4 ? -1 : 0) });
+    if (suit) blob(img, lx, kneeY, calf + 0.6, 2, m.metal);
+    band(img, bootTop, ground - lift, (y, t) => [lx - calf - 0.8 - t * 0.6, lx + calf + 0.8 + t * 0.6], m.boots, {
+      fold: (x, y) => (y < bootTop + 2 ? 1 : y >= ground - lift - 1 ? -2 : 0),
+    });
   }
-  if (!s.hat || s.hat.kind !== 'helmet') stamp(img, 8, 2 + dy, HAIR[s.style].side, pal);
-  drawHeadgear(img, s, 'side', dy);
-  if (s.extras.includes('pack')) {
-    img.rect(20, 20 + dy, 4, 9, tone('metal', 4));
-    img.vline(20, 20 + dy, 28 + dy, tone('metal', 6));
+
+  // long skirts over the legs
+  if (s.outfit === 'robe')
+    band(img, hipY - 2, ground - 2, (y, t) => [cx - s.hw - 1 - t * 4, cx + s.hw + 1 + t * 4], m.top, {
+      fold: (x, y, u, v) => (v > 0.88 ? (back ? 0 : 1) - 0 : (x - cx) % 4 === 0 && v > 0.25 ? -1 : 0),
+    });
+  if (s.outfit === 'robe') band(img, ground - 4, ground - 2, (y) => [cx - s.hw - 4.6, cx + s.hw + 4.6], m.accent);
+  if (s.outfit === 'labcoat' || s.outfit === 'longcoat') {
+    const end = kneeY + (s.outfit === 'longcoat' ? 10 : 4);
+    band(img, hipY - 1, end, (y, t) => [cx - s.hw - 1.2 - t * 3, cx + s.hw + 1.2 + t * 3], m.top, {
+      skip: (x, y, u, v) => !back && Math.abs(x + 0.5 - cx) < 1 + v * 1.8,
+      fold: (x, y, u, v) => (Math.abs(x + 0.5 - cx) < 2.6 + v * 1.8 && !back ? -1 : (x - cx + 40) % 5 === 0 && v > 0.3 ? -1 : back && x === cx ? -1 : 0),
+    });
+  }
+
+  // torso
+  const torsoMat = s.outfit === 'overalls' ? m.accent : s.outfit === 'apron' ? m.top : m.top;
+  const half = (y) => {
+    const t = (y - shoulderY) / (hipY + 2 - shoulderY);
+    let h = y < shoulderY + 2 ? s.sw - 2.2 + (y - shoulderY) : t < 0.45 ? s.sw : s.sw + (s.hw - 0.5 - s.sw) * ((t - 0.45) / 0.55);
+    return h + bulk;
+  };
+  band(img, G.chin - 1, shoulderY + 2, () => [cx - 2.2, cx + 2.2], m.skin, { bias: -0.25 });
+  band(img, shoulderY, hipY + 2, (y) => [cx - half(y), cx + half(y)], torsoMat, {
+    fold: (x, y, u, v) => (v > 0.55 && Math.abs(u) < 0.75 && ((x - cx) + y) % 6 === 0 ? -1 : v > 0.15 && v < 0.3 && Math.abs(u) > 0.55 && (x + y) % 3 === 0 ? -1 : 0),
+  });
+  if (!back) torsoDetails(img, s, G, half);
+  else backDetails(img, s, G, half);
+
+  // arms
+  for (const sd of [-1, 1]) {
+    const sx = cx + sd * (s.sw - 1.4 + bulk);
+    const sy = shoulderY + 2;
+    const hx = cx + sd * (s.sw + 0.6 + bulk);
+    const hy = hipY + 3 - swing * sd * (back ? -1 : 1);
+    const ex = (sx + hx) / 2;
+    const ey = (sy + hy) / 2;
+    const r0 = (s.outfit === 'robe' ? 2.4 : 2.4) * s.limb + bulk * 0.6;
+    const r1 = (s.outfit === 'robe' ? 3.1 : 1.9) * s.limb + bulk * 0.5;
+    const prosthetic = has('prosthetic') && sd === 1;
+    if (prosthetic) {
+      limb(img, sx, sy, ex, ey, r0, r0 * 0.9, sleeve);
+      limb(img, ex, ey, hx, hy - 1, 1.5, 1.3, m.metal, { fold: (x, y, u, t) => (t < 0.15 ? -2 : 0) });
+      blob(img, hx, hy, 1.8, 1.8, m.metal, { shift: -1 });
+      continue;
+    }
+    if (s.sleeves === 'short') {
+      limb(img, sx, sy, hx, hy - 1, r0 * 0.9, r1 * 0.95, m.skin);
+      limb(img, sx, sy, ex, ey, r0, r0 * 0.95, sleeve);
+    } else limb(img, sx, sy, hx, hy - 1.5, r0, r1, sleeve, { fold: (x, y, u, t) => (t > 0.45 && t < 0.55 && x % 2 === 0 ? -1 : 0) });
+    const glove = suit || s.outfit === 'armor' ? m.dark : m.skin;
+    blob(img, hx, hy, 1.9 * s.limb, 2 * s.limb, glove);
+  }
+  if (!back) frontOverlays(img, s, G, half);
+  if (back) backOverlays(img, s, G, half);
+  drawHead(img, s, view, G);
+}
+
+function polearm(img, m, x0, y0, x1, y1) {
+  limb(img, x0, y0, x1, y1, 0.9, 0.9, m.metal);
+  limb(img, x1 - 1, y1 + 2, x1 + 2, y1 - 3, 1.6, 0.8, m.accent, { bias: 0.2 });
+}
+
+function torsoDetails(img, s, G, half) {
+  const { cx, shoulderY, hipY } = G;
+  const m = s.m;
+  const o = s.outfit;
+  const midline = (mat, k) => {
+    for (let y = shoulderY + 2; y < hipY + 2; y++) if (y % 2 === 0) img.put(cx, y, mat[k]);
+  };
+  if (o === 'tee' || o === 'scrubs') {
+    for (let y = shoulderY; y < shoulderY + (o === 'scrubs' ? 4 : 2); y++) for (let x = cx - 2; x < cx + 2; x++) if (Math.abs(x + 0.5 - cx) < 2 - (y - shoulderY) * (o === 'scrubs' ? 0.5 : 0.2)) img.put(x, y, m.skin[2]);
+    if (o === 'scrubs') rect(img, cx + 2, shoulderY + 5, 3, 3, m.top[1]);
+  }
+  if (o === 'hoodie') {
+    band(img, hipY - 6, hipY - 1, () => [cx - 4, cx + 4], m.top, { bias: -0.22 });
+    for (const x of [cx - 2, cx + 1]) for (let y = shoulderY + 1; y < shoulderY + 5; y++) img.put(x, y, m.accent[3]);
+  }
+  if (o === 'jacket' || o === 'coverall' || o === 'suit') {
+    midline(m.top, 4);
+    for (let y = shoulderY; y < shoulderY + 3; y++)
+      for (const sd of [-1, 1]) for (let k = 1; k <= 3 - (y - shoulderY); k++) img.put(cx + sd * k - (sd < 0 ? 1 : 0), y, m.top[3]);
+    if (o === 'jacket') rect(img, cx - 1, shoulderY, 2, 2, m.accent[2]);
+  }
+  if (o === 'coverall') {
+    rect(img, cx + 2, shoulderY + 4, 4, 3, m.top[1]);
+    rect(img, cx + 2, shoulderY + 4, 4, 1, m.top[3]);
+  }
+  if (o === 'coverall' || o === 'suit' || o === 'jacket' || o === 'armor') band(img, hipY - 1, hipY + 1, (y) => [cx - half(y), cx + half(y)], m.leather);
+  if (s.harness) {
+    for (const sd of [-1, 1]) for (let y = shoulderY; y < hipY; y++) img.put(Math.round(cx + sd * (3.5 - (y - shoulderY) * 0.05)) - (sd < 0 ? 1 : 0), y, m.gold[y % 4 === 0 ? 3 : 2]);
+    for (let x = cx - 4; x < cx + 4; x++) img.put(x, shoulderY + 6, m.gold[1]);
+    rect(img, cx - 1, shoulderY + 6, 2, 2, m.metal[4]);
+  }
+  if (o === 'suit') {
+    rect(img, cx - 3, shoulderY + 4, 6, 4, m.metal[1]);
+    rect(img, cx - 3, shoulderY + 4, 6, 1, m.metal[3]);
+    img.put(cx - 2, shoulderY + 6, rgba('#e04848'));
+    img.put(cx, shoulderY + 6, rgba('#58d06a'));
+    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 4, cx + 4], m.metal);
+    for (const [px, py] of s.patches) {
+      rect(img, cx + px - 1, shoulderY + 9 + py % 6, 3, 3, s.m.top[3]);
+      img.put(cx + px - 1, shoulderY + 9 + py % 6, s.m.top[1]);
+    }
+  }
+  if (o === 'overalls') {
+    band(img, shoulderY + 5, hipY + 2, () => [cx - s.hw + 0.5, cx + s.hw - 0.5], m.bottom);
+    for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 6; y++) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), y, m.bottom[1]);
+    for (const sd of [-1, 1]) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), shoulderY + 5, m.metal[4]);
+    rect(img, cx - 2, shoulderY + 7, 4, 3, m.bottom[1]);
+  }
+  if (o === 'armor') {
+    band(img, shoulderY + 1, hipY - 1, (y) => [cx - half(y) + 0.8, cx + half(y) - 0.8], m.armor, {
+      fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : x === cx || x === cx - 1 ? -1 : 0),
+    });
+  }
+  if (o === 'labcoat' || o === 'longcoat') {
+    band(img, shoulderY, hipY + 2, (y, t) => [cx - 1 - t * 0.6, cx + 1 + t * 0.6], m.accent, { bias: -0.1 });
+    if (o === 'labcoat') for (let y = shoulderY + 1; y < shoulderY + 9; y++) img.put(cx, y, m.dark[1]);
+    for (let y = shoulderY; y < shoulderY + 6; y++) for (const sd of [-1, 1]) img.put(cx + sd * (2 + Math.floor((y - shoulderY) / 3)) - (sd < 0 ? 1 : 0), y, m.top[4]);
+    if (o === 'longcoat') band(img, hipY - 3, hipY - 1, (y) => [cx - half(y), cx + half(y)], m.leather);
+  }
+  if (o === 'robe') {
+    for (let y = shoulderY; y < shoulderY + 4; y++) for (let x = cx - 2; x < cx + 2; x++) if (Math.abs(x + 0.5 - cx) < 2 - (y - shoulderY) * 0.5) img.put(x, y, m.skin[1]);
+    band(img, hipY - 2, hipY, (y) => [cx - half(y), cx + half(y)], m.accent);
+    for (let y = hipY; y < hipY + 7; y++) img.put(cx + 2, y, m.accent[y % 2 ? 1 : 3]);
+  }
+  if (s.emblem === 'cross' && o !== 'armor') {
+    rect(img, cx - 5, shoulderY + 4, 3, 1, rgba('#d84848'));
+    rect(img, cx - 4, shoulderY + 3, 1, 3, rgba('#d84848'));
+  }
+  if (s.emblem === 'badge') {
+    rect(img, cx - 5, shoulderY + 4, 2, 2, m.gold[3]);
+    img.put(cx - 5, shoulderY + 4, m.gold[4]);
+  }
+  if (s.emblem === 'patch' && o !== 'overalls') rect(img, cx - 5, shoulderY + 2, 2, 2, m.accent[3]);
+}
+
+function backDetails(img, s, G, half) {
+  const { cx, shoulderY, hipY } = G;
+  const m = s.m;
+  if (s.outfit === 'overalls') {
+    band(img, hipY - 2, hipY + 2, () => [cx - s.hw + 0.5, cx + s.hw - 0.5], m.bottom);
+    for (let y = shoulderY; y < hipY - 2; y++) {
+      const k = Math.round((y - shoulderY) * 0.25);
+      img.put(cx - 3 + k, y, m.bottom[1]);
+      img.put(cx + 2 - k, y, m.bottom[1]);
+    }
+  }
+  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, (y) => [cx - half(y) + 0.8, cx + half(y) - 0.8], m.armor, { fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : 0) });
+  if (s.outfit === 'robe' || s.outfit === 'longcoat' || s.outfit === 'coverall') for (let y = shoulderY + 2; y < hipY; y++) img.put(cx, y, m.top[1]);
+  if (s.emblem === 'cross') {
+    rect(img, cx - 3, shoulderY + 5, 6, 2, rgba('#d84848'));
+    rect(img, cx - 1, shoulderY + 3, 2, 6, rgba('#d84848'));
   }
 }
 
-function costumeFront(img, s, pal, view, dy) {
-  const ex = s.extras;
-  if (ex.includes('stripes')) {
-    for (const x of [6, 7, 8, 23, 24, 25]) if (img.alpha(x, 25 + dy)) img.put(x, 25 + dy, tone('metal', 7));
-    for (const x of [10, 11, 12, 13, 14, 17, 18, 19, 20, 21]) if (img.alpha(x, 32)) img.put(x, 32, tone('metal', 7));
+function frontOverlays(img, s, G, half) {
+  const { cx, shoulderY, hipY, kneeY, ground } = G;
+  const m = s.m;
+  const has = (a) => s.acc.includes(a);
+  if (s.outfit === 'apron') {
+    band(img, shoulderY + 4, kneeY + 2, (y, t) => [cx - s.hw + 0.2 - t, cx + s.hw - 0.2 + t], m.apron, { fold: (x, y, u, v) => (v > 0.5 && (x - cx) % 4 === 0 ? -1 : 0) });
+    for (const sd of [-1, 1]) for (let y = shoulderY - 1; y < shoulderY + 4; y++) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), y, m.apron[1]);
+    rect(img, cx - 3, hipY + 1, 6, 3, m.apron[1]);
   }
-  if (ex.includes('toolbelt')) {
-    img.rect(9, 27 + dy, 3, 3, tone('brown', 3));
-    img.rect(20, 27 + dy, 3, 3, tone('brown', 3));
-    img.put(10, 27 + dy, tone('metal', 7));
-  }
-  if (ex.includes('pocketLeaf') && view === 'front') {
-    img.rect(18, 21 + dy, 3, 3, tone('green', 2));
-    img.put(19, 20 + dy, tone('green', 5));
-    img.put(18, 19 + dy, tone('green', 4));
-  }
-  if (ex.includes('cross') && view === 'front') {
-    img.rect(18, 21 + dy, 3, 1, tone('red', 3));
-    img.rect(19, 20 + dy, 1, 3, tone('red', 3));
-    for (const x of [6, 7, 8]) img.put(x, 22 + dy, tone('red', 3));
-  }
-  if (ex.includes('trim')) {
-    if (view === 'front') {
-      img.vline(15, 20 + dy, 27 + dy, s.accent);
-      img.vline(16, 20 + dy, 27 + dy, tone('yellow', 2));
+  if (s.outfit === 'poncho') {
+    band(img, shoulderY - 1, hipY + 5, (y, t) => [cx - s.sw - t * 5, cx + s.sw + t * 5], m.top, {
+      skip: (x, y, u, v) => v > 0.94 && x % 2 === 0,
+      fold: (x, y, u, v) => {
+        const row = (y - shoulderY + 20) % 7;
+        if (row === 4 || row === 5) return 0;
+        return (x - cx + 40) % 6 === 0 && v > 0.3 ? -1 : 0;
+      },
+    });
+    for (let y = shoulderY - 1; y < hipY + 5; y++) {
+      const row = (y - shoulderY + 20) % 7;
+      if (row !== 4 && row !== 5) continue;
+      const t = (y - shoulderY + 1) / (hipY + 6 - shoulderY);
+      for (let x = Math.ceil(cx - s.sw - t * 5); x < cx + s.sw + t * 5; x++) if (img.alpha(x, y)) img.put(x, y, m.accent[row === 4 ? 3 : 2]);
     }
-    img.hline(9, 22, 26 + dy, tone('yellow', 3));
+    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 2.5, cx + 2.5], m.top, { bias: -0.4 });
   }
-  if (ex.includes('satchel')) {
-    for (let k = 0; k < 9; k++) img.put(view === 'front' ? 11 + k : 20 - k, 19 + dy + k, tone('brown', 2));
-    img.rect(view === 'front' ? 18 : 8, 27 + dy, 6, 5, tone('brown', 3));
-    img.hline(view === 'front' ? 18 : 8, view === 'front' ? 23 : 13, 27 + dy, tone('brown', 4));
+  if (s.outfit === 'cloak') {
+    band(img, shoulderY - 1, shoulderY + 7, (y, t) => [cx - s.sw - 1.5 - t, cx + s.sw + 1.5 + t], m.top, { fold: (x, y, u, v) => (v > 0.8 ? -1 : 0) });
+    rect(img, cx - 1, shoulderY, 2, 2, m.gold[3]);
+    if (!s.hood) band(img, shoulderY - 2, shoulderY + 1, () => [cx - 5, cx + 5], m.top, { bias: -0.2 });
   }
-  if (ex.includes('pads')) {
-    for (const [x0, x1] of [[5, 10], [21, 26]]) {
-      img.rect(x0, 19 + dy, x1 - x0, 4, tone('blue', 3));
-      img.hline(x0, x1 - 1, 19 + dy, tone('blue', 4));
-      img.hline(x0, x1 - 1, 22 + dy, tone('blue', 1));
+  if (has('toolbelt')) {
+    band(img, hipY - 1, hipY + 1, (y) => [cx - half(y), cx + half(y)], m.leather);
+    for (const px of [-6, -3, 3]) {
+      rect(img, cx + px, hipY, 3, 4, m.leather[3]);
+      rect(img, cx + px, hipY, 3, 1, m.leather[4]);
     }
-    if (view === 'front') {
-      img.rect(12, 21 + dy, 8, 4, tone('blue', 3));
-      img.hline(12, 19, 21 + dy, tone('blue', 4));
-      img.put(13, 22 + dy, s.accent);
+    for (let y = hipY; y < hipY + 6; y++) img.put(cx + 7, y, m.metal[y === hipY + 5 ? 4 : 3]);
+  }
+  if (has('satchel')) {
+    for (let k = 0; k < 15; k++) {
+      img.put(Math.round(cx - s.sw + 2 + k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[1]);
+      img.put(Math.round(cx - s.sw + 3 + k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[2]);
     }
+    band(img, hipY - 1, hipY + 5, () => [cx + s.hw - 1, cx + s.hw + 5], m.leather, { fold: (x, y, u, v) => (v < 0.3 ? 1 : 0) });
   }
-  if (ex.includes('baton')) img.rect(view === 'front' ? 21 : 9, 26 + dy, 2, 6, tone('metal', 1));
-  if (ex.includes('sash')) {
-    for (let k = 0; k < 10; k++) {
-      const x = view === 'front' ? 10 + k : 21 - k;
-      img.put(x, 19 + dy + k, s.sash);
-      img.put(x + 1, 19 + dy + k, s.sash);
-      img.put(x + 2, 19 + dy + k, s.sashDark);
-    }
-  }
-  if (ex.includes('pin') && view === 'front') {
-    img.put(12, 21 + dy, tone('yellow', 4));
-    img.rect(14, 19 + dy, 4, 2, tone('metal', 8));
-  }
-  if (ex.includes('apron') && view === 'front') {
-    img.rect(11, 22 + dy, 10, 10, tone('metal', 8));
-    img.hline(11, 20, 22 + dy, tone('metal', 7));
-    img.vline(20, 22 + dy, 31 + dy, tone('metal', 6));
-  }
-  if (ex.includes('tee') && view === 'front') {
-    img.hline(13, 18, 19 + dy, pal.k);
-    img.hline(14, 17, 20 + dy, pal.q);
-    img.rect(13, 23 + dy, 6, 3, s.accent);
+  if (has('backpack')) for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 9; y++) img.put(cx + sd * (s.sw - 3) - (sd < 0 ? 1 : 0), y, m.leather[1]);
+  if (has('scarf')) {
+    band(img, shoulderY - 2, shoulderY + 2, () => [cx - 4.5, cx + 4.5], m.accent, { fold: (x) => (x % 3 === 0 ? -1 : 0) });
+    band(img, shoulderY + 1, shoulderY + 10, () => [cx + 1.5, cx + 4.5], m.accent, { skip: (x, y, u, v) => v > 0.9 && x % 2 === 0, bias: -0.1 });
   }
 }
 
-function costumeSide(img, s, pal, dy) {
-  const ex = s.extras;
-  if (ex.includes('stripes')) img.hline(12, 19, 32, tone('metal', 7));
-  if (ex.includes('toolbelt')) img.rect(17, 27 + dy, 4, 3, tone('brown', 3));
-  if (ex.includes('cross')) img.rect(14, 22 + dy, 3, 3, tone('red', 3));
-  if (ex.includes('trim')) img.hline(12, 19, 26 + dy, tone('yellow', 3));
-  if (ex.includes('satchel')) {
-    img.rect(17, 25 + dy, 5, 5, tone('brown', 3));
-    img.hline(17, 21, 25 + dy, tone('brown', 4));
+function backOverlays(img, s, G, half) {
+  const { cx, shoulderY, hipY, kneeY, ground } = G;
+  const m = s.m;
+  const has = (a) => s.acc.includes(a);
+  if (s.outfit === 'cloak' || s.outfit === 'poncho')
+    band(img, shoulderY - 1, s.outfit === 'cloak' ? Math.min(ground - 4, kneeY + 14) : hipY + 5, (y, t) => [cx - s.sw - 2 - t * 4, cx + s.sw + 2 + t * 4], m.top, {
+      fold: (x, y, u, v) => (s.outfit === 'poncho' && (y - shoulderY + 20) % 7 >= 4 && (y - shoulderY + 20) % 7 <= 5 ? 0 : (x - cx + 40) % 4 === 0 && v > 0.2 ? -1 : 0),
+    });
+  if (has('tank')) {
+    for (const sx of [-3.5, 3.5]) limb(img, cx + sx, shoulderY, cx + sx, hipY - 2, 2.7, 2.7, m.accent);
+    for (const sx of [-4, 3]) rect(img, cx + sx, shoulderY - 2, 2, 2, m.metal[3]);
   }
-  if (ex.includes('pads')) {
-    img.rect(13, 19 + dy, 6, 4, tone('blue', 3));
-    img.hline(13, 18, 19 + dy, tone('blue', 4));
+  if (has('backpack')) {
+    band(img, shoulderY + 1, hipY - 1, () => [cx - s.sw + 1, cx + s.sw - 1], m.leather, { fold: (x, y, u, v) => (v < 0.25 ? 1 : v > 0.55 && v < 0.6 ? -1 : 0) });
+    rect(img, cx - 2, shoulderY + 9, 4, 3, m.leather[1]);
+    for (const sd of [-1, 1]) for (let y = hipY - 4; y < hipY; y++) img.put(cx + sd * (s.sw - 3), y, m.metal[3]);
   }
-  if (ex.includes('baton')) img.rect(18, 26 + dy, 2, 6, tone('metal', 1));
-  if (ex.includes('sash')) for (let k = 0; k < 9; k++) img.put(13 + Math.round(k * 0.6), 19 + dy + k, s.sash);
-  if (ex.includes('apron')) img.rect(11, 22 + dy, 3, 10, tone('metal', 8));
+  if (has('polearm')) polearm(img, m, cx + 10, hipY + 8, cx - 11, shoulderY - 12);
+  if (has('satchel')) for (let k = 0; k < 15; k++) img.put(Math.round(cx + s.sw - 2 - k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[1]);
+  if (has('scarf')) band(img, shoulderY - 2, shoulderY + 2, () => [cx - 4.5, cx + 4.5], m.accent);
 }
 
-/** One finished frame: drawn, outlined and given a ground shadow. */
-function frameImage(archetype, v, dir, frame) {
-  const s = specFor(archetype, v);
-  const img = hiRes(s, dir === 2 ? 1 : dir, frame);
+function drawHead(img, s, view, G) {
+  const { cx, headCy, rx, ry } = G;
+  const m = s.m;
+  const has = (a) => s.acc.includes(a);
+  const side = view === 'side';
+  const hx = side ? cx - 1 : cx;
+  const hrx = side ? rx * 1.08 : rx;
+  if (!side) for (const sd of [-1, 1]) blob(img, cx + sd * (rx + 0.1), headCy + 0.6, 1.1, 1.5, m.skin, { bias: -0.15 });
+  else blob(img, hx + 1, headCy + 0.6, 1.1, 1.5, m.skin, { bias: -0.15 });
+  blob(img, hx, headCy, hrx, ry, m.skin, { skip: (dx, dy) => dy > 0.55 && Math.abs(dx) > 0.7 - (dy - 0.55) * 0.6 });
+  const eyeY = Math.round(headCy + 0.4);
+  if (side) {
+    const fx = Math.round(hx - hrx);
+    img.put(fx - 1, eyeY + 1, m.skin[2]);
+    img.put(fx - 1, eyeY + 2, m.skin[1]);
+    if (!s.helmet || true) {
+      img.put(fx + 1, eyeY, EYE);
+      img.put(fx + 1, eyeY - 1, EYE);
+      img.put(fx + 2, eyeY, WHITE);
+      for (const x of [fx, fx + 1, fx + 2]) img.put(x, eyeY - 3, m.hair[0]);
+      img.put(fx, eyeY + 4, m.skin[0]);
+    }
+    facialHair(img, s, 'side', hx, headCy, hrx, ry, eyeY);
+  } else if (view === 'front') {
+    for (const ex of [cx - 3, cx + 2]) {
+      img.put(ex, eyeY, EYE);
+      img.put(ex, eyeY - 1, EYE);
+      img.put(ex + (ex < cx ? -1 : 1), eyeY, WHITE);
+      for (const x of [ex - 1, ex, ex + 1]) img.put(x, eyeY - 3, m.hair[x === ex ? 0 : 1]);
+    }
+    img.put(cx, eyeY + 2, m.skin[1]);
+    img.put(cx - 1, eyeY + 4, m.skin[0]);
+    img.put(cx, eyeY + 4, m.skin[0]);
+    if (s.age === 'elder') {
+      img.put(cx - 4, eyeY + 1, m.skin[1]);
+      img.put(cx + 3, eyeY + 1, m.skin[1]);
+      img.put(cx - 2, eyeY + 3, m.skin[1]);
+      img.put(cx + 1, eyeY + 3, m.skin[1]);
+    }
+    facialHair(img, s, 'front', hx, headCy, hrx, ry, eyeY);
+  }
+  if (!s.helmet) drawHair(img, s, view, hx, headCy, hrx, ry, 'front');
+  headgear(img, s, view, hx, headCy, hrx, ry, eyeY);
+}
+
+function facialHair(img, s, view, hx, hy, rx, ry, eyeY) {
+  if (!s.facial) return;
+  const m = s.m.hair;
+  for (let y = Math.floor(hy - ry); y <= Math.ceil(hy + ry + 1); y++)
+    for (let x = Math.floor(hx - rx - 1); x <= Math.ceil(hx + rx + 1); x++) {
+      const dx = (x + 0.5 - hx) / rx;
+      const dy = (y + 0.5 - hy) / ry;
+      if (dx * dx + dy * dy > 1.05 || !img.alpha(x, y)) continue;
+      const mouth = y === eyeY + 4 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 0.5 : hx)) < 1.2;
+      const lip = y === eyeY + 3 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 1 : hx)) < 2.2;
+      const jaw = dy > 0.3 && (view === 'front' || dx < 0.5);
+      let on = false;
+      if (s.facial === 'beard') on = (jaw || (Math.abs(dx) > 0.75 && dy > -0.1)) && !mouth;
+      else if (s.facial === 'mustache') on = lip;
+      else if (s.facial === 'goatee') on = (lip || (dy > 0.55 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 1 : hx)) < 1.6)) && !mouth;
+      else if (s.facial === 'stubble') {
+        if (jaw && !mouth && (x + y) % 2 === 0) img.put(x, y, mix(img.get(x, y), m[1], 0.45));
+        continue;
+      }
+      if (on) img.put(x, y, m[clamp(idxOf(0.6 - 0.3 * dx - 0.2 * dy), 0, 3)]);
+    }
+}
+
+function headgear(img, s, view, hx, hy, rx, ry, eyeY) {
+  const m = s.m;
+  const has = (a) => s.acc.includes(a);
+  const side = view === 'side';
+  const front = view === 'front';
+  const fx = Math.round(hx - rx);
+  if (has('goggles')) {
+    const gy = s.helmet || has('visor') ? eyeY - 4 : eyeY;
+    for (let x = Math.floor(hx - rx - 0.5); x <= Math.ceil(hx + rx - 0.5); x++) if (img.alpha(x, gy)) img.put(x, gy, m.dark[1]);
+    if (front) for (const ex of [Math.round(hx) - 4, Math.round(hx) + 1]) {
+      rect(img, ex, gy - 1, 3, 3, m.glass[2]);
+      img.put(ex, gy - 1, m.glass[4]);
+      rect(img, ex, gy + 1, 3, 1, m.glass[0]);
+    }
+    if (side) {
+      rect(img, fx, gy - 1, 3, 3, m.glass[2]);
+      img.put(fx, gy - 1, m.glass[4]);
+    }
+  }
+  if (has('visor') && !s.helmet && view !== 'back') {
+    const x0 = side ? fx - 1 : Math.round(hx - rx);
+    const w = side ? 5 : Math.round(rx * 2);
+    rect(img, x0, eyeY - 2, w, 3, m.glass[2]);
+    rect(img, x0, eyeY - 2, w, 1, m.glass[4]);
+    rect(img, x0, eyeY, w, 1, m.glass[0]);
+  }
+  if (has('respirator') && view !== 'back') {
+    if (front) {
+      band(img, eyeY + 2, eyeY + 6, () => [hx - 3.5, hx + 3.5], m.metal);
+      for (const sd of [-1, 1]) blob(img, hx + sd * 3.6, eyeY + 4.5, 1.6, 1.6, m.accent);
+    } else {
+      band(img, eyeY + 2, eyeY + 6, () => [fx - 2, fx + 3], m.metal);
+      blob(img, fx - 1.5, eyeY + 4.5, 1.6, 1.6, m.accent);
+    }
+  }
+  if (has('headset')) {
+    const ex = side ? hx + 1 : hx + rx + 0.2;
+    blob(img, ex, hy + 0.5, 1.6, 2, m.dark);
+    if (!side || true) for (let k = 0; k < 4; k++) img.put(Math.round(ex - 1 - k * (side ? 1.2 : 0.8)), Math.round(hy + 2 + k * 0.6), m.dark[2]);
+  }
+  if (has('bandana')) {
+    for (let y = Math.round(hy - ry * 0.62); y < Math.round(hy - ry * 0.62) + 2; y++)
+      for (let x = Math.floor(hx - rx - 1); x <= Math.ceil(hx + rx + 1); x++) if (img.alpha(x, y) && Math.abs((x + 0.5 - hx) / rx) <= 1.15) img.put(x, y, m.accent[y % 2 ? 2 : 3]);
+    if (!front) rect(img, Math.round(hx + rx), Math.round(hy - ry * 0.6), 2, 4, m.accent[1]);
+  }
+  if (has('beanie') && !s.hood && !s.helmet) {
+    blob(img, hx, hy - ry * 0.35, rx * 1.12, ry * 0.85, m.accent, { skip: (dx, dy) => dy > 0.15 });
+    band(img, hy - ry * 0.25, hy - ry * 0.05, () => [hx - rx * 1.12, hx + rx * 1.12], m.accent, { bias: 0.15, fold: (x) => (x % 2 ? -1 : 0) });
+  }
+  if ((has('hardhat') || has('hat')) && !s.hood && !s.helmet) {
+    const mat = has('hardhat') ? m.gold : m.leather;
+    blob(img, hx, hy - ry * 0.45, rx * 1.15, ry * 0.72, mat, { skip: (dx, dy) => dy > 0.3 });
+    const brim = has('hat') ? 1.75 : 1.32;
+    band(img, hy - ry * 0.27, hy - ry * 0.1, () => [hx - rx * brim - (side ? 1 : 0), hx + rx * (side ? 1.2 : brim)], mat, { bias: -0.15 });
+    if (has('hardhat')) for (let y = Math.round(hy - ry * 1.1); y < hy - ry * 0.3; y++) img.put(Math.round(hx), y, mat[4]);
+  }
+  if (s.hood && !s.helmet) {
+    const mat = m.top;
+    for (let y = Math.floor(hy - ry * 1.5); y <= Math.ceil(hy + ry * 1.4); y++)
+      for (let x = Math.floor(hx - rx * 1.6); x <= Math.ceil(hx + rx * 1.6); x++) {
+        const dx = (x + 0.5 - hx) / rx;
+        const dy = (y + 0.5 - hy) / ry;
+        if ((dx / 1.38) ** 2 + ((dy + 0.08) / 1.3) ** 2 > 1) continue;
+        const open = front ? (dx / 0.86) ** 2 + ((dy - 0.2) / 0.98) ** 2 < 1 : side ? dx < 0.15 && dy > -0.62 && (dx / 1.1) ** 2 + ((dy - 0.2) / 0.98) ** 2 < 1.25 : false;
+        if (open) {
+          const edge = front ? (dx / 0.86) ** 2 + ((dy - 0.2) / 0.98) ** 2 > 0.72 && dy < 0.2 : false;
+          if (edge) img.put(x, y, mix(img.get(x, y), mat[0], 0.55));
+          continue;
+        }
+        const I = 0.62 - 0.35 * dx - 0.3 * dy;
+        img.put(x, y, mat[clamp(idxOf(I) + ((x + y) % 5 === 0 ? -1 : 0), 0, 4)]);
+      }
+  }
+  if (s.helmet) {
+    for (let y = Math.floor(hy - ry * 1.5); y <= Math.ceil(hy + ry * 1.5); y++)
+      for (let x = Math.floor(hx - rx * 1.6); x <= Math.ceil(hx + rx * 1.6); x++) {
+        const dx = (x + 0.5 - hx) / (rx * 1.48);
+        const dy = (y + 0.5 - hy) / (ry * 1.32);
+        const d = dx * dx + dy * dy;
+        if (d > 1) continue;
+        if (d > 0.8) img.put(x, y, m.metal[dx + dy < -0.3 ? 4 : dx + dy > 0.6 ? 1 : 3]);
+        else if (view === 'back') img.put(x, y, m.top[idxOf(0.62 - 0.4 * dx - 0.3 * dy)]);
+        else if (dx < -0.25 && dy < -0.2 && d > 0.35) img.set(x, y, [255, 255, 255, 150]);
+        else img.set(x, y, fade(m.glass[3], img.alpha(x, y) ? 70 : 120));
+      }
+  }
+}
+
+// ---------- side view (facing left) ----------
+
+function drawSide(img, s, G, swing, bulk, sleeve, has) {
+  const { cx, ground, shoulderY, hipY, kneeY } = G;
+  const m = s.m;
+  const depth = s.sw * 0.72 + bulk;
+  const hipD = s.hw * 0.78 + bulk * 0.5;
+  const step = 5 * swing;
+  const thigh = 3 * s.limb + bulk * 0.5;
+  const calf = 2.3 * s.limb + bulk * 0.5;
+
+  if (has('polearm')) polearm(img, m, cx - 8, hipY + 9, cx + 9, shoulderY - 12);
+  if (s.outfit === 'cloak') band(img, shoulderY - 1, Math.min(ground - 4, kneeY + 14), (y, t) => [cx - 1, cx + depth + 2 + t * 5], m.top, { bias: -0.2, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
+  drawHair(img, s, 'side', cx - 1, G.headCy, G.rx * 1.08, G.ry, 'back');
+  if (has('tank')) limb(img, cx + depth + 2, shoulderY, cx + depth + 2, hipY - 2, 2.7, 2.7, m.accent);
+  if (has('backpack')) band(img, shoulderY + 1, hipY - 1, () => [cx + depth - 2, cx + depth + 4], m.leather, { fold: (x, y, u, v) => (v < 0.2 ? 1 : 0) });
+
+  const leg = (fx, near, lift) => {
+    const ankleY = ground - 3 - lift;
+    limb(img, cx + 0.5, hipY, fx, ankleY - 3, thigh, calf, m.bottom, { bias: near ? 0 : -0.25, fold: (x, y, u, t) => (t > 0.48 && t < 0.56 && x % 2 === 0 ? -1 : 0) });
+    limb(img, fx, ankleY - 5, fx, ankleY + 1, calf + 0.7, calf + 0.9, m.boots, { bias: near ? 0 : -0.25, fold: (x, y) => (y < ankleY - 3 ? 1 : 0) });
+    blob(img, fx - 2.2, ankleY + 1.4, 2.8, 1.7, m.boots, { bias: near ? 0 : -0.25 });
+    for (let x = Math.floor(fx - 5); x <= fx + 2; x++) if (img.alpha(x, ankleY + 3)) img.put(x, ankleY + 3, m.boots[0]);
+  };
+  leg(cx + step, false, swing !== 0 ? 1 : 0);
+  // far arm
+  const armR0 = 2.3 * s.limb + bulk * 0.6;
+  const armR1 = (s.outfit === 'robe' ? 3 : 1.9) * s.limb + bulk * 0.5;
+  limb(img, cx + 0.5, shoulderY + 2, cx - 4 * swing, hipY + 2, armR0, armR1, sleeve, { bias: -0.3 });
+  leg(cx - step, true, 0);
+
+  if (s.outfit === 'robe') band(img, hipY - 2, ground - 2, (y, t) => [cx - hipD - 1 - t * 3, cx + hipD + 1 + t * 4], m.top, { fold: (x, y, u, v) => ((x - cx + 40) % 4 === 0 && v > 0.25 ? -1 : 0) });
+  if (s.outfit === 'labcoat' || s.outfit === 'longcoat')
+    band(img, hipY - 1, kneeY + (s.outfit === 'longcoat' ? 10 : 4), (y, t) => [cx - hipD - 1 - t * 2 - Math.max(0, swing) * t * 2, cx + hipD + 1 + t * 3], m.top, { fold: (x, y, u, v) => ((x - cx + 40) % 5 === 0 && v > 0.3 ? -1 : 0) });
+
+  band(img, G.chin - 1, shoulderY + 2, () => [cx - 2.5, cx + 1.5], m.skin, { bias: -0.25 });
+  const torsoMat = s.outfit === 'overalls' ? m.accent : m.top;
+  band(img, shoulderY, hipY + 2, (y, t) => {
+    const chest = t > 0.1 && t < 0.5 ? 1 : 0;
+    const d = y < shoulderY + 2 ? depth - 1.5 : depth;
+    return [cx - d - chest + (t > 0.6 ? (t - 0.6) * 3 : 0), cx + d - (t > 0.5 ? (t - 0.5) * 2 : 0)];
+  }, torsoMat, { fold: (x, y, u, v) => (v > 0.55 && (x + y) % 5 === 0 ? -1 : 0) });
+  if (s.outfit === 'overalls') band(img, shoulderY + 5, hipY + 2, () => [cx - depth - 0.5, cx + depth - 1], m.bottom);
+  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, () => [cx - depth - 1, cx + depth - 0.5], m.armor, { fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : 0) });
+  if (s.outfit === 'apron') band(img, shoulderY + 4, kneeY + 2, (y, t) => [cx - depth - 1.5 - t, cx - depth + 1], m.apron);
+  if (['coverall', 'suit', 'jacket', 'armor', 'longcoat'].includes(s.outfit) || has('toolbelt')) band(img, hipY - 1, hipY + 1, () => [cx - depth - 0.5, cx + depth], m.leather);
+  if (has('toolbelt')) rect(img, cx - 2, hipY, 3, 4, m.leather[3]);
+  if (has('satchel')) band(img, hipY - 1, hipY + 5, () => [cx + depth - 2, cx + depth + 3], m.leather);
+  if (s.emblem === 'cross') {
+    rect(img, cx - 1, shoulderY + 4, 3, 1, rgba('#d84848'));
+    rect(img, cx, shoulderY + 3, 1, 3, rgba('#d84848'));
+  }
+
+  // near arm
+  const prosthetic = has('prosthetic');
+  const hx = cx + 4 * swing;
+  const hy = hipY + 3;
+  if (prosthetic) {
+    limb(img, cx, shoulderY + 2, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, armR0, armR0 * 0.9, sleeve);
+    limb(img, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, hx, hy - 1, 1.5, 1.3, m.metal, { fold: (x, y, u, t) => (t < 0.15 ? -2 : 0) });
+    blob(img, hx, hy, 1.8, 1.8, m.metal, { shift: -1 });
+  } else {
+    if (s.sleeves === 'short') {
+      limb(img, cx, shoulderY + 2, hx, hy - 1, armR0 * 0.9, armR1 * 0.95, m.skin);
+      limb(img, cx, shoulderY + 2, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, armR0, armR0 * 0.95, sleeve);
+    } else limb(img, cx, shoulderY + 2, hx, hy - 1.5, armR0, armR1, sleeve);
+    blob(img, hx, hy, 1.9 * s.limb, 2 * s.limb, s.outfit === 'suit' || s.outfit === 'armor' ? m.dark : m.skin);
+  }
+  if (s.outfit === 'poncho') band(img, shoulderY - 1, hipY + 5, (y, t) => [cx - depth - 1 - t * 4, cx + depth + 1 + t * 4], m.top, { fold: (x, y) => ((y - shoulderY + 20) % 7 >= 4 && (y - shoulderY + 20) % 7 <= 5 ? 1 : 0), skip: (x, y, u, v) => v > 0.94 && x % 2 === 0 });
+  if (s.outfit === 'cloak') band(img, shoulderY - 1, shoulderY + 7, (y, t) => [cx - depth - 1 - t, cx + depth + 1.5 + t], m.top, { fold: (x, y, u, v) => (v > 0.8 ? -1 : 0) });
+  if (has('scarf')) {
+    band(img, shoulderY - 2, shoulderY + 2, () => [cx - 3.5, cx + 2.5], m.accent);
+    band(img, shoulderY + 1, shoulderY + 8, () => [cx + 1, cx + 4], m.accent, { bias: -0.2 });
+  }
+  if (s.outfit === 'suit') band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3.5, cx + 2.5], m.metal);
+  drawHead(img, s, 'side', G);
+}
+
+// ---------- finishing ----------
+
+/** Cool rim light on right-facing edges, then a selective outline from each edge's own colour. */
+function finish(img) {
+  const w = img.w;
+  const h = img.h;
+  const a = (x, y) => img.alpha(x, y) > 0;
+  const src = new Img(w, h);
+  src.data.set(img.data);
+  for (let y = 0; y < h - 6; y++)
+    for (let x = 0; x < w; x++) if (src.alpha(x, y) && !src.alpha(x + 1, y)) img.put(x, y, mix(src.get(x, y), RIM, 0.2));
+  const base = new Img(w, h);
+  base.data.set(img.data);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      if (base.alpha(x, y)) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+        if (base.alpha(x + dx, y + dy) > 127) {
+          img.put(x, y, mix(base.get(x + dx, y + dy), INK, 0.74));
+          break;
+        }
+    }
+  void a;
+}
+
+function frameImage(s, dir, f) {
+  const fig = new Img(FRAME_W, FRAME_H);
+  drawFigure(fig, s, dir === 2 ? 1 : dir, f);
+  finish(fig);
   const out = new Img(FRAME_W, FRAME_H);
-  softShadow(out, FEET.x, FEET.y - 1, 15, 4);
-  out.blit(img, 0, 0, dir === 2);
+  out.ellipse(FEET.x, FEET.y - 1, 11, 3, (i, j, d) => fade(INK, d < 0.3 ? 100 : d < 0.65 ? 72 : 40));
+  out.blit(fig, 0, 0, dir === 2);
   return out;
 }
 
-/** A frame drawn on the 32x40 grid, scaled up with Scale2x and outlined at full resolution. */
-function hiRes(s, dir, frame) {
-  const img = new Img(BASE_W, BASE_H);
-  drawFrame(img, s, dir, frame, true);
-  const hi = img.upscale2x();
-  paintFace(hi, img.face);
-  hi.outline((x, y, inner) => mix(inner, INK, 0.85), true);
-  return hi;
-}
+const BACKDROP = { farmer: '#3f5d45', miner: '#8a3a17', engineer: '#8f6a14', medic: '#6e1a26', scientist: '#18737c', merchant: '#5e2c8c', guard: '#22398e', official: '#414a62', worker: '#5e3a24', civilian: '#8a2a5a' };
 
-/**
- * Eyes with a catch-light, brows, nose shadow, mouth and a touch of blush, drawn at full
- * resolution. Only bare skin is painted, so hair, glasses, visors and hats keep covering the face.
- */
-function paintFace(img, face) {
-  if (!face || face.view === 'back') return;
-  const { view, pal, s } = face;
-  const y0 = 24 + face.dy * 2;
-  const same = (x, y, c) => {
-    const p = img.get(x, y);
-    return p[3] === 255 && p[0] === c[0] && p[1] === c[1] && p[2] === c[2];
-  };
-  const skin = (x, y, c) => {
-    if (same(x, y, pal.K) || same(x, y, pal.k)) img.put(x, y, c);
-  };
-  const eyeDark = tone('cold', 0);
-  const glint = tone('metal', 8);
-  const brow = s.hair[2];
-  const blush = fade(tone('red', 4), 70);
-  const eye = (x) => {
-    skin(x, y0, glint);
-    skin(x + 1, y0, eyeDark);
-    skin(x, y0 + 1, eyeDark);
-    skin(x + 1, y0 + 1, eyeDark);
-    skin(x, y0 + 2, eyeDark);
-    skin(x + 1, y0 + 2, mix(eyeDark, pal.q, 0.5));
-  };
-  const cheek = (x) => {
-    if (same(x, y0 + 5, pal.K)) img.set(x, y0 + 5, blush);
-    if (same(x + 1, y0 + 5, pal.K)) img.set(x + 1, y0 + 5, blush);
-  };
-  if (view === 'front') {
-    eye(25);
-    eye(37);
-    for (const x of [24, 25, 26, 37, 38, 39]) skin(x, y0 - 2, brow);
-    skin(32, y0 + 5, pal.k);
-    skin(31, y0 + 8, pal.q);
-    skin(32, y0 + 8, pal.q);
-    skin(30, y0 + 8, mix(pal.q, pal.K, 0.5));
-    skin(33, y0 + 8, mix(pal.q, pal.K, 0.5));
-    cheek(22);
-    cheek(40);
-  } else {
-    eye(22);
-    for (const x of [21, 22, 23]) skin(x, y0 - 2, brow);
-    skin(21, y0 + 8, pal.q);
-    skin(22, y0 + 8, mix(pal.q, pal.K, 0.5));
-    cheek(25);
-  }
-}
-
-/** A soft contact shadow: an ellipse whose alpha falls off towards the rim in a few clean steps. */
-function softShadow(img, cx, cy, rx, ry) {
-  img.ellipse(cx, cy, rx, ry, (i, j, d) => fade(INK, d < 0.35 ? 110 : d < 0.7 ? 80 : 45));
+function paintPortrait(s, front) {
+  const p = new Img(PORTRAIT, PORTRAIT);
+  const bg = ramp(BACKDROP[s.archetype]);
+  for (let y = 0; y < PORTRAIT; y++)
+    for (let x = 0; x < PORTRAIT; x++) {
+      const t = y / PORTRAIT + (((x >> 2) * 7 + (y >> 2) * 3) % 4) / 50;
+      p.put(x, y, bg[t < 0.4 ? 2 : t < 0.75 ? 1 : 0]);
+    }
+  const top = FEET.y - s.H - 3;
+  p.blit(front.crop(8, Math.max(0, top - 2), 32, 32).scaled(4), 0, 4);
+  for (let i = 0; i < PORTRAIT; i++)
+    for (let k = 0; k < 4; k++) {
+      p.put(i, k, INK);
+      p.put(i, PORTRAIT - 1 - k, INK);
+      p.put(k, i, INK);
+      p.put(PORTRAIT - 1 - k, i, INK);
+    }
+  p.frame(4, 4, PORTRAIT - 8, PORTRAIT - 8, bg[3]);
+  return p;
 }
 
 /** The full atlas: one row per sprite in SPRITE_ARCHETYPES x variant order. */
 export function paintCharacters() {
+  used.clear();
   const rows = SPRITE_ARCHETYPES.length * SPRITE_VARIANTS;
   const atlas = new Img(FRAME_W * FRAMES * 4, FRAME_H * rows);
   const portraits = {};
   let row = 0;
   for (const archetype of SPRITE_ARCHETYPES)
     for (let v = 0; v < SPRITE_VARIANTS; v++) {
-      for (let d = 0; d < 4; d++) for (let f = 0; f < FRAMES; f++) atlas.blit(frameImage(archetype, v, d, f), (d * FRAMES + f) * FRAME_W, row * FRAME_H);
-      portraits[archetype + '_' + v] = paintPortrait(archetype, v);
+      const s = specFor(archetype, v);
+      let front = null;
+      for (let d = 0; d < 4; d++)
+        for (let f = 0; f < FRAMES; f++) {
+          const img = frameImage(s, d, f);
+          if (d === 0 && f === 0) front = img;
+          atlas.blit(img, (d * FRAMES + f) * FRAME_W, row * FRAME_H);
+        }
+      portraits[archetype + '_' + v] = paintPortrait(s, front);
       row++;
     }
   return { atlas, portraits };
-}
-
-const BACKDROP = { farmer: 'green', miner: 'orange', engineer: 'yellow', medic: 'red', scientist: 'teal', merchant: 'purple', guard: 'blue', official: 'metal', worker: 'brown', civilian: 'pink' };
-
-/** Head and shoulders at 2x from the standing front frame, on a tinted backdrop with a frame. */
-export function paintPortrait(archetype, v) {
-  const s = specFor(archetype, v);
-  const body = hiRes(s, 0, 0);
-  const p = new Img(PORTRAIT, PORTRAIT);
-  const ramp = BACKDROP[archetype];
-  const top = ramp === 'metal' ? 3 : 2;
-  for (let y = 0; y < PORTRAIT; y++)
-    for (let x = 0; x < PORTRAIT; x++) {
-      const t = y / PORTRAIT + (((x >> 1) * 7 + (y >> 1) * 3) % 4) / 40;
-      p.put(x, y, t < 0.45 ? tone(ramp, top) : t < 0.8 ? tone(ramp, top - 1) : tone(ramp, Math.max(0, top - 2)));
-    }
-  for (let k = 0; k < 40; k++) p.put((k * 37) % PORTRAIT, (k * 17) % 60, fade(tone('ice', 4), 70));
-  const crop = body.crop(8, 0, 48, 62);
-  p.blit(crop.scaled(2), 16, 8);
-  for (let x = 0; x < PORTRAIT; x++) for (let y = 0; y < 3; y++) {
-    p.put(x, y, INK);
-    p.put(x, PORTRAIT - 1 - y, INK);
-    p.put(y, x, INK);
-    p.put(PORTRAIT - 1 - y, x, INK);
-  }
-  p.frame(3, 3, PORTRAIT - 6, PORTRAIT - 6, tone(ramp, Math.min(top + 2, 5)));
-  return p;
 }

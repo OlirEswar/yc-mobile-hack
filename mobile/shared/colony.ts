@@ -187,7 +187,7 @@ export const SPRITE_ARCHETYPES = [
   'civilian',
 ] as const;
 export type SpriteArchetype = (typeof SPRITE_ARCHETYPES)[number];
-export const SPRITE_VARIANTS = 6;
+export const SPRITE_VARIANTS = 16;
 export type SpriteId = `${SpriteArchetype}_${number}`;
 export const SPRITE_IDS: SpriteId[] = SPRITE_ARCHETYPES.flatMap((archetype) =>
   Array.from({ length: SPRITE_VARIANTS }, (_, variant) => `${archetype}_${variant}` as SpriteId),

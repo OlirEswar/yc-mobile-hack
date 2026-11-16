@@ -3,7 +3,7 @@
  * directed relationships, differing beliefs, the storylines in motion and the starter's opening
  * scene. Pure and deterministic for a seed. ./insert.ts writes it.
  */
-import { LOCATIONS, OCCUPATIONS, SEEDED_POPULATION, SPRITE_VARIANTS } from '../../shared/colony';
+import { LOCATIONS, OCCUPATIONS, SEEDED_POPULATION, SPRITE_ARCHETYPES, SPRITE_VARIANTS } from '../../shared/colony';
 import type { LocationId, SpriteArchetype } from '../../shared/colony';
 import { clamp, round2, sequence } from '../lib/rng';
 import { BUNK_NAMES, FAMILY_NAMES, FIRST_NAMES } from './names';
@@ -269,7 +269,8 @@ export function buildColony(seed: number): SeedColony {
   const bunkPool = BUNK_NAMES.slice();
 
   const sprite = (occupation: string): string => {
-    const archetype = occupationDef(occupation).archetype;
+    let archetype = occupationDef(occupation).archetype;
+    if ((spriteCounters[archetype] ?? 0) >= SPRITE_VARIANTS) archetype = SPRITE_ARCHETYPES.find((a) => (spriteCounters[a] ?? 0) < SPRITE_VARIANTS) ?? archetype;
     const n = spriteCounters[archetype] ?? 0;
     spriteCounters[archetype] = n + 1;
     return archetype + '_' + (n % SPRITE_VARIANTS);

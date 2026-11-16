@@ -128,7 +128,7 @@ extension MapLayout {
 // MARK: - People
 
 let SPRITE_ARCHETYPES = ["farmer", "miner", "engineer", "medic", "scientist", "merchant", "guard", "official", "worker", "civilian"]
-let SPRITE_VARIANTS = 6
+let SPRITE_VARIANTS = 16
 
 struct OccupationDef: Identifiable { let id: String; let label: String; let work: LocationId; let archetype: String }
 

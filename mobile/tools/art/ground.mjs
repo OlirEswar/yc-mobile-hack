@@ -210,7 +210,7 @@ export function paintGround() {
 
   // craters outside the core, many small and few large; big ones are older and softer
   const craters = [];
-  while (craters.length < 210) {
+  while (craters.length < 170) {
     const rad = 2.5 + 85 * r() ** 4.2;
     const x = r() * W;
     const y = r() * H;

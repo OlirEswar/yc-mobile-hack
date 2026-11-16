@@ -430,10 +430,13 @@ function legLine(img, hx, hy, fx, fy, pal, dark) {
   img.put(fx - 4, fy - 1, pal.b);
 }
 
-function drawFrame(img, s, dir, frame) {
+function drawFrame(img, s, dir, frame, hi = false) {
   const pal = paletteOf(s);
   const dy = BODY_DY[frame];
   const view = dir === 0 ? 'front' : dir === 3 ? 'back' : 'side';
+  // At full resolution the face is painted after the upscale, so the head is stamped as bare skin.
+  const headPal = hi ? { ...pal, e: pal.K, w: pal.K, n: pal.K, c: pal.K } : pal;
+  if (hi) img.face = { view, dy, pal, s };
   const coat = s.extras.includes('coat');
   const coatPal = coat ? { ...pal, S: tone('metal', 8), s: tone('metal', 7), z: tone('metal', 5), a: s.accent } : pal;
   if (view !== 'side') {
@@ -462,7 +465,7 @@ function drawFrame(img, s, dir, frame) {
       }
     }
     costumeFront(img, s, pal, view, dy);
-    stamp(img, 9, 6 + dy, view === 'front' ? HEAD_FRONT : HEAD_BACK, pal);
+    stamp(img, 9, 6 + dy, view === 'front' ? HEAD_FRONT : HEAD_BACK, headPal);
     if (view === 'front' && s.extras.includes('glasses')) {
       img.rect(11, 11 + dy, 4, 3, tone('metal', 1));
       img.rect(17, 11 + dy, 4, 3, tone('metal', 1));
@@ -500,7 +503,7 @@ function drawFrame(img, s, dir, frame) {
   if (coat) for (let y = 29 + dy; y < 33 + dy; y++) for (let x = 12; x < 22; x++) img.put(x, y, x < 14 ? coatPal.S : x > 19 ? coatPal.z : coatPal.s);
   costumeSide(img, s, pal, dy);
   stamp(img, 14 + swing * 3, 20 + dy, ARM_SIDE, s.extras.includes('sleeves') ? { ...coatPal } : coatPal);
-  stamp(img, 10, 6 + dy, HEAD_SIDE, pal);
+  stamp(img, 10, 6 + dy, HEAD_SIDE, headPal);
   img.put(9, 14 + dy, pal.k);
   img.put(9, 13 + dy, pal.K);
   if (s.extras.includes('glasses')) {
@@ -618,10 +621,62 @@ function frameImage(archetype, v, dir, frame) {
 /** A frame drawn on the 32x40 grid, scaled up with Scale2x and outlined at full resolution. */
 function hiRes(s, dir, frame) {
   const img = new Img(BASE_W, BASE_H);
-  drawFrame(img, s, dir, frame);
+  drawFrame(img, s, dir, frame, true);
   const hi = img.upscale2x();
+  paintFace(hi, img.face);
   hi.outline((x, y, inner) => mix(inner, INK, 0.85), true);
   return hi;
+}
+
+/**
+ * Eyes with a catch-light, brows, nose shadow, mouth and a touch of blush, drawn at full
+ * resolution. Only bare skin is painted, so hair, glasses, visors and hats keep covering the face.
+ */
+function paintFace(img, face) {
+  if (!face || face.view === 'back') return;
+  const { view, pal, s } = face;
+  const y0 = 24 + face.dy * 2;
+  const same = (x, y, c) => {
+    const p = img.get(x, y);
+    return p[3] === 255 && p[0] === c[0] && p[1] === c[1] && p[2] === c[2];
+  };
+  const skin = (x, y, c) => {
+    if (same(x, y, pal.K) || same(x, y, pal.k)) img.put(x, y, c);
+  };
+  const eyeDark = tone('cold', 0);
+  const glint = tone('metal', 8);
+  const brow = s.hair[2];
+  const blush = fade(tone('red', 4), 70);
+  const eye = (x) => {
+    skin(x, y0, glint);
+    skin(x + 1, y0, eyeDark);
+    skin(x, y0 + 1, eyeDark);
+    skin(x + 1, y0 + 1, eyeDark);
+    skin(x, y0 + 2, eyeDark);
+    skin(x + 1, y0 + 2, mix(eyeDark, pal.q, 0.5));
+  };
+  const cheek = (x) => {
+    if (same(x, y0 + 5, pal.K)) img.set(x, y0 + 5, blush);
+    if (same(x + 1, y0 + 5, pal.K)) img.set(x + 1, y0 + 5, blush);
+  };
+  if (view === 'front') {
+    eye(25);
+    eye(37);
+    for (const x of [24, 25, 26, 37, 38, 39]) skin(x, y0 - 2, brow);
+    skin(32, y0 + 5, pal.k);
+    skin(31, y0 + 8, pal.q);
+    skin(32, y0 + 8, pal.q);
+    skin(30, y0 + 8, mix(pal.q, pal.K, 0.5));
+    skin(33, y0 + 8, mix(pal.q, pal.K, 0.5));
+    cheek(22);
+    cheek(40);
+  } else {
+    eye(22);
+    for (const x of [21, 22, 23]) skin(x, y0 - 2, brow);
+    skin(21, y0 + 8, pal.q);
+    skin(22, y0 + 8, mix(pal.q, pal.K, 0.5));
+    cheek(25);
+  }
 }
 
 /** A soft contact shadow: an ellipse whose alpha falls off towards the rim in a few clean steps. */

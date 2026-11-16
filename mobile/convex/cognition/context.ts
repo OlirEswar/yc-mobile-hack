@@ -25,6 +25,18 @@ export type PersonRef = {
   /** How the agent knows them, e.g. "friend, trusts a lot". */
   tie?: string;
   householdId?: Id<'households'>;
+  /** Set when this person is another player's avatar: that player's name. */
+  player?: string;
+};
+
+/** Who a player's avatar is modelled on, and what their player last asked of them. */
+export type AvatarContext = {
+  owner: string;
+  summary: string;
+  interests: string[];
+  speechStyle: string;
+  habits: string[];
+  directive?: string;
 };
 
 export type BeliefRef = {
@@ -85,6 +97,7 @@ export type PlanContext = {
   trigger: string;
   detail?: string;
   people: PersonRef[];
+  avatar?: AvatarContext;
   /** True for the colonist the player follows: the prompt asks for a monologue line too. */
   followed: boolean;
   persona?: PersonaContext;
@@ -147,6 +160,7 @@ export type SpeechContext = {
   aboutPartner: string[];
   trigger: string;
   detail?: string;
+  avatar?: AvatarContext;
 };
 
 export type DialogueSide = { name: string; identity: string; personality: string; mood: string; voice?: string; want?: string; fear?: string; secret?: string; feels: string; believes: string[]; lately: string[] };
@@ -159,6 +173,8 @@ const MAX_TIES = 8;
 const MAX_MEMORIES = 8;
 const MAX_PRESENT = 10;
 const MAX_INCOMING = 40;
+/** A player's directive stays in the avatar's prompt for two sim days. */
+const AVATAR_DIRECTIVE_TICKS = 288;
 
 const TRAIT_WORDS: Record<(typeof TRAIT_KEYS)[number], [low: string, high: string]> = {
   ambition: ['unambitious', 'ambitious'],
@@ -334,6 +350,17 @@ function personRef(doc: Doc<'agents'>, ref: string, extra: { present?: boolean; 
     usualPlace: doc.workLocationId ?? doc.homeLocationId,
     tie: extra.tie,
     householdId: doc.householdId,
+    ...(doc.ownerName ? { player: doc.ownerName } : {}),
+  };
+}
+
+/** Who a player's avatar is modelled on and their latest directive, or undefined for an ordinary colonist. */
+function avatarOf(world: Doc<'worlds'>, agent: Doc<'agents'>, mind: Doc<'minds'>): AvatarContext | undefined {
+  if (!agent.ownerName || !mind.avatarPersona) return undefined;
+  return {
+    owner: agent.ownerName,
+    ...mind.avatarPersona,
+    ...(mind.directive && world.tick - mind.directive.tick <= AVATAR_DIRECTIVE_TICKS ? { directive: mind.directive.text } : {}),
   };
 }
 
@@ -363,6 +390,7 @@ async function speechContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'ag
     aboutPartner: beliefDocs.filter((b) => b.subjectAgentId === partner.id).slice(0, 3).map((b) => b.text + ' (confidence ' + b.confidence.toFixed(1) + ')'),
     trigger: job.trigger,
     detail: job.detail,
+    avatar: avatarOf(world, agent, mind),
   };
 }
 
@@ -561,6 +589,7 @@ export async function planContext(
       societyRefs: await societyLookup(ctx, agent, mind),
       storylines: await storylinesOf(ctx, world._id, agent._id, 3),
       thoughts: opts.followed ? await recentThoughts(ctx, agent._id, 3) : [],
+      avatar: avatarOf(world, agent, mind),
   };
 }
 

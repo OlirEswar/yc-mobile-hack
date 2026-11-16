@@ -209,6 +209,8 @@ struct AgentLite: Codable, Identifiable, Hashable {
     var act: Act? = nil
 
     struct Act: Codable, Hashable { var kind: String; var targetId: Id?; var startTick: Double }
+    /// Set when this colonist is a player's avatar: the player's display name.
+    var ownerName: String? = nil
 
     var first: String { String(name.split(separator: " ").first ?? "") }
 }
@@ -318,6 +320,8 @@ struct AgentDetail: Codable, Identifiable, Hashable {
     struct Family: Codable, Hashable { var partnerId: Id?; var partnerName: String?; var parentIds: [Id]; var childIds: [Id] }
     struct Pet: Codable, Hashable { var name: String; var species: String }
     struct WorkRef: Codable, Hashable, Identifiable { var id: Id; var title: String; var kind: String; var fame: Double }
+    /// Set when this colonist is a player's avatar: who they are modelled on, in general terms.
+    var avatarPersona: AvatarPersona? = nil
 }
 
 struct ActiveEffect: Codable, Identifiable, Hashable {
@@ -676,4 +680,129 @@ struct TimeskipStartResult: Codable {
     var timeskipId: Id?
     var code: String?
     var message: String?
+}
+
+// MARK: - Avatars
+
+let GOAL_KINDS = ["survive", "earn_wealth", "acquire_resource", "protect_person", "improve_relationship", "gain_influence", "change_job", "join_faction", "avoid_person", "investigate", "custom"]
+
+enum PersonaSourceKind: String, Codable, Hashable { case gmail, ai_memory, about_me }
+
+struct PersonaSourceInput: Hashable {
+    var kind: PersonaSourceKind
+    /// 1..60 chars, e.g. "Gmail, last 180 days".
+    var label: String
+    /// The digested text, 20..8000 chars.
+    var text: String
+}
+
+struct PersonaSourcePublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var kind: PersonaSourceKind
+    var label: String
+    var chars: Double
+    var preview: String
+    var addedAt: Double
+}
+
+/// How an avatar thinks and talks.
+struct AvatarPersona: Codable, Hashable {
+    var summary: String
+    var interests: [String]
+    var speechStyle: String
+    var habits: [String]
+}
+
+struct AvatarGoal: Codable, Hashable {
+    var kind: String
+    var description: String
+}
+
+/// The character built from the player's sources. The player can edit it before spawning.
+struct AvatarProfile: Codable, Hashable {
+    var name: String
+    var spriteId: String
+    var ageBand: String
+    var occupation: String
+    var homeLocationId: LocationId
+    var traits: [String: Double]
+    var values: [String: Double]
+    var backstory: String
+    var goals: [AvatarGoal]
+    var summary: String
+    var interests: [String]
+    var speechStyle: String
+    var habits: [String]
+
+    var persona: AvatarPersona { AvatarPersona(summary: summary, interests: interests, speechStyle: speechStyle, habits: habits) }
+    var first: String { String(name.split(separator: " ").first ?? "") }
+}
+
+struct AvatarDirective: Codable, Hashable {
+    var text: String
+    var tick: Double
+    var worldId: Id
+}
+
+struct AvatarPublic: Codable, Hashable {
+    var sources: [PersonaSourcePublic]
+    var profile: AvatarProfile?
+    /// "llm", "rules" or "player".
+    var profileSource: String?
+    var agentId: Id?
+    /// Newest first, up to 5.
+    var directives: [AvatarDirective]
+}
+
+/// Answer of the avatar mutations and actions: { ok: true, ... } or { ok: false, message }.
+struct AvatarResult: Decodable {
+    var ok: Bool
+    var message: String?
+    var agentId: Id?
+    var profile: AvatarProfile?
+    var profileSource: String?
+}
+
+// MARK: - Multiplayer
+
+struct PlayerPublic: Codable, Identifiable, Hashable {
+    var id: Id
+    var name: String
+    var isHost: Bool
+    var isYou: Bool
+    var online: Bool
+    var avatarAgentId: Id?
+    var avatarName: String?
+}
+
+struct MultiplayerPublic: Codable, Hashable {
+    var worldId: Id
+    var inviteCode: String?
+    var isHost: Bool
+    /// Host first, then by join time.
+    var players: [PlayerPublic]
+    var maxPlayers: Double
+}
+
+struct MultiplayerResult: Decodable {
+    var ok: Bool
+    var message: String?
+    var worldId: Id?
+    var inviteCode: String?
+}
+
+/// Removes email addresses, phone numbers and links, as the backend does before storing a source.
+enum Scrub {
+    private static let patterns = [
+        #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#,
+        #"(https?://|www\.)\S+"#,
+        #"\+?\d[\d\s().\-]{7,}\d"#,
+    ]
+
+    static func text(_ s: String) -> String {
+        var out = s
+        for p in patterns { out = out.replacingOccurrences(of: p, with: "", options: .regularExpression) }
+        out = out.replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

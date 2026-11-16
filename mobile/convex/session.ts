@@ -29,6 +29,14 @@ export const bootstrap = mutation({
         await ctx.db.patch(world._id, { lastHeartbeatAt: now, ...(loop ?? {}) });
         return { sessionToken: session.token, worldId: world._id };
       }
+      // A guest whose friend's world was retired goes back to their own.
+      const home = session.homeWorldId ? await ctx.db.get(session.homeWorldId) : null;
+      if (home && !home.deleted) {
+        await ctx.db.patch(session._id, { worldId: home._id, homeWorldId: undefined, focusAgentId: undefined, lastHeartbeatAt: now });
+        const loop = await ensureLoop(ctx, { ...home, lastHeartbeatAt: now }, now);
+        await ctx.db.patch(home._id, { lastHeartbeatAt: now, ...(loop ?? {}) });
+        return { sessionToken: session.token, worldId: home._id };
+      }
     }
 
     // A new install. Keep the number of worlds bounded: retire the stalest one when at the cap.
@@ -47,7 +55,7 @@ export const bootstrap = mutation({
     if (loop) await ctx.db.patch(worldId, loop);
     const token = session?.token ?? newToken();
     if (session) {
-      await ctx.db.patch(session._id, { worldId, lastHeartbeatAt: now, focusAgentId: undefined });
+      await ctx.db.patch(session._id, { worldId, homeWorldId: undefined, lastHeartbeatAt: now, focusAgentId: undefined });
     } else {
       await ctx.db.insert('sessions', { deviceId, token, worldId, lastHeartbeatAt: now, powerTimes: [], createTimes: [], createdAt: now });
     }

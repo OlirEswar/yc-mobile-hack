@@ -133,11 +133,11 @@ function rect(img, x, y, w, h, c) {
 
 // ---------- the spec: everything that varies per colonist ----------
 
-const SKINS = ['#f6d6bf', '#ecc19f', '#dcaa82', '#c58f63', '#a8714a', '#8a5735', '#6a4027', '#4a2c1c'];
-const HAIR_NATURAL = ['#1d1a20', '#2e221c', '#4a3022', '#6e4429', '#8f3d20', '#b6652e', '#c99a4a', '#e3c47e'];
-const HAIR_DYED = ['#2aa5a0', '#d4548f', '#7d54c8', '#3d6fd8', '#e8e2d2', '#c63b3b', '#79c24a'];
-const HAIR_AGED = ['#8f8e96', '#b9b8c0', '#e0dfe5'];
-const CLOTH = ['#4b5a6b', '#6d4c3a', '#3f5d45', '#8a7a5c', '#5a3f5e', '#2f3a4e', '#7b3b33', '#a65c2a', '#c9a14a', '#4f6f78', '#7d8086', '#d6d0c2', '#2c2c33', '#6e7d3a', '#9c4a62', '#3e7f8c', '#b8b2a4', '#56483e'];
+const SKINS = ['#ead4aa', '#e8b796', '#e4a672', '#d9a07a', '#c28569', '#b86f50', '#8f5640', '#733e39'];
+const HAIR_NATURAL = ['#181425', '#3e2731', '#733e39', '#b86f50', '#be4a2f', '#d77643', '#feae34', '#262b44'];
+const HAIR_DYED = ['#2ce8f5', '#b55088', '#68386c', '#0099db', '#ead4aa', '#e43b44', '#63c74d'];
+const HAIR_AGED = ['#8b9bb4', '#c0cbdc', '#ffffff'];
+const CLOTH = ['#be4a2f', '#d77643', '#e4a672', '#b86f50', '#733e39', '#a22633', '#e43b44', '#f77622', '#feae34', '#63c74d', '#3e8948', '#265c42', '#124e89', '#0099db', '#c0cbdc', '#8b9bb4', '#5a6988', '#3a4466', '#68386c', '#b55088', '#f6757a', '#ead4aa', '#262b44', '#193c3e'];
 const STYLES = ['buzz', 'short', 'sidepart', 'pixie', 'undercut', 'mohawk', 'bob', 'long', 'longwavy', 'ponytail', 'braids', 'afro', 'curly', 'bun', 'topknot', 'dreads', 'bald'];
 const BUILDS = [
   { H: 31, sw: 5, hw: 4, limb: 0.66 },
@@ -174,8 +174,8 @@ const ACCESSORIES = {
   worker: ['toolbelt', 'bandana', 'beanie', 'backpack', 'respirator', 'prosthetic', 'satchel'],
   civilian: ['scarf', 'backpack', 'beanie', 'bandana', 'satchel', 'goggles', 'polearm', 'headset'],
 };
-const SUIT_COLOURS = ['#d8d2c4', '#c9732f', '#8d9299', '#c9a14a', '#6c7f8c'];
-const ARMOR_COLOURS = ['#2f3a4e', '#3a3d44', '#4b5a6b', '#5a4a3a', '#2c2c33'];
+const SUIT_COLOURS = ['#c0cbdc', '#f77622', '#8b9bb4', '#feae34', '#ead4aa'];
+const ARMOR_COLOURS = ['#3a4466', '#262b44', '#5a6988', '#733e39', '#124e89'];
 
 const used = new Set();
 
@@ -196,7 +196,7 @@ function specFor(archetype, v) {
     const hairHex = age === 'elder' ? pick(HAIR_AGED) : r() < 0.16 ? pick(HAIR_DYED) : pick(HAIR_NATURAL);
     const facial = r() < 0.38 ? pick(['stubble', 'mustache', 'beard', 'goatee', 'beard']) : null;
     const outfit = r() < 0.75 ? pick(OUTFITS[archetype]) : pick(Object.values(OUTFITS).flat());
-    const top = outfit === 'suit' ? pick(SUIT_COLOURS) : outfit === 'labcoat' ? '#e4e1d8' : pick(CLOTH);
+    const top = outfit === 'suit' ? pick(SUIT_COLOURS) : outfit === 'labcoat' ? '#ffffff' : pick(CLOTH);
     let bottom = pick(CLOTH);
     if (bottom === top) bottom = '#3a3a42';
     const accent = pick(CLOTH.filter((c) => c !== top));

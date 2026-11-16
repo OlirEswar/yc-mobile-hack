@@ -63,6 +63,13 @@ struct RootView: View {
                     FollowView()
                 }
                 .overlay(alignment: .top) { ToastView() }
+                .overlay {
+                    if let c = game.cinematic {
+                        CinematicOverlay(cinematic: c)
+                            .id(c.id)
+                            .transition(.opacity)
+                    }
+                }
             }
         }
     }

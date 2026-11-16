@@ -81,6 +81,7 @@ import type * as society_store from "../society/store.js";
 import type * as society_validate from "../society/validate.js";
 import type * as society_work from "../society/work.js";
 import type * as story from "../story.js";
+import type * as storyteller_dialogue from "../storyteller/dialogue.js";
 import type * as storyteller_director from "../storyteller/director.js";
 import type * as storyteller_hooks from "../storyteller/hooks.js";
 import type * as storyteller_monologue from "../storyteller/monologue.js";
@@ -180,6 +181,7 @@ declare const fullApi: ApiFromModules<{
   "society/validate": typeof society_validate;
   "society/work": typeof society_work;
   story: typeof story;
+  "storyteller/dialogue": typeof storyteller_dialogue;
   "storyteller/director": typeof storyteller_director;
   "storyteller/hooks": typeof storyteller_hooks;
   "storyteller/monologue": typeof storyteller_monologue;

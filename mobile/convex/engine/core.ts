@@ -16,7 +16,7 @@ import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
-import { NEVER_DUE } from '../lib/constants';
+import { DEFAULT_LLM_CONFIG, NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import {
   ROSTER_ASLEEP,
@@ -133,6 +133,9 @@ export type Tx = {
   dirtyFactions: Set<string>;
   /** Events emitted so far, in order. */
   eventIds: EventId[];
+  /** Each agent's strongest ties (tiesOf) and held beliefs (heldBeliefs), read once per Tx and kept current by the writers here. */
+  ties: Map<string, RelationshipDoc[]>;
+  beliefs: Map<string, BeliefDoc[]>;
 };
 
 export function beginTx(ctx: MutationCtx, world: WorldDoc): Tx {
@@ -154,6 +157,8 @@ export function beginTx(ctx: MutationCtx, world: WorldDoc): Tx {
     factions: null,
     dirtyFactions: new Set(),
     eventIds: [],
+    ties: new Map(),
+    beliefs: new Map(),
   };
 }
 
@@ -387,6 +392,23 @@ export async function emitEvent(tx: Tx, e: EventInput): Promise<{ eventId: Event
 
 // ---------- relationships ----------
 
+/** Ties read per agent and cached for the Tx; enough for every caller's top-n. */
+const TIES_CACHED = 16;
+
+/** An agent's strongest ties, strongest first: one indexed read per agent per Tx until one of them changes. */
+export async function tiesOf(tx: Tx, agentId: AgentId, n = TIES_CACHED): Promise<RelationshipDoc[]> {
+  let ties = tx.ties.get(agentId);
+  if (!ties) {
+    ties = await tx.ctx.db
+      .query('relationships')
+      .withIndex('by_from_strength', (q) => q.eq('fromAgentId', agentId))
+      .order('desc')
+      .take(TIES_CACHED);
+    tx.ties.set(agentId, ties);
+  }
+  return ties.slice(0, n);
+}
+
 export type RelationshipDelta = { affinity?: number; trust?: number; fear?: number; obligation?: number; kind?: string };
 
 /**
@@ -394,10 +416,7 @@ export type RelationshipDelta = { affinity?: number; trust?: number; fear?: numb
  * standing, the sum of what others think of them, in step.
  */
 export async function adjustRelationship(tx: Tx, from: AgentDoc, to: AgentDoc, delta: RelationshipDelta): Promise<Doc<'relationships'>> {
-  const existing = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_to', (q) => q.eq('fromAgentId', from._id).eq('toAgentId', to._id))
-    .first();
+  const existing = await tieTo(tx, from._id, to._id);
   const before = existing ? standingWeight(existing.affinity, existing.trust) : 0;
   const affinity = round2(clamp((existing?.affinity ?? 0) + (delta.affinity ?? 0), -1, 1));
   const trust = round2(clamp((existing?.trust ?? 0) + (delta.trust ?? 0), -1, 1));
@@ -421,12 +440,46 @@ export async function adjustRelationship(tx: Tx, from: AgentDoc, to: AgentDoc, d
   };
   to.standing = round2(to.standing + standingWeight(affinity, trust) - before);
   touch(tx, to);
+  let doc: RelationshipDoc;
   if (existing) {
     await tx.ctx.db.patch(existing._id, fields);
-    return { ...existing, ...fields };
+    doc = { ...existing, ...fields };
+  } else {
+    const id = await tx.ctx.db.insert('relationships', { worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields });
+    doc = { _id: id, _creationTime: Date.now(), worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields };
   }
-  const id = await tx.ctx.db.insert('relationships', { worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields });
-  return (await tx.ctx.db.get(id))!;
+  cacheTie(tx, from._id, doc);
+  return doc;
+}
+
+/** One tie, from the cached ties when they hold it (or hold every tie the agent has), else one indexed read. */
+export async function tieTo(tx: Tx, from: AgentId, to: AgentId): Promise<RelationshipDoc | null> {
+  const ties = tx.ties.get(from);
+  const hit = ties?.find((t) => t.toAgentId === to);
+  if (hit) return hit;
+  if (ties && ties.length < TIES_CACHED) return null;
+  return await tx.ctx.db
+    .query('relationships')
+    .withIndex('by_from_to', (q) => q.eq('fromAgentId', from).eq('toAgentId', to))
+    .first();
+}
+
+/**
+ * Keeps an agent's cached strongest ties exact after one of them changed. A short list holds every
+ * tie; a full one holds the top TIES_CACHED, so a tie that falls below all of them drops the cache.
+ */
+function cacheTie(tx: Tx, from: AgentId, doc: RelationshipDoc): void {
+  const ties = tx.ties.get(from);
+  if (!ties) return;
+  const others = ties.filter((t) => t._id !== doc._id);
+  if (ties.length >= TIES_CACHED) {
+    const floor = Math.min(...ties.map((t) => t.strength));
+    if (doc.strength < floor) {
+      if (others.length < ties.length) tx.ties.delete(from);
+      return;
+    }
+  }
+  tx.ties.set(from, [...others, doc].sort((x, y) => y.strength - x.strength).slice(0, TIES_CACHED));
 }
 
 // ---------- beliefs ----------
@@ -455,6 +508,27 @@ export type BeliefInput = {
   private?: boolean;
 };
 
+/** Every belief an agent holds: one indexed read per agent per Tx, kept current by learnBelief and patchBelief. */
+export async function heldBeliefs(tx: Tx, agentId: AgentId): Promise<BeliefDoc[]> {
+  let held = tx.beliefs.get(agentId);
+  if (!held) {
+    held = await tx.ctx.db
+      .query('beliefs')
+      .withIndex('by_agent_key', (q) => q.eq('agentId', agentId))
+      .collect();
+    tx.beliefs.set(agentId, held);
+  }
+  return held;
+}
+
+/** Patches a belief and the holder's cached copy. */
+export async function patchBelief(tx: Tx, belief: BeliefDoc, fields: Partial<BeliefDoc>): Promise<void> {
+  await tx.ctx.db.patch(belief._id, fields);
+  const held = tx.beliefs.get(belief.agentId);
+  const i = held?.findIndex((b) => b._id === belief._id) ?? -1;
+  if (held && i >= 0) held[i] = { ...held[i], ...fields };
+}
+
 export const beliefKey = (kind: string, subjectAgentId?: string, worldKey?: string): string =>
   subjectAgentId ? kind + ':' + subjectAgentId : (worldKey ?? kind);
 
@@ -465,10 +539,8 @@ export const beliefKey = (kind: string, subjectAgentId?: string, worldKey?: stri
  */
 export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): Promise<{ beliefId: Id<'beliefs'>; key: string; created: boolean; delta: number }> {
   const key = beliefKey(input.kind, input.subjectAgentId, input.worldKey);
-  const existing = await tx.ctx.db
-    .query('beliefs')
-    .withIndex('by_agent_key', (q) => q.eq('agentId', agent._id).eq('key', key))
-    .first();
+  const held = await heldBeliefs(tx, agent._id);
+  const existing = held.find((b) => b.key === key);
   const gained = clamp(input.confidence, 0, 1);
   let beliefId: Id<'beliefs'>;
   let delta: number;
@@ -476,14 +548,14 @@ export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): 
     const confidence = round2(clamp(Math.max(existing.confidence, existing.confidence + (1 - existing.confidence) * gained * 0.5), 0, 1));
     delta = confidence - existing.confidence;
     beliefId = existing._id;
-    await tx.ctx.db.patch(existing._id, {
+    await patchBelief(tx, existing, {
       confidence,
       lastReinforcedTick: tx.tick,
-      ...(input.sourceType === 'observed' ? { sourceType: 'observed', truthEventId: input.truthEventId ?? existing.truthEventId } : {}),
+      ...(input.sourceType === 'observed' ? { sourceType: 'observed' as const, truthEventId: input.truthEventId ?? existing.truthEventId } : {}),
     });
   } else {
     delta = round2(gained);
-    beliefId = await tx.ctx.db.insert('beliefs', {
+    const fields = {
       worldId: tx.world._id,
       agentId: agent._id,
       key,
@@ -502,13 +574,11 @@ export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): 
       lastReinforcedTick: tx.tick,
       hops: input.hops ?? 0,
       private: input.private,
-    });
+    };
+    beliefId = await tx.ctx.db.insert('beliefs', fields);
+    held.push({ ...fields, _id: beliefId, _creationTime: Date.now() });
   }
 
-  const held = await tx.ctx.db
-    .query('beliefs')
-    .withIndex('by_agent_key', (q) => q.eq('agentId', agent._id))
-    .collect();
   agent.topics = held
     .map((b) => ({ key: b.key, weight: topicWeight(b.kind, b.confidence) + b.lastReinforcedTick / 100_000 }))
     .sort((a, b) => b.weight - a.weight)
@@ -673,6 +743,7 @@ export async function killAgent(
   for (const role of vacated) tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role, eventId });
   if (vacated.length === 0 && a.occupation !== 'resident') tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, eventId });
   for (const t of ties) await tx.ctx.db.patch(t._id, { toAlive: false });
+  tx.ties.clear();
   for (const t of close) {
     const mourner = await loadAgent(tx, t.fromAgentId);
     if (!mourner || !mourner.alive) continue;
@@ -732,11 +803,7 @@ async function succeedFactionLeader(tx: Tx, dead: AgentDoc, deathEventId: EventI
 
 /** After a violent death, the bereaved wonder aloud about the victim's worst rival. */
 async function suspectRivals(tx: Tx, dead: AgentDoc, close: Doc<'relationships'>[], deathEventId: EventId): Promise<void> {
-  const rivals = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', dead._id))
-    .order('desc')
-    .take(16);
+  const rivals = await tiesOf(tx, dead._id, 16);
   const rival = rivals.filter((r) => r.toAlive && r.affinity < -0.15).sort((x, y) => x.affinity - y.affinity)[0];
   if (!rival) return;
   const suspect = await loadAgent(tx, rival.toAgentId);
@@ -780,8 +847,8 @@ export type CognitionRequest = {
   detail?: string;
   /** 0..1. Higher runs first. */
   priority: number;
-  /** focus: the followed colonist. crisis: reacting to a high-salience event. normal: the rest. */
-  lane: 'focus' | 'crisis' | 'normal';
+  /** focus: the followed colonist. orbit: the people around them. crisis: reacting to a high-salience event. normal: the rest. */
+  lane: 'focus' | 'orbit' | 'crisis' | 'normal';
   eventId?: EventId;
 };
 
@@ -796,6 +863,7 @@ export async function enqueueCognition(tx: Tx, a: AgentDoc, request: CognitionRe
   const mind = await loadMind(tx, a);
   if (!mind) return false;
   if (request.kind === 'plan' && request.lane === 'normal' && mind.llmCooldownUntilTick > tx.tick) return false;
+  if (request.kind === 'plan' && request.lane === 'orbit' && tx.tick - (mind.lastLlmPlanTick ?? -Infinity) < (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks)) return false;
   const pending = await tx.ctx.db
     .query('cognitionJobs')
     .withIndex('by_agent_status', (q) => q.eq('agentId', a._id).eq('status', 'queued'))

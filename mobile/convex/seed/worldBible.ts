@@ -72,7 +72,7 @@ export const TUTORIAL: (Omit<TutorialStep, 'agentId'> & { agentKey?: string })[]
   {
     id: 'thoughts',
     title: 'Hear what she will not say',
-    body: 'Open her thoughts. Ines has been skimming a litre from every cart she hauls, and she has seen something in the depot she was never meant to see.',
+    body: 'Open her Mind tab and read her thoughts as they come. Ines has been skimming a litre from every cart she hauls, and she has seen something in the depot she was never meant to see.',
     advanceOn: 'read_thoughts',
     agentKey: 'ines',
   },
@@ -99,14 +99,14 @@ export const TUTORIAL: (Omit<TutorialStep, 'agentId'> & { agentKey?: string })[]
   {
     id: 'power',
     title: 'Tip the scales',
-    body: 'Use a power. Whisper doubt into Dmitri so he hesitates to report her, or start a rumor that the quartermaster keeps two ledgers and watch who repeats it. You never control them; you change what they believe.',
+    body: 'Open Dmitri\'s Mind tab and plant a thought in his head: a doubt, so he hesitates to report her. Or use a power to start a rumor that the quartermaster keeps two ledgers and watch who repeats it. You never control them; you change what they believe.',
     advanceOn: 'use_power',
     agentKey: 'dmitri',
   },
   {
     id: 'chronicle',
     title: 'Every consequence has a cause',
-    body: 'Open the chronicle and tap an event to see its cause chain, from your whisper to whatever Dmitri does next.',
+    body: 'Open the chronicle and tap an event to see its cause chain, from the thought you planted to whatever Dmitri does next.',
     advanceOn: 'open_chronicle',
   },
   {

@@ -12,7 +12,7 @@ import { hash32 } from '../lib/rng';
 import { firstName, isEasing, isHostile, kindOfEvent } from './storylines';
 
 /** Appends a line to a colonist's monologue. */
-export async function writeThought(tx: Tx, agentId: AgentDoc['_id'], text: string, source: 'llm' | 'rules', mood?: string): Promise<void> {
+export async function writeThought(tx: Tx, agentId: AgentDoc['_id'], text: string, source: 'llm' | 'rules' | 'planted', mood?: string): Promise<void> {
   await tx.ctx.db.insert('thoughts', { worldId: tx.world._id, agentId, tick: tx.tick, text, mood, source });
 }
 
@@ -52,7 +52,8 @@ export async function queueThought(tx: Tx, a: AgentDoc, mind: MindDoc, job: { tr
 export type Moment =
   | { kind: 'event'; event: Doc<'events'>; otherName?: string }
   | { kind: 'plan'; label: string; step?: string; place?: string; otherName?: string }
-  | { kind: 'idle'; otherName?: string };
+  | { kind: 'idle'; otherName?: string }
+  | { kind: 'wake'; otherName?: string };
 
 /** A place name as it reads in a sentence: "the Supply Depot", "Habitat Ring A", "The Airlock Canteen". */
 function placeName(id?: string): string {
@@ -93,6 +94,14 @@ function candidates(a: AgentDoc, mind: MindDoc, m: Moment): string[] {
     if (step === 'sleep') return ['Bed. Maybe tonight I sleep through.', 'Lights out. Tomorrow comes either way.', hiding ? 'Another day nobody found out.' : 'Enough for one day.'];
     if (step === 'go' && m.place) return ['Off to ' + place(m.place) + '.', place(m.place).replace(/^the /, 'The ') + ", then. Let's see who is there.", body ?? 'Keep moving.'];
     return [body ?? 'One thing at a time.', 'Fine. One thing at a time.', 'Keep going. Just keep going.'];
+  }
+  if (m.kind === 'wake') {
+    const x = m.otherName ? firstName(m.otherName) : undefined;
+    return [
+      x ? 'Awake. First thing in my head is ' + x + '. Not a good sign.' : 'Awake before the lights. My head started without me.',
+      hiding ? 'Another morning. Another day of keeping my face straight.' : (body ?? 'Up. The colony will not run itself.'),
+      'The vents are louder in the morning. Or I am listening harder.',
+    ];
   }
   if (m.kind === 'idle') {
     const x = m.otherName ? firstName(m.otherName) : undefined;

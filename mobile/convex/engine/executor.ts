@@ -41,6 +41,8 @@ import {
   touchFaction,
   touchHousehold,
   touchMind,
+  patchBelief,
+  tiesOf,
 } from './core';
 import type { AgentDoc, EventId, HouseholdDoc, Tx } from './core';
 import { simState } from './state';
@@ -383,11 +385,7 @@ async function noticePantryTheft(tx: Tx, a: AgentDoc, household: HouseholdDoc): 
   household.missing = undefined;
   touchHousehold(tx, household);
   const what = [missing.food >= 1 ? units(Math.round(missing.food), 'food') : '', missing.water >= 1 ? units(Math.round(missing.water), 'water') : ''].filter(Boolean).join(' and ');
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(14);
+  const ties = await tiesOf(tx, a._id, 14);
   const distrusted = ties.filter((t) => t.toAlive && t.kind !== 'family' && t.trust < 0).sort((x, y) => x.trust - y.trust)[0];
   const { eventId } = await emitEvent(tx, {
     category: 'social',
@@ -590,11 +588,7 @@ async function sell(tx: Tx, a: AgentDoc, res: string, qty: number): Promise<numb
 async function partnerHere(tx: Tx, a: AgentDoc): Promise<AgentDoc | null> {
   const here = await agentsAt(tx, a.locationId, { exclude: [a._id] });
   if (here.length === 0) return null;
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   const present = new Set<string>(here);
   const friend = ties.find((t) => present.has(t.toAgentId) && t.affinity > 0.1);
   const id = friend ? friend.toAgentId : here[Math.floor(roll(tx, a, 'partner') * here.length)];
@@ -1000,7 +994,7 @@ async function investigateDone(tx: Tx, a: AgentDoc, who: string): Promise<void> 
       visibility: 'public',
     });
     const proven = b.name + ' ' + what + ': ' + detail + '.';
-    if (belief) await tx.ctx.db.patch(belief._id, { text: proven });
+    if (belief) await patchBelief(tx, belief, { text: proven });
     const learned = await learnBelief(tx, a, {
       kind,
       text: proven,
@@ -1019,7 +1013,7 @@ async function investigateDone(tx: Tx, a: AgentDoc, who: string): Promise<void> 
     return;
   }
   const source = belief?.sourceAgentId ? await loadAgent(tx, belief.sourceAgentId) : null;
-  if (belief) await tx.ctx.db.patch(belief._id, { confidence: round2(belief.confidence * 0.25) });
+  if (belief) await patchBelief(tx, belief, { confidence: round2(belief.confidence * 0.25) });
   const { eventId } = await emitEvent(tx, {
     category: 'social',
     eventType: 'investigation',
@@ -1068,7 +1062,7 @@ async function accuse(tx: Tx, a: AgentDoc, who: string, key: string | undefined)
   if (!b) return fail(tx, a, 'Went to confront someone who was not there');
   const belief = key ? await getBelief(tx, a._id, key) : await suspicionAbout(tx, a, b._id);
   if (!belief || belief.subjectAgentId !== b._id) return fail(tx, a, 'Had nothing to accuse ' + b.name + ' of');
-  if (belief.acted !== undefined && tx.tick - belief.acted < 12) return 0;
+  if (belief.acted !== undefined && tx.tick - belief.acted < 144) return 0;
   if (owesFavor(await loadMind(tx, a), b._id, 'silence', tx.tick)) {
     await markActed(tx, belief);
     return fail(tx, a, 'Bit back the words: ' + b.name + ' paid for silence');

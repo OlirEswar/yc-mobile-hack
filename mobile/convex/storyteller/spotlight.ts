@@ -7,8 +7,9 @@
 import type { Doc } from '../_generated/dataModel';
 import { admits, rollDay } from '../cognition/budget';
 import { providerConfig } from '../cognition/provider';
-import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind } from '../engine/core';
+import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind, tiesOf, touchMind } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
+import { cool, cooling, debtsTo } from '../engine/ledger';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
 import { describeStoryline, involvedIn } from './storylines';
@@ -20,8 +21,14 @@ const ROUTINE = new Set(['sleep', 'work', 'rest', 'wait', 'grow', 'strike', 'stu
 const WARP_MIN_TICKS = 3;
 /** Salience at which an event near them is something they notice. */
 const NOTABLE = 0.4;
-/** A thought without any trigger after this many ticks of waking activity (40 minutes). */
-const IDLE_THOUGHT_TICKS = 4;
+/** A fresh thought every 20 to 30 waking minutes; every two hours while the world fast-forwards. */
+const IDLE_THOUGHT_TICKS = 2;
+const WARP_THOUGHT_TICKS = 12;
+/** The people around the followed colonist: at most this many, and "recently" means 3 hours. */
+const ORBIT_MAX = 8;
+const ORBIT_RECENT = 18;
+/** Least time between two LLM speech lines for one colonist (30 minutes). */
+const SPEECH_GAP = 3;
 /** In-game time without a story beat before the director brings the story to them (50 minutes). */
 const QUIET_TICKS = 5;
 /** Least time between two nudges for the same colonist (an hour). */
@@ -40,9 +47,47 @@ export async function spotlightTick(tx: Tx, live: StorylineDoc[], events: Doc<'e
   );
   const pending = await hasPendingJob(tx, a);
   const warp = await shouldWarp(tx, a, live, near, pending);
-  await narrate(tx, a, mind, live, near, pending, warp);
+  const woke = !!tx.world.focusAsleep && awake;
+  tx.world.focusAsleep = !awake;
+  await narrate(tx, a, mind, live, near, pending, warp, woke);
   tx.world.focusWarp = warp && !(await hasPendingJob(tx, a));
   if (!tx.world.focusWarp && !pending) await nudge(tx, a, mind, live, near);
+  tx.world.orbitIds = await orbitOf(tx, a, live);
+  await speakInCharacter(tx, a);
+}
+
+/**
+ * The people around the followed colonist, nearest first: whoever they are dealing with, whoever
+ * they dealt with in the last few hours, the cast of their storylines, and whoever shares the room.
+ * Their decisions go to the LLM's orbit lane (engine/planner.ts).
+ */
+async function orbitOf(tx: Tx, a: AgentDoc, live: StorylineDoc[]): Promise<AgentDoc['_id'][]> {
+  const out: AgentDoc['_id'][] = [];
+  const add = (id: AgentDoc['_id'] | undefined) => {
+    if (id && id !== a._id && !out.includes(id) && out.length < ORBIT_MAX) out.push(id);
+  };
+  add(a.interactingWithId);
+  for (const t of await tiesOf(tx, a._id)) if (t.toAlive && t.lastInteractionTick >= tx.tick - ORBIT_RECENT) add(t.toAgentId);
+  for (const s of live) if (s.participantIds.includes(a._id)) for (const id of s.participantIds) add(id);
+  if (!a.move) for (const id of await agentsAt(tx, a.locationId, { exclude: [a._id] })) add(id);
+  return out;
+}
+
+/** Whoever is talking with the followed colonist, and the colonist themselves, say their lines in character. */
+async function speakInCharacter(tx: Tx, a: AgentDoc): Promise<void> {
+  const speakers: AgentDoc[] = [];
+  for (const id of [a._id, ...(tx.world.orbitIds ?? [])]) {
+    const p = await loadAgent(tx, id);
+    if (p?.alive && p.interactingWithId && (p._id === a._id || p.interactingWithId === a._id)) speakers.push(p);
+  }
+  for (const p of speakers) {
+    const mind = await loadMind(tx, p);
+    if (!mind || cooling(mind, 'llm-speech', tx.tick)) continue;
+    const queued = await enqueueCognition(tx, p, { kind: 'speech', trigger: p.activityLabel, priority: p._id === a._id ? 0.85 : 0.75, lane: p._id === a._id ? 'focus' : 'orbit' });
+    if (!queued) continue;
+    cool(tx, mind, 'llm-speech', SPEECH_GAP);
+    touchMind(tx, mind);
+  }
 }
 
 async function hasPendingJob(tx: Tx, a: AgentDoc): Promise<boolean> {
@@ -66,7 +111,7 @@ function llmReady(tx: Tx): boolean {
 const sleepsOnly = (steps: string[]): boolean => steps.every((s) => ['go', 'sleep'].includes(decodeStep(s)?.type ?? ''));
 
 /** New decisions go to the LLM; notable moments and quiet stretches become monologue lines. */
-async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], near: Doc<'events'>[], pending: boolean, warp: boolean): Promise<void> {
+async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], near: Doc<'events'>[], pending: boolean, warp: boolean, woke: boolean): Promise<void> {
   const plan = mind.plan;
   const decided = !!plan && plan.createdAtTick === tx.tick && plan.source !== 'llm';
   const ready = llmReady(tx);
@@ -87,7 +132,11 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
   const since = recent[0] ? tx.tick - recent[0].tick : Infinity;
   const notable = near.filter((e) => e.salience >= NOTABLE).sort((x, y) => y.salience - x.salience)[0];
   let moment: Moment | null = null;
-  if (notable && since >= 2) {
+  if (woke) {
+    const story = live.find((s) => s.participantIds.includes(a._id));
+    const otherId = story?.participantIds.find((id) => id !== a._id);
+    moment = { kind: 'wake', otherName: otherId ? (await loadAgent(tx, otherId))?.name : undefined };
+  } else if (notable && since >= 1) {
     const otherId = involvedIn(notable).find((id) => id !== a._id);
     const other = otherId ? await loadAgent(tx, otherId) : null;
     moment = { kind: 'event', event: notable, otherName: other?.name };
@@ -97,7 +146,7 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
     const whoId = step && at >= 0 ? tx.ctx.db.normalizeId('agents', step.args[at] ?? '') : null;
     const who = whoId ? await loadAgent(tx, whoId) : null;
     moment = { kind: 'plan', label: plan.labels[0] ?? plan.intent, step: step?.type, place: step?.type === 'go' ? step.args[0] : undefined, otherName: who?.name };
-  } else if (!warp && a.activity !== 'sleeping' && since >= IDLE_THOUGHT_TICKS) {
+  } else if (a.activity !== 'sleeping' && since >= (warp ? WARP_THOUGHT_TICKS : IDLE_THOUGHT_TICKS + (tx.tick % 2))) {
     const story = live.find((s) => s.participantIds.includes(a._id));
     const otherId = story?.participantIds.find((id) => id !== a._id);
     moment = { kind: 'idle', otherName: otherId ? (await loadAgent(tx, otherId))?.name : undefined };
@@ -109,7 +158,9 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
         ? 'just witnessed or took part in: ' + moment.event.summary
         : moment.kind === 'plan'
           ? 'about to: ' + moment.label
-          : 'a quiet moment while ' + a.activityLabel.toLowerCase();
+          : moment.kind === 'wake'
+            ? 'just woke up; the day ahead and what is waiting in it'
+            : 'a quiet moment while ' + a.activityLabel.toLowerCase();
     await queueThought(tx, a, mind, { trigger, eventId: moment.kind === 'event' ? moment.event._id : undefined });
     return;
   }
@@ -146,11 +197,7 @@ async function nudge(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], n
   const lastBeat = Math.max(last, ...memories.filter((m) => m.salience >= NOTABLE).map((m) => m.tick));
   if (tx.tick - lastBeat < QUIET_TICKS) return;
 
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   const storyOf = (id: string) => live.find((s) => s.participantIds.includes(id as AgentDoc['_id']));
   const candidates: { id: AgentDoc['_id']; story?: StorylineDoc }[] = [];
   for (const s of live.filter((s) => s.participantIds.includes(a._id))) for (const id of s.participantIds) candidates.push({ id, story: s });
@@ -186,14 +233,14 @@ async function nudge(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[], n
 }
 
 /** What a visitor sent by the director does when they find the followed colonist. */
-async function visitStep(tx: Tx, visitor: AgentDoc, a: AgentDoc, story?: StorylineDoc): Promise<string> {
+export async function visitStep(tx: Tx, visitor: AgentDoc, a: AgentDoc, story?: StorylineDoc): Promise<string> {
   const tie = (from: AgentDoc, to: AgentDoc) =>
     tx.ctx.db
       .query('relationships')
       .withIndex('by_from_to', (q) => q.eq('fromAgentId', from._id).eq('toAgentId', to._id))
       .first();
   const toward = await tie(visitor, a);
-  if ((toward?.obligation ?? 0) >= 0.2) return encodeStep('repay', a._id);
+  if (debtsTo(await loadMind(tx, visitor), a._id).length > 0) return encodeStep('repay', a._id);
   const beliefs = await tx.ctx.db
     .query('beliefs')
     .withIndex('by_agent_key', (q) => q.eq('agentId', visitor._id))

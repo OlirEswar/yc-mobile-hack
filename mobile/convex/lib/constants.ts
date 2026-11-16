@@ -22,21 +22,38 @@ export const INITIAL_STOCKPILES: Partial<Record<LocationId, Record<string, numbe
 export const INITIAL_TREASURY = 12_000;
 
 /**
- * LLM calls per sim day (144 ticks, 8 real minutes at 1x). The followed colonist comes first: a plan
- * for every decision (about one per 10 to 20 in-game minutes of waking activity) plus monologue
- * lines, about 150 a day once fast-forward skips the night; storyline climaxes and big events share
- * the crisis reserve; everyone else gets the rest. Questions to colonists have their own allowance
- * per session (focus.ts). gpt-6-luna is cheap, so this is a few cents per sim day.
+ * LLM calls per sim day (144 ticks, about 5 real minutes at 1x). The followed colonist comes first:
+ * a plan for every decision plus a monologue line every 20 to 30 waking minutes; then the people
+ * around them (the orbit lane: same place, same storyline, or just talked to them), who plan with a
+ * short cooldown and speak their lines to the followed colonist in character; then storyline
+ * climaxes and big events (crisis); everyone else shares the rest. Speech has its own allowance.
+ *
+ * Measured prompts (cognition/prompt.ts on a seeded colony after a sim day): a plan is about 18,400
+ * characters (about 4,600 tokens) with up to 300 tokens out, a monologue line about 2,600 characters,
+ * a speech line about 800. At gpt-6-luna prices (LLM_PRICE) that is about $0.0006 a plan, $0.0001 a
+ * thought and $0.00004 a line, so a fully used day costs about $0.29: about $3.50 an hour of play at
+ * 1x, where a sim day lasts 5 minutes. The loop only runs while a client is open, and
+ * LLM_DAILY_USD_CAP caps each world's spend per real day.
  */
 export const DEFAULT_LLM_CONFIG = {
-  budgetPerDay: 260,
-  maxConcurrent: 3,
-  /** 12 simulated hours between normal LLM plans for one agent. Focus and crisis plans ignore it. */
-  cooldownTicks: 72,
-  focusReserve: 150,
-  crisisReserve: 40,
-  speechPerDay: 40,
+  budgetPerDay: 520,
+  maxConcurrent: 8,
+  /** 4 simulated hours between normal LLM plans for one agent. Focus and crisis plans ignore it. */
+  cooldownTicks: 24,
+  focusReserve: 160,
+  /** Held for the people around the followed colonist, who may plan again after orbitCooldownTicks. */
+  orbitReserve: 140,
+  orbitCooldownTicks: 9,
+  crisisReserve: 60,
+  speechPerDay: 160,
 };
+
+/** gpt-6-luna list prices in dollars per token (standard tier); other models are costed the same. */
+export const LLM_PRICE = { input: 0.1 / 1_000_000, output: 0.5 / 1_000_000 };
+/** A world's LLM spend per real (UTC) day stops here; the env var LLM_DAILY_USD_CAP overrides it. */
+export const DEFAULT_DAILY_USD_CAP = 15;
+/** Share of ordinary colonists' fresh non-routine decisions that also go to the LLM, budget allowing. */
+export const NORMAL_LLM_SHARE = 0.35;
 
 /** Bounds for the create-character power. */
 export const MAX_STARTING: Record<string, number> = { food: 20, water: 20, parts: 20, medicine: 10, credits: 300 };

@@ -102,6 +102,12 @@ the inspector.
   every notable thing they perceive (LLM in the focus lane; rule-based fallback). Shown as a feed.
 - **Ask them.** The player can type a question ("Why do you hate Dmitri?"). The character answers in
   voice from their persona, memories, beliefs and relationships. Answers never change their state.
+- **Plant a thought.** From the Mind tab the player can type a thought into the character's head
+  (focus:plant, 3 to 200 characters). The LLM reads it into the whisper machinery (preset, a
+  suspicion or admiration of a named person, strength), with a keyword fallback, and it lands as a
+  whisper: an intervention event, a private belief, a goal and a plan interrupt. The idea appears in
+  the monologue as their own thought ('planted'), and their reaction follows within a tick or two.
+  It counts against the powers' rate limit and advances the tutorial's use_power step.
 - **Every decision is thought through.** The focus lane gets a reserved LLM budget so the followed
   character plans with the LLM at each decision point, choosing from the full action set.
 - **No dead air.** When the followed character is in a routine stretch (sleep, a long shift, waiting)

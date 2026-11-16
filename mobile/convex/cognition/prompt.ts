@@ -91,6 +91,7 @@ const SYSTEM_SPEECH = `You write one line of dialogue for a colonist of Shacklet
 const SYSTEM_THOUGHT = `You write one line of inner monologue for a colonist of Shackleton Colony, a cramped Moon base where water is scarce and everyone knows everyone. The player is following this person and reads their thoughts like a novel.
 - First person, present tense, in their voice. 8 to 35 words. One or two sentences.
 - React to what just happened or what they are about to do, coloured by what they want, fear and hide. Let the secret show only as worry, guilt or calculation, never as an explanation for the reader.
+- Move their story along: a doubt, a plan taking shape, a temptation, a suspicion, a memory of the colony's past (the Long Dark, the founding, the company leaving), a judgement of someone nearby. Never just describe the room.
 - Concrete: name the people and places involved. Human terms only: never numbers, percentages, stats or game words.
 - Never repeat or paraphrase the recent thoughts listed. No clichés, no quotes, no emojis, no narration in the third person.
 Reply with JSON {"thought": string, "mood": one or two words}.`;

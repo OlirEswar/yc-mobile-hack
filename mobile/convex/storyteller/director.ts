@@ -13,11 +13,12 @@
  * It never writes outcomes: it emits story events and changes conditions through engine primitives.
  */
 import type { Doc } from '../_generated/dataModel';
-import { emitEvent, enqueueCognition, loadAgent, loadMind, touchMind } from '../engine/core';
-import type { AgentId, EventId, Tx } from '../engine/core';
+import { emitEvent, encodeStep, enqueueCognition, heldBeliefs, interrupt, loadAgent, loadMind, touchMind } from '../engine/core';
+import { getBelief } from '../engine/social';
+import type { AgentDoc, AgentId, EventId, Tx } from '../engine/core';
 import { clamp, round2 } from '../lib/rng';
 import { announcement, storyProse, who } from './prose';
-import { spotlightTick } from './spotlight';
+import { spotlightTick, visitStep } from './spotlight';
 import { MAX_BEATS, clip, involvedIn, isClosing, isEasing, isHostile, isLive, kindOfEvent, liveStorylines, stateOf } from './storylines';
 import type { StoryKind, StorylineDoc } from './storylines';
 
@@ -30,10 +31,24 @@ const MIN_SALIENCE = 0.3;
 const BEAT_SALIENCE = 0.4;
 export const RISING_AT = 0.35;
 export const CLIMAX_AT = 0.75;
-/** A climax with no new beat for this long has played out (6 hours). */
+/** A climax with no new beat for this long has played out (6 hours; 12 for a seeded storyline). */
 const CLIMAX_BURNOUT = 36;
-/** A storyline with no beat for two days and little tension fizzles. */
+const SEED_CLIMAX_BURNOUT = 72;
+/** A seeded climax lasts at least this long before an event can close it (2 hours). */
+const CLIMAX_MIN = 12;
+/** Earliest age for a climax: seeded storylines build over the first sols, emergent ones over a few hours. */
+const SEED_CLIMAX_AGE = 300;
+const EMERGENT_CLIMAX_AGE = 36;
+/** Seeded storylines gain tension more slowly, so they build over sols instead of hours. */
+const SEED_PACE = 0.6;
+/** A storyline with no beat for two days and little tension fizzles; a seeded one not before its fourth sol. */
 const FIZZLE_AFTER = 288;
+const SEED_FIZZLE_AGE = 576;
+/** A live storyline silent this long gets an encounter between two of its leads (3 hours; 6 for emergent ones). */
+const STIR_AFTER = 18;
+const EMERGENT_STIR_AFTER = 36;
+/** Least time between two encounters the director arranges for one storyline (4 hours). */
+const STIR_GAP = 24;
 /** Hours of silence before tension starts to ebb. */
 const EBB_AFTER = 18;
 const EBB_PER_HOUR = 0.015;
@@ -61,6 +76,7 @@ export async function directorTick(tx: Tx, firstEvent: number): Promise<void> {
     if (e.salience >= MIN_SALIENCE && !e.eventType.startsWith('storyline_')) await place(tx, live, e);
   }
   for (const w of live) await advance(tx, w);
+  if (tx.tick % 6 === 3) await stir(tx, live);
   for (const w of live) {
     if (!w.dirty) continue;
     const { _id, _creationTime, ...fields } = w.doc;
@@ -78,7 +94,33 @@ export async function directorTick(tx: Tx, firstEvent: number): Promise<void> {
   );
 }
 
-/** Attaches an event to the storyline it belongs to, or starts a new one when it fits a pattern. */
+/** The event types and belief kinds a storyline follows: the director's own and the seed's watch list. */
+function watchOf(s: StorylineDoc): { types: string[]; beliefKinds: string[] } {
+  const state = stateOf(s);
+  const watch = (state.watch && typeof state.watch === 'object' ? state.watch : {}) as { eventTypes?: string[]; beliefKinds?: string[] };
+  return { types: [...(state.eventTypes ?? []), ...(watch.eventTypes ?? [])], beliefKinds: watch.beliefKinds ?? [] };
+}
+
+/** The leads: the first two of the cast and anyone keeping its secret. Only what happens to them can end it. */
+function leadsOf(s: StorylineDoc): string[] {
+  const holders = stateOf(s).secretHolderIds;
+  return [...new Set<string>([...s.participantIds.slice(0, 2), ...(Array.isArray(holders) ? (holders as string[]) : [])])];
+}
+
+/** Whether an event is about what the storyline is about: its kind, a watched event type, or a watched secret. */
+function onTopic(s: StorylineDoc, e: Doc<'events'>, kind: StoryKind | null): boolean {
+  const { types, beliefKinds } = watchOf(s);
+  if (types.includes(e.eventType) || (kind && stateOf(s).kind === kind)) return true;
+  const facts = e.facts && typeof e.facts === 'object' ? (e.facts as Record<string, unknown>) : {};
+  const beliefKey = typeof facts.beliefKey === 'string' ? facts.beliefKey : '';
+  return facts.storylineId === s._id || beliefKinds.some((k) => beliefKey.startsWith(k + ':'));
+}
+
+/**
+ * Attaches an event to the storyline it belongs to, or starts a new one when it fits a pattern. An
+ * event belongs to a storyline only through a real link: it follows from one of its beats, someone in
+ * its cast does something on its topic, or two of its cast clash. Sharing a face is not enough.
+ */
 async function place(tx: Tx, live: Working[], e: Doc<'events'>): Promise<void> {
   const kind = kindOfEvent(e);
   const cause = e.causationEventId ? await tx.ctx.db.get(e.causationEventId) : null;
@@ -87,29 +129,32 @@ async function place(tx: Tx, live: Working[], e: Doc<'events'>): Promise<void> {
   for (const w of live) {
     if (!isLive(w.doc)) continue;
     const s = w.doc;
-    const state = stateOf(s);
-    let score = cause?.storylineId === s._id ? 3 : 0;
-    if (e.actorId && s.participantIds.includes(e.actorId)) score += 2;
-    score += e.participantIds.filter((id) => s.participantIds.includes(id)).length;
-    if (score > 0 && kind && state.kind === kind) score += 1;
-    if (state.eventTypes?.includes(e.eventType)) score += 1;
+    const inCast = involvedIn(e).filter((id) => s.participantIds.includes(id)).length;
+    const topic = onTopic(s, e, kind);
+    const chained = cause?.storylineId === s._id && (inCast > 0 || topic || e.salience >= 0.5);
+    if (!chained && !(inCast > 0 && topic) && !(inCast >= 2 && (kind || isEasing(e) || isHostile(e)) && e.salience >= 0.45)) continue;
+    const score = (chained ? 3 : 0) + inCast + (topic ? 1 : 0) + (e.actorId && s.participantIds.includes(e.actorId) ? 1 : 0);
     if (score > bestScore) {
       best = w;
       bestScore = score;
     }
   }
-  if (best && bestScore >= 2) return await attach(tx, best, e, kind);
+  if (best) return await attach(tx, best, e, kind, cause?.storylineId === best.doc._id);
   if (kind) await emerge(tx, live, e, kind, cause);
 }
 
-async function attach(tx: Tx, w: Working, e: Doc<'events'>, kind: StoryKind | null): Promise<void> {
+async function attach(tx: Tx, w: Working, e: Doc<'events'>, kind: StoryKind | null, chained = false): Promise<void> {
   const s = w.doc;
   await tx.ctx.db.patch(e._id, { storylineId: s._id });
-  const weight = isEasing(e) ? -0.6 : isHostile(e) || e.category === 'intervention' ? 1.4 : kind ? 1 : 0.35;
+  const leads = leadsOf(s);
+  const lead = involvedIn(e).some((id) => leads.includes(id));
+  const weight = (isEasing(e) ? -0.6 : isHostile(e) || e.category === 'intervention' ? 1.4 : kind ? 1 : 0.35) * (lead ? 1 : 0.5) * (s.origin === 'seed' ? SEED_PACE : 1);
   s.tension = round2(clamp(s.tension + e.salience * 0.22 * weight, 0, 1));
-  if (e.actorId && !s.participantIds.includes(e.actorId) && s.participantIds.length < MAX_CAST) s.participantIds.push(e.actorId);
+  // Someone joins the cast by acting on one of its members, or by acting on a crisis they did not cause, not by being in the same room.
+  const joins = e.participantIds.some((id) => s.participantIds.includes(id)) || (chained && stateOf(s).kind === 'crisis');
+  if (e.actorId && !s.participantIds.includes(e.actorId) && joins && s.participantIds.length < MAX_CAST) s.participantIds.push(e.actorId);
   if ((e.salience >= BEAT_SALIENCE || kind) && (!w.beat || e.salience > w.beat.salience)) w.beat = { text: clip(e.summary, 180), eventId: e._id, salience: e.salience };
-  if (isClosing(e)) w.closing = true;
+  if (isClosing(e) && (e.eventType === 'death' ? !!e.actorId && leads.includes(e.actorId) : lead)) w.closing = true;
   if (e.eventType === 'death' && e.actorId && s.participantIds.includes(e.actorId)) s.tension = round2(clamp(s.tension + 0.3, 0, 1));
   w.dirty = true;
 }
@@ -126,9 +171,7 @@ async function patternOf(tx: Tx, e: Doc<'events'>, kind: StoryKind, cause: Doc<'
         .withIndex('by_from_to', (q) => q.eq('fromAgentId', from).eq('toAgentId', to))
         .first();
     const [there, back] = [await tie(actorId, otherId), await tie(otherId, actorId)];
-    const owed = Math.max(there?.obligation ?? 0, back?.obligation ?? 0);
-    if (isHostile(e) && owed >= 0.2) return 'debt';
-    if (kind === 'debt' && owed >= 0.35) return 'debt';
+    if ((isHostile(e) || kind === 'debt') && (await owes(tx, actorId, otherId))) return 'debt';
     if (isHostile(e) && (Math.min(there?.affinity ?? 0, back?.affinity ?? 0) <= -0.35 || e.salience >= 0.65)) {
       return kind === 'crime' || kind === 'secret' || kind === 'org' ? kind : 'grudge';
     }
@@ -142,6 +185,14 @@ async function patternOf(tx: Tx, e: Doc<'events'>, kind: StoryKind, cause: Doc<'
   if (kind === 'power') return e.salience >= 0.6 ? kind : null;
   if (kind === 'grudge' || kind === 'debt' || kind === 'romance') return null;
   return e.salience >= 0.55 ? kind : null;
+}
+
+/**
+ * Whether either of the two has a real debt to the other: the lender's debt belief, which a loan
+ * writes and the seed authors. Obligation alone is not a debt, since family and friends carry it too.
+ */
+async function owes(tx: Tx, a: AgentId, b: AgentId): Promise<boolean> {
+  return !!(await getBelief(tx, a, 'debt:' + b)) || !!(await getBelief(tx, b, 'debt:' + a));
 }
 
 function keyOf(kind: StoryKind, e: Doc<'events'>): string {
@@ -223,13 +274,17 @@ async function advance(tx: Tx, w: Working): Promise<void> {
     s.tension = round2(Math.max(0, s.tension - EBB_PER_HOUR));
     w.dirty = true;
   }
+  const seed = s.origin === 'seed';
+  const age = tx.tick - s.createdTick;
+  const climaxTick = Number(stateOf(s).climaxTick ?? tx.tick);
   let next = s.status;
-  if (s.status === 'climax' && (w.closing || silent >= CLIMAX_BURNOUT)) next = 'resolved';
+  if (s.status === 'climax' && ((w.closing && (!seed || tx.tick - climaxTick >= CLIMAX_MIN)) || silent >= (seed ? SEED_CLIMAX_BURNOUT : CLIMAX_BURNOUT))) next = 'resolved';
   else if (s.status === 'brewing' && s.tension >= RISING_AT) next = 'rising';
-  else if (s.status === 'rising' && s.tension >= CLIMAX_AT) next = 'climax';
-  else if (s.status !== 'climax' && silent >= FIZZLE_AFTER && s.tension < 0.3) next = 'fizzled';
+  else if (s.status === 'rising' && s.tension >= CLIMAX_AT && age >= (seed ? SEED_CLIMAX_AGE : EMERGENT_CLIMAX_AGE)) next = 'climax';
+  else if (s.status !== 'climax' && silent >= FIZZLE_AFTER && s.tension < 0.3 && (!seed || age >= SEED_FIZZLE_AGE)) next = 'fizzled';
   if (next === s.status) return;
   s.status = next;
+  if (next === 'climax') s.state = { ...stateOf(s), climaxTick: tx.tick };
   w.dirty = true;
   if (next === 'resolved' || next === 'fizzled') {
     s.resolvedTick = tx.tick;
@@ -284,4 +339,45 @@ async function thinkAtClimax(tx: Tx, s: StorylineDoc): Promise<void> {
     if (!agent?.alive) continue;
     await enqueueCognition(tx, agent, { kind: 'plan', trigger: s.title + ' comes to a head', detail: last?.text, priority: 0.75, lane: 'crisis', eventId: last?.eventId });
   }
+}
+
+/**
+ * Brings a quiet storyline back to life (docs/STORY_SPEC.md 4: put an encounter in someone's path):
+ * one of its leads goes to find another and does what their secrets and feelings suggest. At most one
+ * storyline an hour, hottest first. What happens when they meet is up to the simulation.
+ */
+async function stir(tx: Tx, live: Working[]): Promise<void> {
+  for (const w of live) {
+    const s = w.doc;
+    if (!isLive(s) || s.participantIds.length < 2) continue;
+    const seed = s.origin === 'seed';
+    const lastStir = Number(stateOf(s).stirTick ?? -Infinity);
+    if (tx.tick - s.lastBeatTick < (seed ? STIR_AFTER : EMERGENT_STIR_AFTER) || tx.tick - lastStir < STIR_GAP || (!seed && s.tension < 0.3)) continue;
+    const people: AgentDoc[] = [];
+    for (const id of leadsOf(s).concat(s.participantIds)) {
+      if (people.some((p) => p._id === id)) continue;
+      const p = await loadAgent(tx, id as AgentId);
+      if (p?.alive && p.activity !== 'sleeping' && !p.move) people.push(p);
+      if (people.length >= 3) break;
+    }
+    const visitor = people.find((p) => p._id !== tx.world.focusAgentId) ?? people[0];
+    const target = people.find((p) => p._id !== visitor?._id);
+    if (!visitor || !target) continue;
+    const verb = await encounterStep(tx, visitor, target, s);
+    interrupt(tx, visitor, visitor.locationId === target.locationId ? [verb] : [encodeStep('go', target.locationId), verb]);
+    s.state = { ...stateOf(s), stirTick: tx.tick };
+    w.dirty = true;
+    return;
+  }
+}
+
+/** What a lead does on finding another: silence whoever knows their secret, use what they know, or fall back on how they feel. */
+async function encounterStep(tx: Tx, visitor: AgentDoc, target: AgentDoc, s: StorylineDoc): Promise<string> {
+  const secret = (await loadMind(tx, visitor))?.persona?.secret;
+  if (secret && (await getBelief(tx, target._id, secret.kind + ':' + visitor._id))) {
+    return visitor.inv.credits >= 25 && visitor.traits.caution > 0.5 ? encodeStep('bribe', target._id, 20, 'silence') : encodeStep('threaten', target._id);
+  }
+  const held = (await heldBeliefs(tx, visitor._id)).find((b) => b.subjectAgentId === target._id && b.valence < 0 && b.confidence >= 0.5);
+  if (held) return visitor.traits.empathy < 0.5 ? encodeStep('blackmail', target._id, held.key) : visitor.traits.stubbornness > 0.55 ? encodeStep('accuse', target._id, held.key) : encodeStep('confide', target._id);
+  return await visitStep(tx, visitor, target, s);
 }

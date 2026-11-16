@@ -9,7 +9,7 @@ import { pick, rand, round1, round2 } from '../lib/rng';
 import { FAILED, act, fail, isRes, isTraded, roll, say, units } from './act';
 import type { Res } from './act';
 import { droughtSeverity, firstName, isLocation, locName, scarcityCause, stormAt } from './conditions';
-import { adjustRelationship, agentsAt, emitEvent, killAgent, learnBelief, loadAgent, loadHousehold, loadMind, touch, touchHousehold, touchMind } from './core';
+import { adjustRelationship, agentsAt, emitEvent, killAgent, learnBelief, loadAgent, loadHousehold, loadMind, patchBelief, touch, touchHousehold, touchMind } from './core';
 import type { AgentDoc, Tx } from './core';
 import { addDebt, addDeed, debtsTo, ledgerOf } from './ledger';
 import { partyFor } from './people';
@@ -294,7 +294,7 @@ export async function repay(tx: Tx, a: AgentDoc, who: string | undefined): Promi
   const belief = await getBelief(tx, b._id, 'debt:' + a._id);
   if (belief) {
     const left = ledger.owes.filter((d) => d.to === b._id).map((d) => units(round1(d.qty), d.res)).join(' and ');
-    await tx.ctx.db.patch(belief._id, { text: whole ? a.name + ' paid back everything owed to ' + b.name + '.' : a.name + ' still owes ' + b.name + ' ' + left + '.', valence: whole ? 0.2 : -0.05, acted: tx.tick });
+    await patchBelief(tx, belief, { text: whole ? a.name + ' paid back everything owed to ' + b.name + '.' : a.name + ' still owes ' + b.name + ' ' + left + '.', valence: whole ? 0.2 : -0.05, acted: tx.tick });
   }
   await emitEvent(tx, {
     category: 'economy',

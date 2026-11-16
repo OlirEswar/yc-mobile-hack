@@ -5,19 +5,28 @@
  * session instead of the colony's planning budget.
  */
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { action, internalMutation, internalQuery, query } from './_generated/server';
-import { dayOf } from './engine/core';
+import type { QueryCtx } from './_generated/server';
+import { beginTx, commitTx, dayOf, loadAgent, loadMind, replan } from './engine/core';
+import { admits, dailyCapUsd, recordSpend, rollDay, spentToday } from './cognition/budget';
 import { loadAskContext } from './cognition/context';
 import type { AskContext } from './cognition/context';
 import { askRequest } from './cognition/prompt';
 import { chat, providerConfig } from './cognition/provider';
 import { parseJson, validateAnswer } from './cognition/validate';
-import { asAgentId, asWorldId, getSession } from './lib/auth';
+import { asAgentId, asWorldId, authorizeWorld, getSession } from './lib/auth';
+import { RATE_LIMITS } from './lib/constants';
+import { round2 } from './lib/rng';
+import { POWERS } from './powers';
+import { isFailure } from './powers/common';
+import { queueThought, writeThought } from './storyteller/monologue';
+import { plantRequest, reactionLine, readByRules, takesItUp, validateReading } from './storyteller/plant';
+import type { Person, Reading } from './storyteller/plant';
 import { storyHooks } from './storyteller/hooks';
 import { isLive, liveStorylines, toStorylinePublic } from './storyteller/storylines';
-import type { AskResult, AskTurn, FocusState, ThoughtLine } from '../shared/types';
+import type { AskResult, AskTurn, FocusState, PlantResult, ThoughtLine } from '../shared/types';
 
 const THOUGHTS_SHOWN = 20;
 /** Least wall-clock gap between two questions from one session, and questions per sim day. */
@@ -141,5 +150,141 @@ export const ask = action({
     if (!answer) return refuse('unavailable', context.name.split(' ')[0] + ' stays silent.');
     const turn = await ctx.runMutation(internal.focus.recordAsk, { sessionId: begun.sessionId, agentId: begun.agentId, question: begun.question, answer });
     return turn ? { ok: true, turn } : refuse('not_found', 'No such colonist.');
+  },
+});
+
+
+const MIN_PLANT = 3;
+const MAX_PLANT = 200;
+const PEOPLE_LISTED = 120;
+
+type PlantBegun = { ok: true; agentId: Id<'agents'>; text: string; useLlm: boolean; who: { name: string; voice?: string; want?: string }; people: Person[] };
+
+/** Who may be named in a planted thought: the living colonists the target knows first, then everyone else. */
+async function plantPeople(ctx: QueryCtx, agent: Doc<'agents'>): Promise<Person[]> {
+  const ties = await ctx.db
+    .query('relationships')
+    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', agent._id))
+    .order('desc')
+    .take(40);
+  const all = (await ctx.db
+    .query('agents')
+    .withIndex('by_world_seq', (q) => q.eq('worldId', agent.worldId))
+    .take(400)).filter((x) => x.alive && x._id !== agent._id);
+  const known = new Set(ties.map((t) => t.toAgentId as string));
+  return [...all.filter((x) => known.has(x._id)), ...all.filter((x) => !known.has(x._id))].map((x) => ({ id: x._id, name: x.name }));
+}
+
+/** Checks a planted thought (session, colonist, length, the powers' rate limit) without spending anything. */
+export const beginPlant = internalMutation({
+  args: { sessionToken: v.string(), worldId: v.string(), agentId: v.string(), text: v.string() },
+  handler: async (ctx, args): Promise<PlantBegun | PlantResult> => {
+    const auth = await authorizeWorld(ctx, args.sessionToken, args.worldId);
+    if (!auth) return { ok: false, message: 'This session cannot reach that world.' };
+    const agentId = asAgentId(ctx, args.agentId);
+    const agent = agentId ? await ctx.db.get(agentId) : null;
+    if (!agent || agent.worldId !== auth.world._id) return { ok: false, message: 'No such colonist.' };
+    if (!agent.alive) return { ok: false, message: agent.name.split(' ')[0] + ' is beyond any voice now. Their thoughts went quiet when they died.' };
+    const text = args.text.replace(/\s+/g, ' ').trim();
+    if (text.length < MIN_PLANT || text.length > MAX_PLANT) return { ok: false, message: 'A thought needs ' + MIN_PLANT + ' to ' + MAX_PLANT + ' characters.' };
+    const now = Date.now();
+    if (auth.session.powerTimes.filter((t) => now - t < RATE_LIMITS.powerWindowMs).length >= RATE_LIMITS.powersPerWindow) {
+      return { ok: false, message: 'Too many voices at once. Let their head clear for a moment.' };
+    }
+    const mind = agent.mindId ? await ctx.db.get(agent.mindId) : null;
+    const llm = auth.world.llm;
+    const useLlm = llm.enabled && !((llm.disabledUntil ?? 0) > now) && spentToday(llm, now) < dailyCapUsd();
+    return { ok: true, agentId: agent._id, text, useLlm, who: { name: agent.name, voice: mind?.persona?.voice, want: mind?.persona?.want }, people: (await plantPeople(ctx, agent)).slice(0, PEOPLE_LISTED) };
+  },
+});
+
+/**
+ * Applies a read thought in one Tx: the whisper power (intervention event, belief, goal, crisis
+ * plan), the planted line in the monologue, a plan interrupt, and the reaction, an LLM thought job
+ * when the LLM can take one, else a rules line. Counts as a power against the session's limit.
+ */
+export const applyPlant = internalMutation({
+  args: {
+    sessionToken: v.string(),
+    worldId: v.string(),
+    agentId: v.id('agents'),
+    text: v.string(),
+    reading: v.object({ presetKey: v.string(), kind: v.optional(v.string()), aboutId: v.optional(v.id('agents')), strength: v.number(), surfaced: v.string() }),
+    usage: v.optional(v.object({ tokensIn: v.number(), tokensOut: v.number() })),
+  },
+  handler: async (ctx, args): Promise<PlantResult> => {
+    const auth = await authorizeWorld(ctx, args.sessionToken, args.worldId);
+    if (!auth) return { ok: false, message: 'This session cannot reach that world.' };
+    const { session, world } = auth;
+    const now = Date.now();
+    const powerTimes = session.powerTimes.filter((t) => now - t < RATE_LIMITS.powerWindowMs);
+    if (powerTimes.length >= RATE_LIMITS.powersPerWindow) return { ok: false, message: 'Too many voices at once. Let their head clear for a moment.' };
+    const tx = beginTx(ctx, world);
+    if (args.usage) recordSpend(tx.world.llm, args.usage.tokensIn, args.usage.tokensOut, now);
+    const agent = await loadAgent(tx, args.agentId);
+    if (!agent || !agent.alive) return { ok: false, message: 'Their thoughts went quiet before the idea could land.' };
+    const reading: Reading = args.reading;
+    rollDay(tx.world.llm, tx.world.config.llm, tx.tick);
+    const thinks = providerConfig() !== null && tx.world.llm.enabled && !((tx.world.llm.disabledUntil ?? 0) > now) && admits(tx.world.llm, tx.world.config.llm, 'thought', 'focus', now);
+    const accepted = thinks || takesItUp(agent, reading);
+    const outcome = await POWERS.whisper(tx, {
+      agentId: agent._id,
+      presetKey: reading.presetKey,
+      text: args.text,
+      strength: accepted ? reading.strength : round2(reading.strength * 0.5),
+      ...(reading.aboutId ? { aboutAgentId: reading.aboutId } : {}),
+      ...(reading.kind ? { kind: reading.kind } : {}),
+    });
+    if (isFailure(outcome)) return { ok: false, message: outcome.message };
+    replan(tx, agent, { now: true });
+    await writeThought(tx, agent._id, reading.surfaced, 'planted');
+    const mind = (await loadMind(tx, agent))!;
+    if (thinks) {
+      await queueThought(tx, agent, mind, {
+        trigger: 'this thought just surfaced in their head out of nowhere: "' + reading.surfaced + '"',
+        detail: 'React to it in your own words: does it ring true, and what will you do about it?',
+        eventId: tx.eventIds[0],
+      });
+    } else {
+      const about = reading.aboutId ? await loadAgent(tx, reading.aboutId) : null;
+      await writeThought(tx, agent._id, reactionLine(agent, mind, reading, about?.name, accepted), 'rules');
+    }
+    await commitTx(tx);
+    await ctx.db.patch(session._id, { powerTimes: [...powerTimes, now] });
+    return { ok: true, message: reading.surfaced };
+  },
+});
+
+/**
+ * Plant a thought in a colonist's head from free text. The LLM reads it into the whisper machinery
+ * (preset, suspicion kind, subject, strength) and words it as their own thought; without the LLM,
+ * keywords and names do. It then lands as a whisper and the colonist reacts to it.
+ */
+export const plant = action({
+  args: { sessionToken: v.string(), worldId: v.string(), agentId: v.string(), text: v.string() },
+  handler: async (ctx, args): Promise<PlantResult> => {
+    const begun = await ctx.runMutation(internal.focus.beginPlant, args);
+    if (!('agentId' in begun)) return begun;
+    let reading: Reading | null = null;
+    let usage: { tokensIn: number; tokensOut: number } | undefined;
+    const config = providerConfig();
+    if (config && begun.useLlm) {
+      try {
+        const result = await chat(config, plantRequest(begun.text, begun.who, begun.people));
+        usage = { tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+        reading = validateReading(parseJson(result.text), begun.people);
+      } catch {
+        reading = null;
+      }
+    }
+    reading ??= readByRules(begun.text, begun.people);
+    return await ctx.runMutation(internal.focus.applyPlant, {
+      sessionToken: args.sessionToken,
+      worldId: args.worldId,
+      agentId: begun.agentId,
+      text: begun.text,
+      reading: { presetKey: reading.presetKey, surfaced: reading.surfaced, strength: reading.strength, ...(reading.kind ? { kind: reading.kind } : {}), ...(reading.aboutId ? { aboutId: reading.aboutId } : {}) },
+      ...(usage ? { usage } : {}),
+    });
   },
 });

@@ -11,7 +11,7 @@ import { FARM_WATER_FLOOR, PRODUCTION } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import { ROSTER_WORKING, locChar } from '../seed/insert';
 import { addStock, droughtSeverity, locName, stock, stormAt } from '../engine/conditions';
-import { agentIndex, emitEvent, enqueueCognition, learnBelief, loadAgent, loadHousehold, loadMind, touch, touchHousehold, touchMind } from '../engine/core';
+import { agentIndex, emitEvent, enqueueCognition, learnBelief, loadAgent, loadHousehold, loadMind, touch, touchHousehold, touchMind, tiesOf } from '../engine/core';
 import type { AgentDoc, EventId, MindDoc, Tx } from '../engine/core';
 import { allAgents } from '../engine/state';
 import { orgsOf } from './orgs';
@@ -92,7 +92,7 @@ export async function observatoryHourly(tx: Tx, meta: Meta): Promise<void> {
   const open = availableDiscoveries(meta.discovered).filter((d) => d.field === 'mystery' || d.field === 'habitat' || d.field === 'energy' || d.field === 'water');
   const target = open.sort((x, y) => (rows.get(y.key)?.progress ?? 0) / y.effort - (rows.get(x.key)?.progress ?? 0) / x.effort)[0];
   if (!target) return;
-  await addProgress(tx, meta, target, staff.length * 0.12 * (1 + bonusFor(meta, 'research', 'observatory')), staff.slice(0, 3));
+  await addProgress(tx, meta, target, staff.length * 0.07 * (1 + bonusFor(meta, 'research', 'observatory')), staff.slice(0, 3));
 }
 
 /** Once a day: health, repairs, calm, treasury, stock, pantries, incomes, playgrounds, statues and memorials. */
@@ -204,7 +204,7 @@ export async function experimentDone(tx: Tx, a: AgentDoc, ticks: number): Promis
   const skill = mind.skills[FIELD_SKILLS[d.field]] ?? 10;
   const atPlace = FIELD_LOCATIONS[d.field] === a.locationId ? 1.3 : 1;
   const flash = roll(tx, a.seq, 'flash');
-  const amount = 0.4 * (ticks / 6) * (0.4 + skill / 70) * (0.6 + a.traits.curiosity * 0.6) * (1 + bonusFor(meta, 'research', a.locationId)) * atPlace * (0.7 + flash * 0.6);
+  const amount = 0.25 * (ticks / 6) * (0.4 + skill / 70) * (0.6 + a.traits.curiosity * 0.6) * (1 + bonusFor(meta, 'research', a.locationId)) * atPlace * (0.7 + flash * 0.6);
   mind.skills[FIELD_SKILLS[d.field]] = round2(Math.min(100, skill + ticks * 0.04));
   touchMind(tx, mind);
   const row = await tx.ctx.db.query('research').withIndex('by_world_key', (q) => q.eq('worldId', tx.world._id).eq('key', d.key)).first();
@@ -343,7 +343,7 @@ async function structuresAt(tx: Tx) {
 
 /** Who a statue honours: the builder's most admired person, or a famous name. */
 async function honoree(tx: Tx, a: AgentDoc): Promise<AgentDoc | null> {
-  const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id)).order('desc').take(10);
+  const ties = await tiesOf(tx, a._id, 10);
   const best = ties.filter((t) => t.affinity > 0.3).sort((x, y) => y.affinity - x.affinity)[0];
   return best ? await loadAgent(tx, best.toAgentId) : null;
 }

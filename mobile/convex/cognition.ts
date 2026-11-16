@@ -11,9 +11,10 @@ import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import type { ActionCtx, MutationCtx } from './_generated/server';
 import { TICKS_PER_DAY } from '../shared/colony';
+import { DEFAULT_LLM_CONFIG } from './lib/constants';
 import { beginTx, commitTx, loadAgent, loadMind, setPlan, touch, touchMind } from './engine/core';
 import type { AgentDoc, MindDoc, Tx } from './engine/core';
-import { LANE_RANK, admits, charge, rollDay } from './cognition/budget';
+import { LANE_RANK, admits, charge, recordSpend, rollDay } from './cognition/budget';
 import { loadJobContext } from './cognition/context';
 import type { JobContext } from './cognition/context';
 import { planRequest, speechRequest, thoughtRequest } from './cognition/prompt';
@@ -135,7 +136,7 @@ export const claim = internalMutation({
         await end(job, 'stale', 'mind moved');
         continue;
       }
-      if (!admits(llm, config, job.kind, job.lane)) {
+      if (!admits(llm, config, job.kind, job.lane, now)) {
         await end(job, 'dropped', job.kind === 'speech' ? 'speech allowance spent' : 'daily budget spent');
         continue;
       }
@@ -268,6 +269,7 @@ export const finish = internalMutation({
       llm.totalCalls += 1;
       llm.tokensIn += a.usage.tokensIn;
       llm.tokensOut += a.usage.tokensOut;
+      recordSpend(llm, a.usage.tokensIn, a.usage.tokensOut, Date.now());
       llm.failStreak = 0;
       delete llm.disabledUntil;
     }
@@ -328,7 +330,8 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
     causeEventId: job.eventId,
     now: job.lane !== 'normal',
   });
-  mind.llmCooldownUntilTick = tx.tick + tx.world.config.llm.cooldownTicks;
+  mind.llmCooldownUntilTick = tx.tick + (job.lane === 'orbit' ? (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks) : tx.world.config.llm.cooldownTicks);
+  mind.lastLlmPlanTick = tx.tick;
   touchMind(tx, mind);
   // A plan that starts later would say its line at the wrong moment.
   if (plan.speech && job.lane !== 'normal') {

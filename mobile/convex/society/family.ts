@@ -23,6 +23,7 @@ import {
   touch,
   touchHousehold,
   touchMind,
+  tiesOf,
 } from '../engine/core';
 import type { AgentDoc, EventId, MindDoc, Tx } from '../engine/core';
 import { presentWith, tie } from '../engine/social';
@@ -318,7 +319,7 @@ export async function birth(tx: Tx, carrier: AgentDoc, partner: AgentDoc | null,
 /** Children pick up their parents' worst grudge. */
 async function inheritGrudge(tx: Tx, child: AgentDoc, parents: AgentDoc[], eventId: EventId): Promise<void> {
   for (const p of parents) {
-    const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', p._id)).order('desc').take(12);
+    const ties = await tiesOf(tx, p._id, 12);
     const worst = ties.filter((t) => t.toAlive && t.affinity < -0.3).sort((x, y) => x.affinity - y.affinity)[0];
     if (!worst) continue;
     const rival = await loadAgent(tx, worst.toAgentId);

@@ -6,7 +6,7 @@
  */
 import { TICKS_PER_DAY } from '../../shared/colony';
 import { clamp } from '../lib/rng';
-import { loadMind } from './core';
+import { loadMind, tiesOf } from './core';
 import type { AgentDoc, Tx } from './core';
 import { beliefsOf } from './social';
 import { simState } from './state';
@@ -35,11 +35,7 @@ export async function pressure(tx: Tx, a: AgentDoc): Promise<Pressure> {
     else if (b.kind === 'knows_secret') parts.push({ w: 0.45, why: b.subjectName + ' may know their secret' });
     else if (b.kind === 'affair' && b.sourceType === 'observed') parts.push({ w: 0.5, why: 'betrayed by ' + b.subjectName });
   }
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   for (const t of ties) {
     if (!t.toAlive) continue;
     if (t.affinity <= -0.45) parts.push({ w: -t.affinity * 0.4, why: 'feuding with ' + t.toName });

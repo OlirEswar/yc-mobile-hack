@@ -17,7 +17,7 @@ export const tick = internalMutation({
   args: { worldId: v.id('worlds'), token: v.number() },
   handler: async (ctx, { worldId, token }) => {
     const world = await ctx.db.get(worldId);
-    if (!world || world.loop.token !== token) return;
+    if (!world || world.loop.token !== token || !world.loop.running) return;
     const now = Date.now();
     if (!shouldRun(world, now)) {
       await ctx.db.patch(worldId, { loop: { ...world.loop, running: false }, status: 'paused' });

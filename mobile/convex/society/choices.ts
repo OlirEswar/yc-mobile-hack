@@ -9,7 +9,7 @@ import type { StructureDef } from '../../shared/society';
 import { clamp } from '../lib/rng';
 import { PRIMARY_SKILL } from '../seed/build';
 import { firstName, isLocation, locName, personalTick, stormAt } from '../engine/conditions';
-import { encodeStep, loadAgent, loadMind } from '../engine/core';
+import { encodeStep, loadAgent, loadMind, tiesOf } from '../engine/core';
 import type { AgentDoc, MindDoc, StepType, Tx } from '../engine/core';
 import { ACCUSABLE } from '../engine/social';
 import { availableDiscoveries, canBuildHere } from './craft';
@@ -198,7 +198,7 @@ async function orgChoices(tx: Tx, a: AgentDoc, mind: MindDoc, org: Doc<'organiza
 }
 
 async function recruitTarget(tx: Tx, a: AgentDoc, org: Doc<'organizations'>): Promise<AgentDoc | null> {
-  const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id)).order('desc').take(12);
+  const ties = await tiesOf(tx, a._id, 12);
   let best: { b: AgentDoc; s: number } | null = null;
   for (const t of ties.filter((x) => x.toAlive && x.affinity > -0.1 && !org.memberIds.includes(x.toAgentId)).slice(0, 4)) {
     const b = await loadAgent(tx, t.toAgentId);
@@ -262,7 +262,7 @@ async function familyChoices(tx: Tx, a: AgentDoc, mind: MindDoc, r: (s: string) 
     break;
   }
   if (mind.ageBand === 'elder' || r('romance') > 0.3) return out;
-  const ties = await tx.ctx.db.query('relationships').withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id)).order('desc').take(10);
+  const ties = await tiesOf(tx, a._id, 10);
   if (s.partnerId) {
     if (s.childIds.length < 2 && v.family > 0.55 && r('kid') < 0.25) {
       const partner = await loadAgent(tx, s.partnerId);

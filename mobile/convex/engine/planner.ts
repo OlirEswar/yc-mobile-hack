@@ -6,7 +6,7 @@
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
 import { societyChoices } from '../society/hooks';
-import { BASE_PRICES, BONUS_AT, CUT_AT } from '../lib/constants';
+import { BASE_PRICES, BONUS_AT, CUT_AT, NORMAL_LLM_SHARE } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
 import {
   droughtSeverity,
@@ -34,6 +34,7 @@ import {
   setPlan,
   touch,
   touchMind,
+  tiesOf,
 } from './core';
 import type { AgentDoc, BeliefDoc, EventId, Tx } from './core';
 import { desireChoices, onStrike } from './desires';
@@ -61,11 +62,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   const p = personalTick(a, tx.tick);
   const lunch = p >= LUNCH[0] && p < LUNCH[1];
   const shift = p >= SHIFT_START && p < SHIFT_END && !lunch;
-  const ties = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_strength', (q) => q.eq('fromAgentId', a._id))
-    .order('desc')
-    .take(16);
+  const ties = await tiesOf(tx, a._id, 16);
   const c: Ctx = {
     tx,
     a,
@@ -120,6 +117,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   if (chosen.cooldown) cool(tx, mind, chosen.cooldown.key, chosen.cooldown.ticks);
   touchMind(tx, mind);
   if (chosen.llm) await enqueueCognition(tx, a, chosen.llm);
+  const why = chosen.trigger ?? chosen.intent;
   if (tx.world.focusAgentId === a._id && (!chosen.routine || p < 6)) {
     await enqueueCognition(tx, a, {
       kind: 'plan',
@@ -127,6 +125,11 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
       priority: 0.9,
       lane: 'focus',
     });
+  } else if (tx.world.orbitIds?.includes(a._id) && chosen.steps.some((s) => !s.startsWith('sleep|') && !s.startsWith('go|'))) {
+    // Close to the followed colonist: the player is watching them react, so they think it through.
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: 'near the person the player follows; habit says: ' + why, priority: 0.8, lane: 'orbit' });
+  } else if (!chosen.routine && !chosen.llm && rand(tx.world.seed, tx.tick, a.seq, 'llm-share') < NORMAL_LLM_SHARE) {
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: why, priority: 0.4, lane: 'normal', eventId: chosen.causeEventId });
   }
 }
 
@@ -211,8 +214,8 @@ function leisure(c: Ctx): Choice | null {
   const plan = new Plan(a.locationId).go(venue, venue === a.homeLocationId ? 'Going home to unwind' : 'Heading to ' + locName(venue) + ' for some company');
   if (shopper) plan.add('buy', [r < 0.08 ? 'water' : 'food', 1], 'Browsing the stalls on the concourse');
   plan.add('talk', gossip ? ['any', hot!] : ['any'], gossip ? 'Sharing the latest talk at ' + locName(venue) : 'Chatting at ' + locName(venue));
-  plan.add('rest', [6], 'Lingering at ' + locName(venue));
-  if (a.traits.sociability > 0.75) plan.add('talk', ['any'], 'Catching up with someone else at ' + locName(venue));
+  plan.add('rest', [3], 'Lingering at ' + locName(venue));
+  plan.add('talk', ['any'], 'Catching up with someone else at ' + locName(venue));
   return {
     score: 0.32 + social / 160 + a.traits.sociability * 0.18 - (p < SHIFT_START ? 0.1 : 0),
     routine: !gossip,
@@ -761,8 +764,8 @@ async function beliefChoices(c: Ctx): Promise<Choice[]> {
   const accused = (await simState(tx)).accused ?? {};
   for (const b of c.beliefs) {
     if (!b.subjectAgentId || b.subjectAgentId === a._id || b.valence >= 0 || !ACCUSABLE.has(b.kind) || b.confidence < 0.45) continue;
-    // People act on a belief once, and again only when something new has reinforced it since.
-    if (b.acted !== undefined && b.lastReinforcedTick <= b.acted) continue;
+    // People act on a belief once, and again only when something new has reinforced it since, and not twice in a day.
+    if (b.acted !== undefined && (b.lastReinforcedTick <= b.acted || tx.tick - b.acted < 144)) continue;
     const subject = await loadAgent(tx, b.subjectAgentId);
     if (!subject?.alive) continue;
     // A case security has closed is old news, until the person does it again.

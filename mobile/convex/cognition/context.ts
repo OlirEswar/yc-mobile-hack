@@ -394,7 +394,7 @@ async function thoughtContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'a
     intent: mind.plan?.intent,
     storylines: await storylinesOf(ctx, world._id, agent._id, 2),
     memories: await memoryLines(ctx, world, agent._id, 4),
-    recent: await recentThoughts(ctx, agent._id, 4),
+    recent: await recentThoughts(ctx, agent._id, 8),
     trigger: job.trigger,
     detail: job.detail,
   };

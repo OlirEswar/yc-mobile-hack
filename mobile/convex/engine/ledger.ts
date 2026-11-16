@@ -45,7 +45,8 @@ export function strategyMemory(mind: MindDoc, strategy: string, tick: number): n
     const fresh = tick - t.tick < 288 ? 1 : 0.5;
     shift += (t.ok ? 0.1 : -0.22) * fresh;
   }
-  return shift;
+  // What worked before helps, but never so much that someone stops trying anything else.
+  return Math.max(-0.5, Math.min(0.2, shift));
 }
 
 export function addDebt(tx: Tx, mind: MindDoc, lender: AgentDoc, res: string, qty: number, eventId: EventId): Debt {

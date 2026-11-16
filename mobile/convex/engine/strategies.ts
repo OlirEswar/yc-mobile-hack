@@ -26,7 +26,7 @@ export function strategyWeights(a: AgentDoc, mind: MindDoc): Record<Strategy, nu
   const out = {} as Record<Strategy, number>;
   for (const s of STRATEGIES) {
     const i = order.indexOf(s);
-    out[s] = i >= 0 ? Math.max(0.35, 1 - i * 0.12) : CRIMES.has(s) ? 0.05 : 0.2;
+    out[s] = i >= 0 ? Math.max(0.45, 1 - i * 0.12) : CRIMES.has(s) ? 0.05 : 0.3;
   }
   return out;
 }
@@ -109,34 +109,34 @@ async function needOptions(c: Ctx, res: 'food' | 'water', need: number): Promise
 
   if (household && household.rationDay <= c.day && stock(tx.world, 'depot', res) >= 1) {
     const dep = await dependant(c);
-    add({ s: 'work', fit: 0.95, intent: intentLine('need.ration', r('i-ration'), { ...vars, dep: dep?.name }), plan: new Plan(a.locationId).go('depot', 'Walking to the Supply Depot').add('ration', [], 'Collecting the household ration').go(a.homeLocationId, 'Carrying the ration home').add(verb, [], consume + ' at home') });
+    add({ s: 'work', fit: 0.75, intent: intentLine('need.ration', r('i-ration'), { ...vars, dep: dep?.name }), plan: new Plan(a.locationId).go('depot', 'Walking to the Supply Depot').add('ration', [], 'Collecting the household ration').go(a.homeLocationId, 'Carrying the ration home').add(verb, [], consume + ' at home') });
   }
   const fee = Math.max(1, Math.round(price * 0.5));
   if (stock(tx.world, 'canteen', res) >= 1 && a.inv.credits >= fee) {
-    add({ s: 'work', fit: 0.85, intent: intentLine('need.canteen', r('i-cant'), vars), plan: new Plan(a.locationId).go('canteen').add(verb, [], consume + ' at the canteen') });
+    add({ s: 'work', fit: 0.7, intent: intentLine('need.canteen', r('i-cant'), vars), plan: new Plan(a.locationId).go('canteen').add(verb, [], consume + ' at the canteen') });
   }
   const marketHas = stock(tx.world, 'depot', res) > RESERVE_FLOOR[res] || price > BASE_PRICES[res];
   if (marketHas && a.inv.credits >= Math.ceil(price * 1.3)) {
     const high = price >= BASE_PRICES[res] * 1.6;
-    add({ s: 'work', fit: high ? 0.65 : 0.8, intent: intentLine('need.buy', r('i-buy'), { ...vars, n: 2, why: high ? ' even at ' + Math.round(price * 10) / 10 + ' credits' : '' }), plan: new Plan(a.locationId).go('market', 'Walking to the Exchange Concourse').add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume + ' at the Exchange') });
+    add({ s: 'work', fit: high ? 0.55 : 0.7, intent: intentLine('need.buy', r('i-buy'), { ...vars, n: 2, why: high ? ' even at ' + Math.round(price * 10) / 10 + ' credits' : '' }), plan: new Plan(a.locationId).go('market', 'Walking to the Exchange Concourse').add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume + ' at the Exchange') });
   }
   if (res === 'food' && need < 85 && (a.inv.water >= 1 || (household?.pantry.water ?? 0) >= 2)) {
-    add({ s: 'grow', fit: 0.6 + (c.mind.skills.farming ?? 0) / 300, intent: intentLine('need.grow', r('i-grow'), vars), plan: new Plan(a.locationId).go(a.homeLocationId, 'Going home to the grow rack').add('grow', [9], 'Tending the grow rack at home').add(verb, [], 'Eating what the rack gave') });
+    add({ s: 'grow', fit: 0.75 + (c.mind.skills.farming ?? 0) / 300, intent: intentLine('need.grow', r('i-grow'), vars), plan: new Plan(a.locationId).go(a.homeLocationId, 'Going home to the grow rack').add('grow', [9], 'Tending the grow rack at home').add(verb, [], 'Eating what the rack gave') });
   }
   const spare = (['parts', 'medicine', res === 'food' ? 'water' : 'food'] as const).find((x) => a.inv[x] >= (x === 'parts' ? 2 : 3));
   if (spare) {
     const n = spare === 'parts' ? 2 : 2;
     if (spare === 'parts' || spare === 'medicine') {
-      add({ s: 'trade', fit: 0.75, intent: intentLine('need.sell', r('i-sell'), { ...vars, res2: spare, n }), plan: new Plan(a.locationId).go('market').add('sell', [spare, n], 'Selling ' + n + ' ' + spare).add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume + ' at the Exchange') });
+      add({ s: 'trade', fit: 0.8, intent: intentLine('need.sell', r('i-sell'), { ...vars, res2: spare, n }), plan: new Plan(a.locationId).go('market').add('sell', [spare, n], 'Selling ' + n + ' ' + spare).add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume + ' at the Exchange') });
     } else {
-      add({ s: 'trade', fit: 0.65, intent: intentLine('need.barter', r('i-barter'), { ...vars, res2: spare, n }), plan: new Plan(a.locationId).go('market').add('barter', ['any', spare, n, res, 1], 'Swapping ' + spare + ' for ' + res).add(verb, [], consume + ' at the Exchange') });
+      add({ s: 'trade', fit: 0.8, intent: intentLine('need.barter', r('i-barter'), { ...vars, res2: spare, n }), plan: new Plan(a.locationId).go('market').add('barter', ['any', spare, n, res, 1], 'Swapping ' + spare + ' for ' + res).add(verb, [], consume + ' at the Exchange') });
     }
   }
   const friends = c.ties.filter((t) => t.toAlive && t.kind !== 'rival' && !household?.memberIds.includes(t.toAgentId));
   const fond = friends.filter((t) => t.affinity >= 0.3).sort((x, y) => y.affinity - x.affinity)[0];
   const friend = fond ? await findable(c, fond.toAgentId) : null;
   if (friend && friend.inv[res] >= 2) {
-    add({ s: 'charm', fit: 0.4 + fond!.affinity * 0.6, intent: intentLine('need.charm', r('i-charm'), { ...vars, who: friend.name }), plan: new Plan(a.locationId).go(friend.locationId, 'Looking for ' + friend.name).add('talk', [friend._id], 'Chatting with ' + friend.name).add('beg', [friend._id, res], 'Asking ' + friend.name + ' for ' + res).add(verb, [], consume) });
+    add({ s: 'charm', fit: 0.6 + fond!.affinity * 0.5, intent: intentLine('need.charm', r('i-charm'), { ...vars, who: friend.name }), plan: new Plan(a.locationId).go(friend.locationId, 'Looking for ' + friend.name).add('talk', [friend._id], 'Chatting with ' + friend.name).add('beg', [friend._id, res], 'Asking ' + friend.name + ' for ' + res).add(verb, [], consume) });
   }
   const trusted = friends.filter((t) => t.trust >= 0.15).sort((x, y) => y.trust - x.trust)[0];
   const lender = trusted ? await findable(c, trusted.toAgentId) : null;
@@ -145,15 +145,15 @@ async function needOptions(c: Ctx, res: 'food' | 'water', need: number): Promise
     const plan = new Plan(a.locationId).go(lender.locationId, 'Looking for ' + lender.name);
     if (goods) plan.add('borrow', [lender._id, res, 2], 'Borrowing 2 ' + res + ' from ' + lender.name).add(verb, [], consume);
     else plan.add('borrow', [lender._id, 'credits', 12], 'Borrowing 12 credits from ' + lender.name).go('canteen').add(verb, [], consume + ' at the canteen');
-    add({ s: 'borrow', fit: 0.45 + trusted!.trust * 0.5, intent: intentLine('need.borrow', r('i-borrow'), { ...vars, who: lender.name, n: 2 }), plan });
+    add({ s: 'borrow', fit: 0.6 + trusted!.trust * 0.4, intent: intentLine('need.borrow', r('i-borrow'), { ...vars, who: lender.name, n: 2 }), plan });
   }
-  if (need >= 60) {
+  if (need >= 60 || (need >= 40 && c.weights.beg >= 0.45)) {
     const crowd = chance(c, 'crowd') < 0.5 ? 'canteen' : 'plaza';
-    add({ s: 'beg', fit: 0.55, intent: intentLine('need.beg', r('i-beg'), { ...vars, place: crowd }), plan: new Plan(a.locationId).go(crowd).add('beg', ['any', res], 'Begging for ' + res).add(verb, [], consume) });
+    add({ s: 'beg', fit: 0.65, intent: intentLine('need.beg', r('i-beg'), { ...vars, place: crowd }), plan: new Plan(a.locationId).go(crowd).add('beg', ['any', res], 'Begging for ' + res).add(verb, [], consume) });
   }
   const site = (['quarry', 'landing_pad', 'solar_farm'] as const).find((l) => stormAt(tx.world, l) === 0 && chance(c, 'site' + l) < 0.6) ?? 'quarry';
   if (need < 85 && stormAt(tx.world, site) === 0) {
-    add({ s: 'scavenge', fit: 0.5, intent: intentLine('need.scavenge', r('i-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).go('market').add('sell', ['parts', 3], 'Selling salvage').add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume) });
+    add({ s: 'scavenge', fit: 0.65, intent: intentLine('need.scavenge', r('i-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).go('market').add('sell', ['parts', 3], 'Selling salvage').add('buy', [res, 2], 'Buying 2 ' + res).add(verb, [], consume) });
   }
   if (stormAt(tx.world, 'landing_pad') === 0 && a.inv.credits >= Math.ceil(price * 1.6)) {
     add({ s: 'smuggle', fit: 0.8, crime: true, risk: await riskAt(tx, 'landing_pad', a), intent: intentLine('need.smuggle', r('i-smug'), vars), plan: new Plan(a.locationId).go('landing_pad', 'Slipping out to the Landing Pad').add('smuggle', [res, 2], 'Buying ' + res + ' off the books').add(verb, [], consume) });
@@ -195,7 +195,7 @@ export async function meetNeed(c: Ctx, res: 'food' | 'water', score: number, nee
   const morals = c.a.traits.empathy * 0.5 + c.mind.values.harmony * 0.35 + c.a.traits.caution * 0.2;
   let best: { o: Option; v: number } | null = null;
   for (const o of opts) {
-    let v = c.weights[o.s] * o.fit + strategyMemory(c.mind, o.s, c.tx.tick) + chance(c, 'strat:' + o.s + o.intent.length) * 0.3;
+    let v = c.weights[o.s] * o.fit + strategyMemory(c.mind, o.s, c.tx.tick) + chance(c, 'strat:' + o.s + o.intent.length) * 0.45;
     if (o.crime) {
       // A crime needs a reason: a criminal bent, or desperation with honest ways closed.
       const bent = c.weights[o.s] >= 0.55 ? 0.25 : 0;
@@ -234,7 +234,7 @@ export async function raiseMoney(c: Ctx): Promise<Choice | null> {
   const vars = { me: a.name };
   const opts: Option[] = [];
   if (a.workLocationId && stormAt(tx.world, a.workLocationId) === 0 && a.occupation !== 'resident') {
-    opts.push({ s: 'work', fit: 0.7, intent: intentLine('money.work', r('m-work'), { ...vars, place: a.workLocationId, why: c.drives.has('escape') ? ' for a seat on the next shuttle out' : '' }), plan: new Plan(a.locationId).go(a.workLocationId).add('work', [10], 'Working an extra shift at ' + locName(a.workLocationId)) });
+    opts.push({ s: 'work', fit: 0.6, intent: intentLine('money.work', r('m-work'), { ...vars, place: a.workLocationId, why: c.drives.has('escape') ? ' for a seat on the next shuttle out' : '' }), plan: new Plan(a.locationId).go(a.workLocationId).add('work', [10], 'Working an extra shift at ' + locName(a.workLocationId)) });
   }
   const goods = (['parts', 'medicine', 'food', 'water'] as const).find((x) => a.inv[x] >= (x === 'food' || x === 'water' ? 5 : 2));
   if (goods) {
@@ -245,11 +245,15 @@ export async function raiseMoney(c: Ctx): Promise<Choice | null> {
     }
   }
   const site = (['quarry', 'landing_pad', 'solar_farm'] as const).find((l) => stormAt(tx.world, l) === 0);
-  if (site && (c.weights.scavenge >= 0.45 || a.traits.curiosity > 0.65)) opts.push({ s: 'scavenge', fit: 0.5, intent: intentLine('money.scavenge', r('m-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).add('scavenge', [site], 'Still scavenging at ' + locName(site)) });
-  if (a.inv.water >= 1 || (c.household?.pantry.water ?? 0) >= 3) opts.push({ s: 'grow', fit: 0.45, intent: intentLine('money.grow', r('m-grow'), vars), plan: new Plan(a.locationId).go(a.homeLocationId).add('grow', [12], 'Tending the grow rack at home') });
+  if (site) opts.push({ s: 'scavenge', fit: 0.6, intent: intentLine('money.scavenge', r('m-scav'), { ...vars, place: site }), plan: new Plan(a.locationId).go(site).add('scavenge', [site], 'Scavenging at ' + locName(site)).add('scavenge', [site], 'Still scavenging at ' + locName(site)) });
+  if (a.inv.water >= 1 || (c.household?.pantry.water ?? 0) >= 3) opts.push({ s: 'grow', fit: 0.6, intent: intentLine('money.grow', r('m-grow'), vars), plan: new Plan(a.locationId).go(a.homeLocationId).add('grow', [12], 'Tending the grow rack at home') });
   const lenderTie = c.ties.filter((t) => t.toAlive && t.trust >= 0.2).sort((x, y) => y.trust - x.trust)[0];
   const lender = lenderTie ? await findable(c, lenderTie.toAgentId) : null;
-  if (lender && lender.inv.credits >= 30 && pressure > 0.6) opts.push({ s: 'borrow', fit: 0.5, intent: intentLine('money.borrow', r('m-borrow'), { ...vars, who: lender.name, n: 20 }), plan: new Plan(a.locationId).go(lender.locationId, 'Looking for ' + lender.name).add('borrow', [lender._id, 'credits', 20], 'Borrowing 20 credits from ' + lender.name) });
+  if (lender && lender.inv.credits >= 30 && pressure > 0.5) opts.push({ s: 'borrow', fit: 0.6, intent: intentLine('money.borrow', r('m-borrow'), { ...vars, who: lender.name, n: 20 }), plan: new Plan(a.locationId).go(lender.locationId, 'Looking for ' + lender.name).add('borrow', [lender._id, 'credits', 20], 'Borrowing 20 credits from ' + lender.name) });
+  const fondTie = c.ties.filter((t) => t.toAlive && t.affinity >= 0.35 && t.kind !== 'rival').sort((x, y) => y.affinity - x.affinity)[0];
+  const patron = fondTie && fondTie.toAgentId !== lender?._id ? await findable(c, fondTie.toAgentId) : null;
+  if (patron && patron.inv.credits >= 30) opts.push({ s: 'charm', fit: 0.55 + fondTie!.affinity * 0.4, intent: intentLine('need.charm', r('m-charm'), { ...vars, res: 'credits', who: patron.name }), plan: new Plan(a.locationId).go(patron.locationId, 'Looking for ' + patron.name).add('talk', [patron._id], 'Sweet-talking ' + patron.name).add('beg', [patron._id, 'credits'], 'Asking ' + patron.name + ' for a few credits') });
+  if (pressure > 0.6 || c.weights.beg >= 0.45) opts.push({ s: 'beg', fit: 0.5, intent: intentLine('need.beg', r('m-beg'), { ...vars, res: 'credits', place: 'plaza' }), plan: new Plan(a.locationId).go('plaza').add('beg', ['any', 'credits'], 'Asking passers-by for credits') });
   const leverage = c.beliefs.find((b) => b.subjectAgentId && b.subjectAgentId !== a._id && b.valence < 0 && isScandal(b.kind) && b.confidence >= 0.55 && (b.acted === undefined || tx.tick - b.acted > 144));
   const mark = leverage ? await findable(c, leverage.subjectAgentId) : null;
   if (mark && leverage && mark.inv.credits >= 15) opts.push({ s: 'scheme', fit: 0.9, crime: true, risk: 0.1, intent: intentLine('money.blackmail', r('m-bm'), { ...vars, who: mark.name }), plan: new Plan(a.locationId).go(mark.locationId, 'Finding ' + mark.name).add('blackmail', [mark._id, leverage.key], 'Leaning on ' + mark.name) });
@@ -260,7 +264,7 @@ export async function raiseMoney(c: Ctx): Promise<Choice | null> {
   const morals = a.traits.empathy * 0.5 + c.mind.values.harmony * 0.35 + a.traits.caution * 0.2;
   let best: { o: Option; v: number } | null = null;
   for (const o of opts) {
-    let v = c.weights[o.s] * o.fit + strategyMemory(c.mind, o.s, tx.tick) + chance(c, 'money:' + o.s) * 0.3;
+    let v = c.weights[o.s] * o.fit + strategyMemory(c.mind, o.s, tx.tick) + chance(c, 'money:' + o.s) * 0.45;
     if (o.crime) v += (c.weights[o.s] >= 0.55 ? 0.2 : -0.1) + pressure * 0.2 - morals * 0.5 - (o.risk ?? 0) * (0.4 + a.traits.caution * 0.6);
     if (!best || v > best.v) best = { o, v };
   }

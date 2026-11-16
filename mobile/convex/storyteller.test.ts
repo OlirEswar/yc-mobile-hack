@@ -102,7 +102,8 @@ test('the director attaches events by cast, raises tension, records beats, escal
   const { worldId, agents } = await colony(t);
   const [a, b] = agents;
   await setPersona(t, a._id);
-  const storyId = await addStoryline(t, worldId, { participantIds: [a._id, b._id] });
+  // Emergent: seeded storylines are paced to build over the first sols.
+  const storyId = await addStoryline(t, worldId, { participantIds: [a._id, b._id], origin: 'emergent' });
 
   const [first] = await tick(t, worldId, threat(a._id, b._id, 0.7));
   let story = await get(t, storyId);
@@ -132,7 +133,10 @@ test('the director attaches events by cast, raises tension, records beats, escal
 test('the director spots emergent storylines: a grudge between rivals and a crisis rooted in a god power', async () => {
   const t = newTest();
   const { worldId, agents } = await colony(t);
-  const [, , c, d, e] = agents;
+  // Two colonists from different households, so no seeded family warmth softens the feud.
+  const [, , c] = agents;
+  const d = agents.find((x) => x.householdId !== c.householdId)!;
+  const e = agents.find((x) => x._id !== c._id && x._id !== d._id)!;
   await inTx(t, worldId, async (tx) => {
     const [x, y] = [(await loadAgent(tx, c._id))!, (await loadAgent(tx, d._id))!];
     await adjustRelationship(tx, x, y, { affinity: -0.8 });
@@ -263,12 +267,6 @@ test('the followed colonist thinks with the LLM: a thought job on a quiet moment
   expect(calls[0].body.messages[1].content).toContain('skims water');
   expect(await thoughtsOf(t, f._id)).toMatchObject([{ source: 'llm', mood: 'anxious', text: expect.stringContaining('Dmitri') }]);
 
-  // A fresh rule plan for the followed colonist goes to the LLM in the focus lane.
-  await inTx(t, worldId, async (tx) => {
-    const a = (await loadAgent(tx, f._id))!;
-    tx.tick += 1;
-    await setPlan(tx, a, { intent: 'Back to the counting.', source: 'routine', steps: [encodeStep('work', 6)], labels: ['Work the depot counter'] });
-  });
   const plan = mockModel({
     intent: 'Ines slips a second tank into the cold store before the count, because her brother cannot wait.',
     goal: null,
@@ -276,7 +274,11 @@ test('the followed colonist thinks with the LLM: a thought job on a quiet moment
     speech: null,
     thought: 'Hide it now. Count it later. Smile at whoever walks in.',
   });
-  await tick(t, worldId, async () => {}, 0);
+  // A fresh rule plan for the followed colonist, made in the tick as the planner would, goes to the LLM in the focus lane.
+  await tick(t, worldId, async (tx) => {
+    const a = (await loadAgent(tx, f._id))!;
+    await setPlan(tx, a, { intent: 'Back to the counting.', source: 'routine', steps: [encodeStep('work', 6)], labels: ['Work the depot counter'] });
+  });
   const planJob = await t.run((ctx) => ctx.db.query('cognitionJobs').filter((q) => q.and(q.eq(q.field('agentId'), f._id), q.eq(q.field('kind'), 'plan'))).first());
   expect(planJob).toMatchObject({ lane: 'focus', status: 'queued' });
   await settle(t);
@@ -358,3 +360,81 @@ test('the daily allowance of questions runs out', async () => {
   });
   expect(await t.action(api.focus.ask, { sessionToken, worldId, agentId: agents[0]._id, question: 'How are you?' })).toMatchObject({ ok: false, code: 'rate_limited' });
 });
+
+
+const sessionOf = (t: T, token: string) => t.run(async (ctx) => (await ctx.db.query('sessions').withIndex('by_token', (q) => q.eq('token', token)).first())!);
+
+test('focus:plant without the LLM reads the text by rules, lands as a whisper and the colonist reacts', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t);
+  const f = agents[0];
+  const d = agents.find((a) => a.householdId !== f.householdId && a.alive && a._id !== f._id)!;
+  await setPersona(t, f._id);
+  await pose(t, worldId, f._id, { locationId: 'depot', move: undefined, activity: 'working', cur: encodeStep('work', 2), busyUntilTick: 302, q: [encodeStep('go', 'canteen')] });
+
+  const result = await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: d.name + ' has been cutting the drill heads, I know it!' });
+  expect(result).toMatchObject({ ok: true, message: expect.stringContaining(d.name.split(' ')[0]) });
+
+  const lines = await thoughtsOf(t, f._id);
+  expect(lines.map((l) => l.source)).toEqual(['planted', 'rules']);
+  expect(lines[0].text).toBe(result.message);
+  expect(lines[1].text).not.toBe(lines[0].text);
+
+  const beliefs = await t.run((ctx) => ctx.db.query('beliefs').withIndex('by_agent_key', (q) => q.eq('agentId', f._id)).collect());
+  expect(beliefs.some((b) => b.kind === 'saboteur' && b.subjectAgentId === d._id && b.sourceType === 'divine')).toBe(true);
+  const whisper = await t.run(async (ctx) => (await ctx.db.query('events').collect()).find((e) => e.eventType === 'whisper'));
+  expect(whisper).toMatchObject({ category: 'intervention', actorId: f._id, facts: { kind: 'saboteur', aboutAgentId: d._id } });
+  const after = await t.run((ctx) => ctx.db.get(f._id));
+  expect(after!.q).toEqual([]);
+  expect(after!.cur).toBeUndefined();
+  const mind = await t.run((ctx) => ctx.db.get(after!.mindId!));
+  expect(mind!.goals.some((g) => g.source === 'divine' && g.kind === 'investigate' && g.targetAgentId === d._id)).toBe(true);
+  expect((await sessionOf(t, sessionToken)).powerTimes).toHaveLength(1);
+});
+
+test('focus:plant refuses the dead, bad text, strangers and too many voices at once', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t);
+  const [f, dead] = agents;
+  await t.run((ctx) => ctx.db.patch(dead._id, { alive: false }));
+  const deadResult = await t.action(api.focus.plant, { sessionToken, worldId, agentId: dead._id, text: 'You deserve more than this.' });
+  expect(deadResult).toMatchObject({ ok: false, message: expect.stringContaining('died') });
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: '  a ' })).toMatchObject({ ok: false });
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'x'.repeat(201) })).toMatchObject({ ok: false });
+  expect(await t.action(api.focus.plant, { sessionToken: 'x'.repeat(32), worldId, agentId: f._id, text: 'You deserve more than this.' })).toMatchObject({ ok: false });
+  const session = await sessionOf(t, sessionToken);
+  await t.run((ctx) => ctx.db.patch(session._id, { powerTimes: Array.from({ length: 12 }, () => Date.now()) }));
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'You deserve more than this.' })).toMatchObject({ ok: false, message: expect.stringContaining('Too many') });
+  expect(await thoughtsOf(t, f._id)).toEqual([]);
+});
+
+test('focus:plant with the LLM: the model reads the thought, and the reaction is an LLM line', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t, { llm: true });
+  const [f, d] = agents;
+  await setPersona(t, f._id);
+  const calls: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const system = String(body.messages[0].content);
+      calls.push(system.includes('unseen force') ? 'plant' : body.response_format?.json_schema?.name ?? 'other');
+      const content = system.includes('unseen force')
+        ? { preset: 'distrust', kind: null, about: d.name, strength: 0.8, surfaced: 'Why does ' + d.name.split(' ')[0] + ' always count the crates when nobody is looking?' }
+        : { thought: 'It fits too well. I will watch ' + d.name.split(' ')[0] + ' at the depot tomorrow.', mood: 'Wary' };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }], usage: { prompt_tokens: 900, completion_tokens: 60 } }), { status: 200 });
+    }),
+  );
+  const result = await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'Do not trust ' + d.name.split(' ')[0] + '.' });
+  expect(result).toMatchObject({ ok: true, message: expect.stringContaining('count the crates') });
+  await settle(t);
+  const lines = await thoughtsOf(t, f._id);
+  expect(lines.find((l) => l.source === 'planted')!.text).toContain('count the crates');
+  expect(lines.some((l) => l.source === 'llm' && l.text.includes('It fits too well'))).toBe(true);
+  expect(calls[0]).toBe('plant');
+  const beliefs = await t.run((ctx) => ctx.db.query('beliefs').withIndex('by_agent_key', (q) => q.eq('agentId', f._id)).collect());
+  expect(beliefs.some((b) => b.kind === 'untrustworthy' && b.subjectAgentId === d._id)).toBe(true);
+  expect((await get(t, worldId)).llm.spendTotalUsd ?? 0).toBeGreaterThan(0);
+});
+

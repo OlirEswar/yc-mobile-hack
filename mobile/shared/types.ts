@@ -382,8 +382,12 @@ export type ThoughtLine = {
   tick: Tick;
   text: string;
   mood?: string;
-  source: 'llm' | 'rules';
+  /** planted: a thought the player put in their head (focus:plant). */
+  source: 'llm' | 'rules' | 'planted';
 };
+
+/** What focus:plant returns. message explains a refusal, in the story's voice. */
+export type PlantResult = { ok: boolean; message?: string };
 
 /** A reason to switch the camera to someone else. */
 export type StoryHook = { agentId: Id; name: string; reason: string; storylineId?: Id };

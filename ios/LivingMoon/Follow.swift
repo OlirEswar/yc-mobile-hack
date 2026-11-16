@@ -149,7 +149,7 @@ struct FollowView: View {
                 fallen(c)
             } else {
             Text(focus?.recap ?? detail?.persona.map { "Wants: " + $0.want } ?? c.activityLabel)
-                .font(.footnote).foregroundStyle(.secondary).lineLimit(3)
+                .font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Label(c.activityLabel, systemImage: "figure.walk.motion")
                 .font(.caption.weight(.semibold)).foregroundStyle(Color.amber).lineLimit(1)
@@ -174,7 +174,7 @@ struct FollowView: View {
                 case .story: StoryPane(detail: detail, storylines: focus?.storylines ?? game.storylines.filter { $0.participantIds.contains(c.id) })
                 }
             }
-            .frame(height: 200, alignment: .top)
+            .frame(height: 150, alignment: .top)
             }
         }
         .padding(16)

@@ -43,7 +43,7 @@ export const BEG_RESOURCES = ['food', 'water', 'credits'] as const;
 
 export const MAX_STEPS = 8;
 export const MAX_SPEECH_CHARS = 90;
-export const MAX_THOUGHT_CHARS = 220;
+export const MAX_THOUGHT_CHARS = 600;
 export const MAX_ANSWER_CHARS = 700;
 
 const ARG_HELP: Record<string, string> = {
@@ -83,17 +83,17 @@ Rules:
 - label per step: a short imperative phrase with real names and places, e.g. "Ask Joao for a loan", "Walk to the Supply Depot".
 - goal: only when this moment gives them a new or sharper purpose, otherwise null. targetAgentId is a person ref or null.
 - speech: one short line they say aloud right now, in their voice (under 90 characters, natural, no quotes), or null.
-- thought: when asked for, one or two sentences of inner monologue in the first person and present tense, in their voice; otherwise null. Speak of people, places and feelings, never numbers or stats.
+- thought: when asked for, 2 to 4 flowing sentences of inner monologue in the first person and present tense, in their voice, dramatic and emotional, with what is at stake for them, continuing their recent thoughts without restating them; never notes or fragments; otherwise null. Speak of people, places and feelings, never numbers or stats.
 Reply with JSON only: {"intent": string, "goal": {"kind", "description", "priority" 0..1, "targetAgentId"} or null, "steps": [{"type", "args": [string], "label"}], "speech": string or null, "thought": string or null}.`;
 
 const SYSTEM_SPEECH = `You write one line of dialogue for a colonist of Shackleton Colony, a cramped Moon base where water is scarce. The line must fit their voice, personality, mood and what they think of the person they are talking to, and must sound like real speech: plain, specific, under 90 characters, no quotes, no stage directions, no emojis. Never invent facts beyond what is given. Reply with JSON {"line": "..."}.`;
 
-const SYSTEM_THOUGHT = `You write one line of inner monologue for a colonist of Shackleton Colony, a cramped Moon base where water is scarce and everyone knows everyone. The player is following this person and reads their thoughts like a novel.
-- First person, present tense, in their voice. 8 to 35 words. One or two sentences.
-- React to what just happened or what they are about to do, coloured by what they want, fear and hide. Let the secret show only as worry, guilt or calculation, never as an explanation for the reader.
-- Move their story along: a doubt, a plan taking shape, a temptation, a suspicion, a memory of the colony's past (the Long Dark, the founding, the company leaving), a judgement of someone nearby. Never just describe the room.
-- Concrete: name the people and places involved. Human terms only: never numbers, percentages, stats or game words.
-- Never repeat or paraphrase the recent thoughts listed. No clichés, no quotes, no emojis, no narration in the third person.
+const SYSTEM_THOUGHT = `You write the inner voice of a colonist of Shackleton Colony, a cramped Moon base where water is scarce and everyone knows everyone. The player is following this person and reads their thoughts as one unfolding stream, like the narration of a novel told from inside their head.
+- Write 2 to 4 flowing sentences (35 to 80 words), first person, present tense, in this person's own way of speaking (see their voice). It should sound like a character talking to themselves, with rhythm and feeling: never notes, never a list, never clipped fragments, never stage directions.
+- Dramatic and emotional, with stakes: what they stand to lose or gain right now, what they want and what they dread. Let a memory surface when it fits (the Long Dark, the founding, the company leaving, something this person did or suffered). Let the secret show only as worry, guilt or calculation, never as an explanation for the reader.
+- Continue the train of thought in their earlier lines: pick up where the last one left off and carry it further, a doubt hardening into a decision, a suspicion finding its proof, a temptation winning. Never restate or paraphrase what they already thought.
+- React to what just happened or what they are about to do. Concrete: name the people and places involved. Human terms only: never numbers, percentages, stats or game words.
+- No cliches, no quotes, no emojis, no third person.
 Reply with JSON {"thought": string, "mood": one or two words}.`;
 
 const SYSTEM_ASK = `You are a colonist of Shackleton Colony, a cramped Moon base of about 100 people on the rim of Shackleton crater. A voice with no body speaks inside your head and asks you something. You do not know what it is; you answer it as yourself.
@@ -304,11 +304,11 @@ export function thoughtRequest(c: ThoughtContext): ChatRequest {
     'At ' + c.place + ', ' + c.doing.charAt(0).toLowerCase() + c.doing.slice(1) + '.' + (c.intent ? ' What they mean to do: ' + c.intent : ''),
     ...(c.storylines.length > 0 ? ['Stories they are caught up in: ' + c.storylines.join(' | ')] : []),
     ...(c.memories.length > 0 ? ['Lately: ' + c.memories.join(' | ')] : []),
-    ...(c.recent.length > 0 ? ['Recent thoughts, do not repeat: ' + c.recent.join(' | ')] : []),
+    ...(c.recent.length > 0 ? ['', first + "'s inner voice so far, oldest first. Continue this train of thought, never restate it:", ...c.recent.slice(0, 5).reverse().map((t) => '- ' + t)] : []),
     'What just happened: ' + c.trigger + (c.detail ? '. ' + c.detail : '') + '.',
-    'Write what ' + first + ' thinks now.',
+    'Write what ' + first + ' thinks next, as 2 to 4 flowing sentences in their voice.',
   ];
-  return { system: SYSTEM_THOUGHT, user: lines.join('\n'), maxTokens: 120, schema: THOUGHT_SCHEMA, temperature: 1 };
+  return { system: SYSTEM_THOUGHT, user: lines.join('\n'), maxTokens: 320, schema: THOUGHT_SCHEMA, temperature: 1 };
 }
 
 /** The full request for an answer to the player's question. */

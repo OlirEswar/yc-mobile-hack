@@ -144,13 +144,28 @@ function candidates(a: AgentDoc, mind: MindDoc, m: Moment): string[] {
   return [x + '... what does that mean for me?', "That will be all over the canteen by supper.", 'Strange day at ' + place(e.locationId) + '.'];
 }
 
-/** A rule-based monologue line that does not repeat the recent ones. */
+const lowerStart = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+const bare = (s: string): string => s.trim().replace(/[.!?]+$/, '');
+
+/** The want and the fear underneath, said the way a person says it to themselves. */
+function undertow(a: AgentDoc, mind: MindDoc, salt: number): string[] {
+  const p = mind.persona;
+  const out: string[] = [];
+  if (p?.want) out.push(['All I have ever wanted is ' + lowerStart(bare(p.want)) + ', and I am not letting it slip away now.', 'I keep coming back to the same thing: ' + lowerStart(bare(p.want)) + '. Everything else is noise.', 'If I lose sight of ' + lowerStart(bare(p.want)) + ', then what was any of this for?'][salt % 3]);
+  if (p?.fear) out.push(['And underneath it, always, the old dread: ' + lowerStart(bare(p.fear)) + '.', 'What frightens me is not today. It is ' + lowerStart(bare(p.fear)) + '.', 'I can feel it closing in again, ' + lowerStart(bare(p.fear)) + ', the way it did in the Long Dark.'][(salt >> 2) % 3]);
+  if (out.length === 0) out.push(['Nobody up here gets a second chance, and I have already used mine.', 'The dome hums the same as it did the winter the lights went out, and I still flinch at it.'][salt % 2]);
+  return out;
+}
+
+/** A rule-based monologue passage: a reaction, then what is at stake for them, carried on from where the last thought left off. */
 export function ruleThought(tx: Tx, a: AgentDoc, mind: MindDoc, moment: Moment, recent: string[]): string {
   const lines = candidates(a, mind, moment);
-  const start = hash32(a.seq, tx.tick, moment.kind) % lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[(start + i) % lines.length];
-    if (!recent.includes(line)) return line;
-  }
-  return lines[start];
+  const salt = hash32(a.seq, tx.tick, moment.kind);
+  const start = salt % lines.length;
+  const fresh = lines.map((_, i) => lines[(start + i) % lines.length]).filter((l) => !recent.some((r) => r.includes(l)));
+  const pool = fresh.length > 0 ? fresh : [lines[start]];
+  const said = [pool[0], ...(pool[1] ? [pool[1]] : [])];
+  const deep = undertow(a, mind, salt).filter((l) => !recent.some((r) => r.includes(l)));
+  if (deep.length > 0) said.push(deep[salt % deep.length]);
+  return said.slice(0, 3).join(' ');
 }

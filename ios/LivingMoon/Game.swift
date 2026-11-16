@@ -55,7 +55,7 @@ struct Toast: Identifiable, Equatable {
 @MainActor
 final class Game: SourceSink {
     enum Phase: Equatable { case loading, ready, failed(String) }
-    enum Tab: Hashable { case colony, people, chronicle }
+    enum Tab: Hashable { case colony, people, chronicle, you }
 
     static let convexURL = "https://utmost-hyena-958.convex.cloud"
     private static let liveKey = "livingMoon.useLiveBackend"
@@ -67,6 +67,10 @@ final class Game: SourceSink {
     private var index: [Id: Int] = [:]
     private(set) var events: [WorldEventPublic] = []
     var premium = false
+    /// The player's sources, profile, avatar in this world and recent directives.
+    private(set) var avatar: AvatarPublic?
+    /// Who shares this world.
+    private(set) var multiplayer: MultiplayerPublic?
     var useLive = UserDefaults.standard.bool(forKey: liveKey) {
         didSet {
             UserDefaults.standard.set(useLive, forKey: Self.liveKey)
@@ -104,6 +108,8 @@ final class Game: SourceSink {
         agents = []
         index = [:]
         events = []
+        avatar = nil
+        multiplayer = nil
         backendNote = nil
         selectedID = nil
         followingID = nil
@@ -146,6 +152,8 @@ final class Game: SourceSink {
 
     func received(events next: [WorldEventPublic]) { events = next }
     func received(premium next: Bool) { premium = next }
+    func received(avatar next: AvatarPublic?) { avatar = next }
+    func received(multiplayer next: MultiplayerPublic?) { multiplayer = next }
     func sourceFailed(_ message: String) {
         if backendNote == nil { backendNote = message }
     }
@@ -153,6 +161,10 @@ final class Game: SourceSink {
     // MARK: Lookup
 
     func colonist(_ id: Id?) -> AgentLite? { id.flatMap { index[$0] }.map { agents[$0] } }
+
+    /// The player's own avatar in this world, alive or dead.
+    var myAvatar: AgentLite? { colonist(avatar?.agentId) }
+    func isMine(_ id: Id) -> Bool { avatar?.agentId == id }
 
     /// The world tick with the fraction elapsed since it arrived, for smooth movement.
     func displayTick(at date: Date) -> Double {
@@ -247,6 +259,78 @@ final class Game: SourceSink {
         }
     }
 
+    // MARK: Avatar and multiplayer
+
+    /// Each returns nil on success, else a message for the screen.
+    func addSource(_ input: PersonaSourceInput) async -> String? {
+        await reply("save that source") { try await $0.addSource(input) }
+    }
+
+    func removeSource(_ id: Id) async -> String? {
+        await reply("remove that source") { try await $0.removeSource(id) }
+    }
+
+    func synthesize(name: String?) async -> String? {
+        await reply("build your character") { try await $0.synthesize(name: name) }
+    }
+
+    func saveProfile(_ profile: AvatarProfile) async -> String? {
+        await reply("save your character") { try await $0.saveProfile(profile) }
+    }
+
+    func spawnAvatar() async -> String? {
+        let error = await reply("drop your character in") { try await $0.spawnAvatar() }
+        if error == nil { show(.ok, "\(avatar?.profile?.name ?? "Your character") stepped off the shuttle at the Landing Pad.") }
+        return error
+    }
+
+    func direct(_ text: String) async -> String? {
+        let error = await reply("reach your character") { try await $0.direct(text) }
+        if error == nil { show(.ok, "\(myAvatar?.first ?? "They") will see to it.") }
+        return error
+    }
+
+    func forgetAvatar() async -> String? {
+        await reply("forget your sources") { try await $0.forgetAvatar() }
+    }
+
+    func setPlayerName(_ name: String) async -> String? {
+        await reply("change your name") { try await $0.setPlayerName(name) }
+    }
+
+    func invite() async -> String? {
+        await reply("open the colony to friends") { try await $0.invite() }
+    }
+
+    /// Joining or leaving moves this session to another world, so every subscription restarts.
+    func join(code: String) async -> String? {
+        let error = await reply("join that colony") { try await $0.join(code: code) }
+        if error == nil {
+            await boot()
+            show(.ok, "You joined \(world?.name ?? "your friend's colony").")
+        }
+        return error
+    }
+
+    func leave() async -> String? {
+        let error = await reply("leave this colony") { try await $0.leave() }
+        if error == nil {
+            await boot()
+            show(.info, "Back in your own colony.")
+        }
+        return error
+    }
+
+    private func reply<R: SourceReply>(_ what: String, _ op: (WorldSource) async throws -> R) async -> String? {
+        guard let source else { return "Not connected." }
+        do {
+            let r = try await op(source)
+            return r.ok ? nil : r.message ?? "The colony refused."
+        } catch {
+            return unsupported(error, what)
+        }
+    }
+
     func goTo(_ event: WorldEventPublic) {
         if let actor = colonist(event.actorId) {
             tab = .colony
@@ -281,3 +365,11 @@ final class Game: SourceSink {
         }
     }
 }
+
+/// The { ok, message } answer shared by the avatar and multiplayer calls.
+protocol SourceReply {
+    var ok: Bool { get }
+    var message: String? { get }
+}
+extension AvatarResult: SourceReply {}
+extension MultiplayerResult: SourceReply {}

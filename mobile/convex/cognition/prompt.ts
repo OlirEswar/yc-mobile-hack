@@ -6,7 +6,7 @@
 import { LOCATIONS, LOCATION_IDS, RESOURCES, TRADED_RESOURCES } from '../../shared/colony';
 import type { GoalKind } from '../../shared/types';
 import { STEP_SPECS } from '../engine/core';
-import type { PlanContext, SpeechContext } from './context';
+import type { AvatarContext, PlanContext, SpeechContext } from './context';
 import type { ChatRequest } from './provider';
 
 export const GOAL_KINDS: readonly GoalKind[] = [
@@ -137,6 +137,18 @@ function legalSteps(): string {
 /** Static, so providers can cache it as a prompt prefix: the rules and the legal steps. */
 const SYSTEM_PLAN = RULES_PLAN + '\n\n' + legalSteps();
 
+/** What makes a player's avatar act like its player, for the user message (the system prompt stays cacheable). */
+function avatarLines(a: AvatarContext): string[] {
+  return [
+    'This colonist is the in-world avatar of a real person, ' + a.owner + ', living here on their behalf. Choose what ' + a.owner + ' would actually do in this world, in their way.',
+    'Who they are: ' + a.summary,
+    ...(a.interests.length > 0 ? ['Interests: ' + a.interests.join(', ') + '.'] : []),
+    ...(a.habits.length > 0 ? ['What they tend to do: ' + a.habits.join('; ') + '.'] : []),
+    'How they talk: ' + a.speechStyle + '.',
+    ...(a.directive ? ['Their player asked them: "' + a.directive + '". Make this the priority unless needs or danger come first, and go about it the way they would.'] : []),
+  ];
+}
+
 /** The full request for a plan job. */
 export function planRequest(c: PlanContext): ChatRequest {
   const first = c.name.split(' ')[0];
@@ -145,6 +157,7 @@ export function planRequest(c: PlanContext): ChatRequest {
     'You are deciding for ' + c.name + ', ' + c.identity + '.',
     'Background: ' + c.background,
     'Personality: ' + c.personality + '. Values: ' + c.values + '.',
+    ...(c.avatar ? avatarLines(c.avatar) : []),
     'Mood: ' + c.mood + '. ' + c.condition + '.',
     'Carrying: ' + c.inventory + '.' + (c.household ? ' Household: ' + c.household + '.' : ''),
     'Home: ' + c.homeLocationId + '. Workplace: ' + (c.workLocationId ?? 'none') + '.',
@@ -169,7 +182,7 @@ export function planRequest(c: PlanContext): ChatRequest {
     'People ' + first + ' knows:',
     ...c.people.map(
       (p) =>
-        '- ' + p.ref + ' ' + p.name + ', ' + p.occupation + (p.alive ? (p.present ? ' - HERE' : ' - usually at ' + p.usualPlace) : ' - DEAD') + (p.tie ? '; ' + p.tie : ''),
+        '- ' + p.ref + ' ' + p.name + ', ' + p.occupation + (p.alive ? (p.present ? ' - HERE' : ' - usually at ' + p.usualPlace) : ' - DEAD') + (p.tie ? '; ' + p.tie : '') + (p.player ? '; avatar of the player ' + p.player : ''),
     ),
     '',
     'Recent memories:',
@@ -184,7 +197,8 @@ export function planRequest(c: PlanContext): ChatRequest {
 export function speechRequest(c: SpeechContext): ChatRequest {
   const lines = [
     c.name + ', ' + c.identity + '. Personality: ' + c.personality + '. Mood: ' + c.mood + '.',
-    'At ' + c.place + ', ' + c.doing.charAt(0).toLowerCase() + c.doing.slice(1) + ', talking with ' + c.partner.name + ' (' + c.partner.occupation + (c.partner.tie ? '; ' + c.partner.tie : '') + ').',
+    ...(c.avatar ? ['They are the avatar of a real person, ' + c.avatar.owner + ': ' + c.avatar.summary + ' They talk like this: ' + c.avatar.speechStyle + '.'] : []),
+    'At ' + c.place + ', ' + c.doing.charAt(0).toLowerCase() + c.doing.slice(1) + ', talking with ' + c.partner.name + ' (' + c.partner.occupation + (c.partner.tie ? '; ' + c.partner.tie : '') + (c.partner.player ? '; avatar of the player ' + c.partner.player : '') + ').',
     ...(c.aboutPartner.length > 0 ? ['What ' + c.name.split(' ')[0] + ' believes about them (may be false): ' + c.aboutPartner.join(' ')] : []),
     c.prices + '.',
     'Situation: ' + c.trigger + (c.detail ? '. ' + c.detail : '') + '.',

@@ -40,7 +40,8 @@ export async function confide(tx: Tx, a: AgentDoc, who: string | undefined, key:
   await adjustRelationship(tx, a, b, { affinity: 0.06, trust: 0.08 });
   const secret = await secretOf(tx, a);
   const chosen = key ? await getBelief(tx, a._id, key) : null;
-  const shareSecret = secret && (key === 'secret' || key?.startsWith(secret.kind + ':') || (!chosen && (toB?.trust ?? 0) + roll(tx, a, 'open') * 0.5 > 0.6));
+  const knows = secret ? !!(await getBelief(tx, b._id, secret.kind + ':' + a._id)) : false;
+  const shareSecret = secret && !knows && (key === 'secret' || key?.startsWith(secret.kind + ':') || (!chosen && (toB?.trust ?? 0) + roll(tx, a, 'open') * 0.5 > 0.6));
   let summary: string;
   let salience = 0.3;
   if (shareSecret) {

@@ -154,6 +154,10 @@ final class Game: SourceSink {
     @ObservationIgnored private var shownAt = Date()
     /// Measured ticks per real second, so movement runs at the pace ticks actually arrive.
     @ObservationIgnored private var tickRate = 1 / Clock.secondsPerTick
+    /// How many ticks usually land at once: the loop runs several per invocation at higher speeds.
+    @ObservationIgnored private var burst = 1.0
+    /// The pace the shown tick advances at, eased so walkers never lurch when a tick lands late or early.
+    @ObservationIgnored private var shownRate = 1 / Clock.secondsPerTick
     /// When each colonist was first seen dead, so the map can show the body before the grave.
     @ObservationIgnored private(set) var diedAt: [Id: Date] = [:]
     @ObservationIgnored private var source: WorldSource?
@@ -283,6 +287,7 @@ final class Game: SourceSink {
         if let old = world?.tick, next.tick > old {
             let elapsed = Date().timeIntervalSince(tickArrivedAt)
             if elapsed > 0.2, elapsed < 12 { tickRate = tickRate * 0.6 + (next.tick - old) / elapsed * 0.4 }
+            burst = burst * 0.7 + min(8, next.tick - old) * 0.3
         }
         if next.tick != world?.tick { tickArrivedAt = Date() }
         world = next
@@ -313,14 +318,26 @@ final class Game: SourceSink {
     func isMine(_ id: Id) -> Bool { avatar?.agentId == id }
 
     /// The world tick with the fraction elapsed since it arrived, for smooth movement.
-    /// Trails the latest tick at the pace ticks arrive, so nobody jumps when one lands.
+    /// Trails the latest tick by about one batch of ticks and advances at an eased pace, gently sped up
+    /// or slowed to hold that lag, so walkers keep a steady stride however unevenly ticks arrive.
     func displayTick(at date: Date) -> Double {
         guard let world else { return 0 }
-        let dt = min(0.25, max(0, date.timeIntervalSince(shownAt)))
+        let dt = min(0.1, max(0, date.timeIntervalSince(shownAt)))
         shownAt = date
+        let lag = burst + 0.75
         let behind = world.tick - shownTick
-        if behind > 6 || behind < 0 { shownTick = world.tick - min(1, max(0, behind)) }
-        shownTick = min(world.tick, shownTick + dt * tickRate * (world.tick - shownTick > 1.3 ? 1.6 : 1))
+        if behind < 0 || behind > lag + 8 {
+            shownTick = world.tick - min(lag, max(0, behind))
+            shownRate = tickRate
+            return shownTick
+        }
+        guard world.running else {
+            shownTick += behind * (1 - exp(-dt / 0.35))
+            return shownTick
+        }
+        let target = tickRate * (1 + min(0.5, max(-0.5, (behind - lag) / lag * 0.6)))
+        shownRate += (target - shownRate) * (1 - exp(-dt / 0.8))
+        shownTick = min(world.tick - 0.02 * min(1, behind), shownTick + dt * max(0, shownRate))
         return shownTick
     }
 

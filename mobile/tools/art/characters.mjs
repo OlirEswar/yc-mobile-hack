@@ -324,7 +324,7 @@ function drawHair(img, s, view, hx, hy, rx, ry, layer) {
       const h = hairAt(s.style, view, dx, dy);
       if (!h) continue;
       if (h === 2) {
-        if ((x + y) % 2 === 0) img.put(x, y, mix(img.get(x, y)[3] ? img.get(x, y) : m[1], m[1], 0.65));
+        if (img.alpha(x, y)) img.put(x, y, mix(img.get(x, y), m[(x + y) % 3 === 0 ? 0 : 1], 0.55));
         continue;
       }
       let I = 0.66 - 0.32 * dx - 0.3 * dy;
@@ -424,7 +424,7 @@ function drawFigure(img, s, dir, f) {
   };
   band(img, G.chin - 1, shoulderY + 2, () => [cx - 2.2, cx + 2.2], m.skin, { bias: -0.25 });
   band(img, shoulderY, hipY + 2, (y) => [cx - half(y), cx + half(y)], torsoMat, {
-    fold: (x, y, u, v) => (v > 0.55 && Math.abs(u) < 0.75 && ((x - cx) + y) % 6 === 0 ? -1 : v > 0.15 && v < 0.3 && Math.abs(u) > 0.55 && (x + y) % 3 === 0 ? -1 : 0),
+    fold: (x, y, u, v) => (v > 0.68 && Math.abs(u) < 0.5 && ((x - cx) + y + 40) % 7 === 0 ? -1 : v > 0.15 && v < 0.28 && Math.abs(u) > 0.6 && (x + y) % 4 === 0 ? -1 : 0),
   });
   if (!back) torsoDetails(img, s, G, half);
   else backDetails(img, s, G, half);

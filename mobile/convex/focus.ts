@@ -4,6 +4,7 @@
  * conversations, which the simulation never reads, and their LLM calls have their own allowance per
  * session instead of the colony's planning budget.
  */
+import { buildRecap } from './storyteller/recap';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
@@ -70,6 +71,7 @@ export const state = query({
       hooks: agent.alive ? await storyHooks(ctx, world, agent, live) : [],
       storylines: theirs.sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || b.tension - a.tension).map(toStorylinePublic),
       warping: !!world.focusWarp && world.focusAgentId === agent._id,
+      recap: buildRecap(agent, agent.mindId ? await ctx.db.get(agent.mindId) : null, theirs),
     };
   },
 });

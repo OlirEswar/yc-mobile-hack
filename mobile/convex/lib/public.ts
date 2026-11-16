@@ -1,5 +1,6 @@
 /** Converters from stored documents to the public shapes in shared/types.ts. */
 import type { Doc } from '../_generated/dataModel';
+import { STEP_SPECS } from '../engine/core';
 import type { LocationId, ResourceId, Speed, SpriteId } from '../../shared/colony';
 import type {
   ActiveEffect,
@@ -14,8 +15,23 @@ import type {
   WorldPublic,
 } from '../../shared/types';
 
+const NO_ACT = new Set(['go', 'wait', 'rest']);
+
+/** The step in progress as the app animates it: its kind and the other person in it. */
+function actOf(a: Doc<'agents'>): AgentLite['act'] {
+  if (!a.alive || !a.cur) return undefined;
+  const [kind, ...args] = a.cur.split('|');
+  if (NO_ACT.has(kind)) return undefined;
+  const spec = (STEP_SPECS as Record<string, { args: readonly string[] }>)[kind];
+  const at = spec ? spec.args.findIndex((n) => /^(agentId|target|targetId)\??$/.test(n)) : -1;
+  const arg = at >= 0 ? args[at] : undefined;
+  const targetId = a.interactingWithId ?? (arg && arg.length >= 16 && !arg.includes(':') ? arg : undefined);
+  return { kind, targetId, startTick: a.curStartTick ?? a.busyUntilTick };
+}
+
 export function toAgentLite(a: Doc<'agents'>): AgentLite {
   return {
+    act: actOf(a),
     id: a._id,
     name: a.name,
     spriteId: a.spriteId as SpriteId,

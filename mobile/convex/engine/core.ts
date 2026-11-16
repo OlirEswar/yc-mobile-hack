@@ -14,7 +14,9 @@ import { SOCIETY_STEP_SPECS } from '../society/steps';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
-import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
+import { deathReactions } from '../society/chaos';
+import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR, findPath } from '../../shared/colony';
+import type { LocationId } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
 import { DEFAULT_LLM_CONFIG, NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
@@ -607,6 +609,14 @@ function setActivity(a: AgentDoc, activity: ActivityKind, label: string): void {
   a.activityLabel = label;
 }
 
+/** The route node nearest to where a walker is right now. */
+export function standingNode(move: NonNullable<AgentDoc['move']>, tick: number): string {
+  const path = findPath(move.from as LocationId, move.to as LocationId);
+  if (!path || path.nodes.length < 2) return move.from;
+  const frac = clamp((tick - move.departTick) / Math.max(1, move.arriveTick - move.departTick), 0, 1);
+  return path.nodes[Math.round(frac * (path.nodes.length - 1))];
+}
+
 /** Makes the agent due on this tick, abandoning the step in progress (its effects do not apply). */
 export function wake(tx: Tx, a: AgentDoc): void {
   if (!a.alive) return;
@@ -615,8 +625,8 @@ export function wake(tx: Tx, a: AgentDoc): void {
   a.interactingWithId = undefined;
   a.speech = undefined;
   if (a.move) {
-    // Stop where the walk started rather than teleport to the destination.
-    if (tx.tick < a.move.arriveTick) a.locationId = a.move.from;
+    // Stop at the point of the route they have reached: no jump back to the start or ahead to the end.
+    if (tx.tick < a.move.arriveTick) a.locationId = standingNode(a.move, tx.tick);
     a.move = undefined;
   }
   a.busyUntilTick = tx.tick;
@@ -694,11 +704,11 @@ const VIOLENT_CAUSE = /murder|kill|stab|shot|poison|strangl|attack|beat|violen|b
 export async function killAgent(
   tx: Tx,
   a: AgentDoc,
-  death: { cause: string; summary?: string; causationEventId?: EventId; category?: EventCategory; salience?: number },
+  death: { cause: string; summary?: string; causationEventId?: EventId; category?: EventCategory; salience?: number; killerId?: AgentId },
 ): Promise<EventId | null> {
   if (!a.alive) return null;
   a.alive = false;
-  if (a.move && tx.tick < a.move.arriveTick) a.locationId = a.move.from;
+  if (a.move && tx.tick < a.move.arriveTick) a.locationId = standingNode(a.move, tx.tick);
   a.move = undefined;
   a.cur = undefined;
   a.curStartTick = undefined;
@@ -717,7 +727,6 @@ export async function killAgent(
     touchMind(tx, mind);
   }
   tx.world.population = { alive: tx.world.population.alive - 1, dead: tx.world.population.dead + 1 };
-  if (tx.world.focusAgentId === a._id) tx.world.focusAgentId = undefined;
   const vacated = Object.entries(tx.world.roles).filter(([, holder]) => holder === a._id).map(([role]) => role);
   for (const role of vacated) delete tx.world.roles[role];
   if (tx.world.sim) tx.world.sim.council = tx.world.sim.council.filter((id) => id !== a._id);
@@ -726,19 +735,20 @@ export async function killAgent(
     .query('relationships')
     .withIndex('by_to', (q) => q.eq('toAgentId', a._id))
     .collect();
-  const close = ties.filter((t) => t.kind === 'family' || (t.kind === 'friend' && t.affinity >= 0.3));
+  const close = ties.filter((t) => t.kind === 'family' || t.kind === 'partner' || ((t.kind === 'friend' || t.kind === 'romance') && t.affinity >= 0.3));
+  const here = (await agentsAt(tx, a.locationId, { exclude: [a._id] })).slice(0, 10);
   const { eventId, witnessIds } = await emitEvent(tx, {
     category: death.category ?? 'health',
     eventType: 'death',
     actorId: a._id,
-    participantIds: close.map((t) => t.fromAgentId),
+    participantIds: [...new Set([...here, ...close.map((t) => t.fromAgentId)])],
     locationId: a.locationId,
     summary: death.summary ?? a.name + ' died: ' + death.cause + '.',
     salience: death.salience ?? 0.9,
     causationEventId: death.causationEventId,
     visibility: 'public',
     witnesses: 'location',
-    facts: { cause: death.cause },
+    facts: { cause: death.cause, killerId: death.killerId },
   });
   for (const role of vacated) tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role, eventId });
   if (vacated.length === 0 && a.occupation !== 'resident') tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, eventId });
@@ -765,8 +775,16 @@ export async function killAgent(
     witness.mood = 'shaken';
     touch(tx, witness);
   }
+  for (const id of here) {
+    const witness = await loadAgent(tx, id);
+    if (!witness?.alive || witness.mood === 'grieving') continue;
+    witness.needs.safety = Math.min(100, witness.needs.safety + 35);
+    witness.mood = 'shaken';
+    touch(tx, witness);
+  }
+  await deathReactions(tx, a, eventId, { cause: death.cause, killerId: death.killerId, here, closeIds: close.map((t) => t.fromAgentId) });
   await succeedFactionLeader(tx, a, eventId);
-  if (VIOLENT_CAUSE.test(death.cause)) await suspectRivals(tx, a, close, eventId);
+  if (!death.killerId && VIOLENT_CAUSE.test(death.cause)) await suspectRivals(tx, a, close, eventId);
   return eventId;
 }
 

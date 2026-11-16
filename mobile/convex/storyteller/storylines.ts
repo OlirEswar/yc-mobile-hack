@@ -75,15 +75,15 @@ const PATTERNS: [StoryKind, RegExp][] = [
   ['obsession', /obsess/],
   ['secret', /secret|confess|eavesdrop|blackmail|confide|expos|affair/],
   ['debt', /borrow|loan|debt|repay|default/],
-  ['crime', /theft|steal|stole|missing|investigat|arrest|smuggl|bribe|sabotag|hoard|stockpil/],
+  ['crime', /robber|extort|loot|vandal|theft|steal|stole|missing|investigat|arrest|smuggl|bribe|sabotag|hoard|stockpil/],
   ['omen', /quake|signal|outbreak|disease|epidemic|reactor|festival|ice_strike|lucky|escaped|random_event/],
   ['family', /birth|born|child|grow_up|grew_up|coming_of_age|propos|marri|wedding|pet_|_pet/],
   ['invention', /discover|invent|experiment|structure|built|construct|research|breakthrough/],
   ['art', /mural|song|poem|sculpt|holo|perform|masterpiece|famous_work|artwork|create_art|play_staged/],
-  ['org', /org_|organization|schism|raid|recruit|preach|expel|ritual|breakaway|guild|cult|gang|militia|troupe|company_/],
-  ['romance', /court|romance|flirt|love|tryst/],
+  ['org', /org_|organization|schism|raid|recruit|preach|expel|ritual|breakaway|guild|cult|gang|militia|troupe|company_|turf/],
+  ['romance', /court|romance|flirt|love|tryst|kiss/],
   ['power', /council|petition|rally|strike|leadership|faction|seat|ration_cut|ration_change|recall|vote/],
-  ['grudge', /threat|accus|smear|lie|fight|feud|insult|suspicion|grudge/],
+  ['grudge', /threat|accus|smear|lie|fight|duel|feud|insult|suspicion|grudge|gambl|funeral/],
 ];
 
 /** What kind of story an event belongs to, from its type and category. */
@@ -93,7 +93,7 @@ export function kindOfEvent(e: Doc<'events'>): StoryKind | null {
   return null;
 }
 
-const HOSTILE = /threat|accus|smear|lie|fight|feud|insult|suspicion|blackmail|sabotag|theft|steal|arrest|expos|strike|raid|schism|expel/;
+const HOSTILE = /robber|extort|loot|vandal|duel|turf|insult|threat|accus|smear|lie|fight|feud|insult|suspicion|blackmail|sabotag|theft|steal|arrest|expos|strike|raid|schism|expel/;
 const EASING = /reconcil|repay|apolog|forgiv|comfort|gift|friendship|help|treatment/;
 /** Events that close a storyline when it is at its climax. */
 const CLOSING = /reconcil|repay|confess|arrest|death|leadership_change|council_seat|apolog|forgiv|wedding|marri|fulfil|collaps|disband|built|discover/;

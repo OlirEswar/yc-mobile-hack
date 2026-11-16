@@ -15,8 +15,6 @@ import type { Moment } from './monologue';
 import { describeStoryline, involvedIn } from './storylines';
 import type { StorylineDoc } from './storylines';
 
-/** Steps that are routine enough to fast-forward through when nothing is happening around them. */
-const ROUTINE = new Set(['sleep', 'work', 'rest', 'wait', 'grow', 'strike', 'study', 'experiment']);
 /** Ticks left in a routine step (or walk) before it is worth skipping. */
 const WARP_MIN_TICKS = 3;
 /** Salience at which an event near them is something they notice. */
@@ -169,10 +167,10 @@ async function narrate(tx: Tx, a: AgentDoc, mind: MindDoc, live: StorylineDoc[],
 
 /** Fast-forward while they sleep, work or walk through a long stretch and nothing story-relevant is near. */
 async function shouldWarp(tx: Tx, a: AgentDoc, live: StorylineDoc[], near: Doc<'events'>[], pending: boolean): Promise<boolean> {
-  if (pending || near.some((e) => e.salience >= 0.35)) return false;
-  if (a.move) return a.move.arriveTick - tx.tick >= WARP_MIN_TICKS;
+  // Only sleep is skipped: waking time stays continuous for the viewer.
+  if (pending || a.move || a.activity !== 'sleeping' || near.some((e) => e.salience >= 0.35)) return false;
   const step = a.cur ? decodeStep(a.cur) : null;
-  if (!step || !ROUTINE.has(step.type) || a.busyUntilTick - tx.tick < WARP_MIN_TICKS) return false;
+  if (!step || step.type !== 'sleep' || a.busyUntilTick - tx.tick < WARP_MIN_TICKS) return false;
   const cast = new Set<string>(live.flatMap((s) => s.participantIds));
   cast.delete(a._id);
   const here = await agentsAt(tx, a.locationId, { exclude: [a._id] });

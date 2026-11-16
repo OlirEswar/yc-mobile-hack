@@ -253,7 +253,7 @@ export async function foundOrg(tx: Tx, a: AgentDoc, mind: MindDoc, kind: string,
   const meta = await loadMeta(tx);
   const orgs = await activeOrgs(tx);
   if (orgs.some((o) => o.leaderId === a._id) || !(await canFound(tx, kind))) return -1;
-  if (tx.tick - meta.lastFoundTick < Math.round(DAY * 0.6)) return -1;
+  if (tx.tick - meta.lastFoundTick < 12) return -1;
   const s = societyOf(tx, a, mind);
   const taken = orgs.map((o) => o.name);
   const clean = nameArg ? sanitize(nameArg, 40) : '';

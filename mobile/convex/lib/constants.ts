@@ -70,7 +70,7 @@ export const RATE_LIMITS = {
 // ---------- tick engine ----------
 
 /** Most agents a single tick steps; the rest stay due and run on the next tick. */
-export const AGENT_STEPS_PER_TICK = 45;
+export const AGENT_STEPS_PER_TICK = 75;
 /** world:skipToNotable advances at most this far, and stops early past this many agent steps. */
 export const SKIP_MAX_TICKS = 36;
 export const SKIP_STEP_BUDGET = 1100;

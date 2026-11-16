@@ -28,6 +28,26 @@ export const SOCIETY_ARG_KINDS: Record<SocietyStepType, Record<string, string>> 
   adopt_pet: { species: 'one of ' + PET_SPECIES.map((s) => s.key).join(', ') },
   care: { targetId: 'your child (person id) or your pet (pet id)' },
   propose: { agentId: 'a person present: your love, or your partner (to raise a child together)' },
+  fight: { agentId: 'a person present' },
+  duel: { agentId: 'a person present you have a feud with' },
+  rob: { agentId: 'a person present' },
+  extort: { agentId: 'a person present' },
+  vandalize: { locationId: 'the location you are at' },
+  intimidate: { agentId: 'a person present' },
+  gamble: { ticks: '1 to 3' },
+  carouse: { ticks: '1 to 3' },
+  dance: { ticks: '1 to 3' },
+  ritual: { orgId: 'an organization you lead' },
+  pray: { ticks: '1 to 3' },
+  chase: { agentId: 'a person present' },
+  kiss: { agentId: 'a person present' },
+  cry: { ticks: '1 to 3' },
+  celebrate: { ticks: '1 to 3' },
+  spy: { agentId: 'a person present' },
+  gloat: { agentId: 'a person present' },
+  rush: { agentId: 'a person present' },
+  inspect: { agentId: 'a person present' },
+  loot: { locationId: 'the location you are at' },
 };
 
 export type SocietyLookup = {
@@ -144,6 +164,22 @@ export function validateSocietyArgs(type: string, raw: string[], l: SocietyLooku
       if (!who) return 'unknown or dead person';
       return { args: [who.id], label: 'Propose to ' + who.name };
     }
+    case 'fight': case 'duel': case 'rob': case 'extort': case 'intimidate': case 'chase': case 'kiss': case 'spy': case 'gloat': case 'rush': case 'inspect': {
+      const who = l.living(args[0]);
+      if (!who) return 'unknown or dead person';
+      return { args: [who.id], label: type.charAt(0).toUpperCase() + type.slice(1) + ' ' + who.name };
+    }
+    case 'gamble': case 'carouse': case 'dance': case 'pray': case 'cry': case 'celebrate': {
+      const n = clampInt(args[0] || '2', 1, 3) ?? 2;
+      return { args: [String(n)], label: type.charAt(0).toUpperCase() + type.slice(1) };
+    }
+    case 'ritual': {
+      const o = org(args[0], true);
+      if (!o) return 'not your organization';
+      return { args: [o.id], label: 'Lead a rite of ' + o.name };
+    }
+    case 'vandalize': case 'loot':
+      return { args: [''], label: type === 'loot' ? 'Loot what is here' : 'Smash things up here' };
   }
   return 'not supported';
 }

@@ -92,7 +92,7 @@ export async function choicesFor(tx: Tx, a: AgentDoc, mind: MindDoc, free: boole
   for (const org of orgs) out.push(...(await orgChoices(tx, a, mind, org, r)));
 
   // founding
-  if (r('found') < 0.25 && !orgs.some((o) => o.leaderId === a._id) && tx.tick - meta.lastFoundTick > DAY * 0.6) {
+  if (r('found') < 0.5 && !orgs.some((o) => o.leaderId === a._id) && tx.tick - meta.lastFoundTick > 12) {
     const want = foundingDesire(a, mind, tx.world.econ.rationLevel);
     if (want && (await canFound(tx, want.kind))) {
       const home = want.kind === 'company' || want.kind === 'school' ? a.workLocationId ?? ORG_KINDS[want.kind].home : want.kind === 'breakaway' ? a.workLocationId ?? 'quarry' : ORG_KINDS[want.kind].home;

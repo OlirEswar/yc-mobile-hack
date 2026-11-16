@@ -6,7 +6,7 @@
 import { LOCATION_IDS, LOCATIONS, RUMOR_PRESETS, TICKS_PER_DAY, WHISPER_PRESETS } from '../../shared/colony';
 import type { IdeaPreset, LocationId } from '../../shared/colony';
 import type { GoalKind } from '../../shared/types';
-import { agentsAt, emitEvent, enqueueCognition, learnBelief, loadAgent, loadMind, replan, touchMind } from '../engine/core';
+import { agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, learnBelief, loadAgent, loadMind, replan, tieTo, touch, touchMind } from '../engine/core';
 import type { AgentDoc, AgentId, MindDoc, Tx } from '../engine/core';
 import { rand, round2 } from '../lib/rng';
 import { ACCUSABLE } from '../engine/social';
@@ -137,6 +137,12 @@ export const whisper: Power<WhisperParams> = {
       lane: 'crisis',
       eventId,
     });
+    // Visible at once: they stop what they are doing with the thought on their face.
+    if (agent.activity !== 'sleeping') {
+      agent.mood = 'struck';
+      agent.speech = '...Where did that come from?';
+      touch(tx, agent);
+    }
     return { affectedAgentIds: [agent._id] };
   },
 };
@@ -243,6 +249,21 @@ export const rumor: Power<RumorParams> = {
         hops: 1,
       });
     }
-    return { affectedAgentIds: hearerIds };
+    // Most affected first: the hearer with the strongest feelings about the subject reacts in the open.
+    const ranked: { id: AgentId; w: number }[] = [];
+    for (const id of hearerIds) {
+      const t = await tieTo(tx, id, subject._id);
+      ranked.push({ id, w: t ? Math.abs(t.affinity) + Math.abs(t.trust) / 2 + (t.kind === 'family' || t.kind === 'partner' ? 1 : 0) : 0 });
+    }
+    ranked.sort((x, y) => y.w - x.w);
+    const first = await loadAgent(tx, ranked[0].id);
+    if (first?.alive && first.activity !== 'sleeping') {
+      const other = ranked[1]?.id;
+      first.mood = 'agitated';
+      interrupt(tx, first, other ? [encodeStep('talk', other, preset.key + ':' + subject._id)] : [encodeStep('talk', 'any', preset.key + ':' + subject._id)]);
+      first.speech = 'Have you heard what they are saying about ' + subject.name.split(' ')[0] + '?';
+      touch(tx, first);
+    }
+    return { affectedAgentIds: ranked.map((x) => x.id) };
   },
 };

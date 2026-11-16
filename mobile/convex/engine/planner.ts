@@ -6,6 +6,7 @@
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
 import { societyChoices } from '../society/hooks';
+import { chaosChoices } from '../society/chaos';
 import { BASE_PRICES, BONUS_AT, CUT_AT, NORMAL_LLM_SHARE } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
 import {
@@ -90,6 +91,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   choices.push(...(await beliefChoices(c)));
   choices.push(await duty(c));
   choices.push(await mischief(c));
+  choices.push(...(await chaosChoices(c)));
   choices.push(...(await societyChoices(tx, a, mind, c.free)));
   choices.push({ score: 0.05, routine: true, intent: 'Taking a breather', steps: [encodeStep('rest', 3)], labels: ['Taking a breather at ' + locName(a.locationId)] });
 
@@ -168,7 +170,8 @@ async function work(c: Ctx): Promise<Choice | null> {
   const { a, p, tx } = c;
   if (!c.shift || !a.workLocationId) return null;
   const end = p < LUNCH[0] ? LUNCH[0] : SHIFT_END;
-  const ticks = clamp(end - p, 1, 18);
+  const watched = tx.world.focusAgentId === a._id || !!tx.world.orbitIds?.includes(a._id);
+  const ticks = clamp(end - p, 1, watched ? 2 : 9);
   if (stormAt(tx.world, a.workLocationId) > 0) {
     const safe = shelterFrom(a.workLocationId);
     return {
@@ -304,7 +307,7 @@ async function mischief(c: Ctx): Promise<Choice | null> {
   const { a, tx, mind } = c;
   const t = a.traits;
   if (!c.free || c.p < SHIFT_END + 6 || t.empathy > 0.4 || (t.ambition < 0.55 && mind.values.wealth < 0.6) || a.occupation === 'security' || a.occupation === 'quartermaster') return null;
-  if (rand(tx.world.seed, tx.tick, a.seq, 'mischief') > 0.02 + (1 - t.caution) * 0.03) return null;
+  if (rand(tx.world.seed, tx.tick, a.seq, 'mischief') > 0.06 + (1 - t.caution) * 0.08) return null;
   const res = rand(tx.world.seed, tx.tick, a.seq, 'loot') < 0.5 ? 'water' : 'food';
   const grudge = c.ties.filter((r) => r.toAlive && r.affinity < -0.2).sort((x, y) => x.affinity - y.affinity)[0];
   const victim = grudge ? await loadAgent(tx, grudge.toAgentId) : null;

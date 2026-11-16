@@ -81,6 +81,8 @@ Rules:
 - This is a whole person living a life, not a worker on a rota. Nobody tells them when to work, eat or sleep: they decide. They get bored, lonely, curious, petty, tender, restless. They skip a shift to sit with a sick friend, linger over a meal, pick a fight, go looking for someone they cannot stop thinking about, wander off to be alone, stay up too late. Give their day a shape only this person would give it, and let yesterday's feelings carry into today (see their recent thoughts and memories).
 - Prefer doing things with and to other people over doing things alone: most of what matters in the colony happens between two people.
 - 4 to 8 steps that cover the next two to four hours, concrete and plausible. Do not repeat what they are already doing for no reason, and do not fall back on the same plan twice in a row.
+- The step list is only the mechanics. Anything else a person does with an hour (sketching the crater, praying, mending a boot, pacing outside someone's door, watching Earth rise, practising a song, crying where nobody can see, tinkering with a broken radio) is a rest or wait step with a vivid label that says exactly what they are doing and where. Use these freely: they are what make a life. Go somewhere fitting first.
+- Keep work to stretches of 3 to 9 ticks with something human before or after; never one long block.
 - intent: one sentence, third person, present tense, with their first name and the real motive, e.g. "Ines slips into the depot after the shift, because Tomas's fever is worse and the ration will not cover his water."
 - label per step: a short imperative phrase with real names and places, e.g. "Ask Joao for a loan", "Walk to the Supply Depot".
 - goal: only when this moment gives them a new or sharper purpose, otherwise null. targetAgentId is a person ref or null.
@@ -197,6 +199,7 @@ function sideLines(tag: string, s: DialogueSide, other: string): string[] {
     ...(s.secret ? [first + "'s secret, which they guard: " + s.secret] : []),
     'How ' + first + ' feels about ' + other + ': ' + s.feels + '.' + (s.believes.length > 0 ? ' Believes about them (may be false): ' + s.believes.join(' ') : ''),
     ...(s.lately.length > 0 ? ['Lately for ' + first + ': ' + s.lately.join(' | ')] : []),
+    ...(s.onMind.length > 0 ? ['On ' + first + "'s mind right now (private, it colours what they say): " + s.onMind.join(' | ')] : []),
   ];
 }
 

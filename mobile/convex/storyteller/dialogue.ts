@@ -8,7 +8,7 @@ import type { QueryCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { TICKS_PER_DAY } from '../../shared/colony';
 import { hash32 } from '../lib/rng';
-import { adjustRelationship, emitEvent, encodeStep, heldBeliefs, interrupt, learnBelief, loadAgent, loadMind, tieTo, touch } from '../engine/core';
+import { adjustRelationship, emitEvent, encodeStep, enqueueCognition, heldBeliefs, interrupt, learnBelief, loadAgent, loadMind, tieTo, touch } from '../engine/core';
 import type { AgentDoc, Tx } from '../engine/core';
 import { debtsTo } from '../engine/ledger';
 import { providerConfig } from '../cognition/provider';
@@ -103,7 +103,7 @@ async function ruleLines(tx: Tx, a: AgentDoc, b: AgentDoc, kind: string): Promis
 const HOLD_TICKS = 3;
 
 /** True when the model is able to write conversations right now. */
-function modelWrites(tx: Tx): boolean {
+export function modelWrites(tx: Tx): boolean {
   const llm = tx.world.llm;
   return providerConfig() !== null && llm.enabled && !((llm.disabledUntil ?? 0) > Date.now());
 }
@@ -175,6 +175,13 @@ async function applyOutcome(tx: Tx, d: Doc<'dialogues'>, a: AgentDoc, b: AgentDo
     salience: o === 'fight' ? 0.6 : o === 'secret' || o === 'promise' ? 0.45 : 0.35,
     visibility: 'local',
   });
+  // What was said changes what both of them do next: each thinks again with the conversation fresh.
+  const said = d.summary ?? (last ? first(d.lines.length % 2 === 0 ? b.name : a.name) + ' said: "' + last.text + '"' : undefined);
+  for (const [x, y] of [[b, a], [a, b]] as const) {
+    if (!x.alive || (o === 'fight' && x === a)) continue;
+    const near = tx.world.focusAgentId === x._id ? 'focus' : o !== 'none' && o !== 'warmer' ? 'crisis' : tx.world.orbitIds?.includes(x._id) ? 'orbit' : 'normal';
+    await enqueueCognition(tx, x, { kind: 'plan', trigger: 'just talked with ' + y.name + ' and it ended ' + (o === 'none' ? 'unresolved' : o === 'warmer' ? 'warmly' : o === 'colder' ? 'badly' : o === 'promise' ? 'in a promise' : o === 'secret' ? 'with a secret shared' : o === 'refusal' ? 'in a refusal' : 'in a fight'), detail: said, priority: 0.7, lane: near });
+  }
 }
 
 /** Reveals the next line of every live conversation; ends the ones that are over or broken off. */

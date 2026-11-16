@@ -6,8 +6,10 @@
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
 import { societyChoices } from '../society/hooks';
+import { admits } from '../cognition/budget';
+import { modelWrites } from '../storyteller/dialogue';
 import { chaosChoices } from '../society/chaos';
-import { BASE_PRICES, BONUS_AT, CUT_AT, NORMAL_LLM_SHARE } from '../lib/constants';
+import { BASE_PRICES, BONUS_AT, CUT_AT, DEFAULT_LLM_CONFIG, NORMAL_LLM_SHARE } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
 import {
   droughtSeverity,
@@ -60,6 +62,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
     await setPlan(tx, a, { intent: 'Taking a moment', source: 'routine', steps: [encodeStep('rest', 3)], labels: ['Resting'] });
     return;
   }
+  if (await thinkFirst(tx, a, mind)) return;
   const p = personalTick(a, tx.tick);
   const lunch = p >= LUNCH[0] && p < LUNCH[1];
   const shift = p >= SHIFT_START && p < SHIFT_END && !lunch;
@@ -136,6 +139,25 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
     // Everyone thinks for themselves: the rules plan above only carries them until the model answers.
     await enqueueCognition(tx, a, { kind: 'plan', trigger: chosen.routine ? habit : why, priority: chosen.routine ? 0.35 : 0.5, lane: 'normal', eventId: chosen.causeEventId });
   }
+}
+
+const PAUSE = 'Taking a moment';
+
+/**
+ * While the model can answer, a colonist with nothing pressing does not fall back on the timetable:
+ * they pause where they are for a breath and the model decides what they do with the next hours.
+ * If the answer never comes, the next call falls through to the rules.
+ */
+async function thinkFirst(tx: Tx, a: AgentDoc, mind: NonNullable<Awaited<ReturnType<typeof loadMind>>>): Promise<boolean> {
+  if (mind.plan?.intent === PAUSE || !modelWrites(tx)) return false;
+  if (a.needs.thirst > 75 || a.needs.hunger > 75 || a.needs.fatigue > 90 || stormAt(tx.world, a.locationId) > 0) return false;
+  const lane = tx.world.focusAgentId === a._id ? 'focus' : tx.world.orbitIds?.includes(a._id) ? 'orbit' : 'normal';
+  if (!admits(tx.world.llm, DEFAULT_LLM_CONFIG, 'plan', lane)) return false;
+  const woke = a.activity === 'sleeping';
+  const queued = await enqueueCognition(tx, a, { kind: 'plan', trigger: woke ? 'waking up to a new stretch of the day' : 'a free moment, with the next few hours their own', priority: lane === 'normal' ? 0.5 : 0.9, lane });
+  if (!queued) return false;
+  await setPlan(tx, a, { intent: PAUSE, source: 'routine', steps: [encodeStep('wait', 2)], labels: [woke ? 'Waking up slowly' : 'Pausing at ' + locName(a.locationId) + ', thinking'] });
+  return true;
 }
 
 // ---------- body and schedule ----------

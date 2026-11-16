@@ -18,7 +18,7 @@ import { LANE_RANK, admits, charge, recordSpend, rollDay } from './cognition/bud
 import { loadJobContext } from './cognition/context';
 import type { JobContext } from './cognition/context';
 import { dialogueRequest, planRequest, speechRequest, thoughtRequest } from './cognition/prompt';
-import { commitDialogue } from './storyteller/dialogue';
+import { commitDialogue, inDialogue } from './storyteller/dialogue';
 import { chat, providerConfig } from './cognition/provider';
 import type { ChatResult, ProviderConfig } from './cognition/provider';
 import { parseJson, validateDialogue, validatePlan, validateSpeech, validateThought } from './cognition/validate';
@@ -343,7 +343,7 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
     goalId,
     causeEventId: job.eventId,
     // The model's plan takes over at once; a plan asked for ahead of time follows the step in progress.
-    now: !job.trigger.startsWith(NEXT_TRIGGER),
+    now: !job.trigger.startsWith(NEXT_TRIGGER) && !(await inDialogue(tx, agent._id)),
   });
   // A player's avatar thinks for itself three times as often: it is who the player watches.
   mind.llmCooldownUntilTick =

@@ -15,6 +15,8 @@ struct FollowView: View {
     @State private var keyboard = false
     /// Shows the colony through the colonist's eyes: who they know, how they feel about them, what they believe.
     @State private var lens = false
+    /// The pane grows tall so whole thoughts, answers and stories can be read.
+    @State private var expanded = false
 
     /// The monologue: the backend's when it has one, else the last recorded decision.
     private var thoughts: [ThoughtLine] {
@@ -155,6 +157,7 @@ struct FollowView: View {
                 .font(.caption.weight(.semibold)).foregroundStyle(Color.amber).lineLimit(1)
                 .contentTransition(.opacity)
                 .animation(.smooth, value: c.activityLabel)
+            HStack(spacing: 8) {
             Picker("Pane", selection: $pane) {
                 Text("Now").tag(Pane.now)
                 Text("Mind").tag(Pane.mind)
@@ -162,6 +165,18 @@ struct FollowView: View {
                 Text("Story").tag(Pane.story)
             }
             .pickerStyle(.segmented)
+            Button {
+                withAnimation(.smooth(duration: 0.3)) { expanded.toggle() }
+            } label: {
+                Image(systemName: expanded ? "chevron.down" : "chevron.up")
+                    .font(.subheadline.weight(.bold))
+                    .frame(width: 32, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(expanded ? "Shrink panel" : "Expand panel")
+            }
             .onChange(of: pane) { _, p in
                 if p == .mind { game.didAct(.read_thoughts) }
                 if p == .story { game.didAct(.open_storylines) }
@@ -174,7 +189,7 @@ struct FollowView: View {
                 case .story: StoryPane(detail: detail, storylines: focus?.storylines ?? game.storylines.filter { $0.participantIds.contains(c.id) })
                 }
             }
-            .frame(height: 150, alignment: .top)
+            .frame(height: expanded ? 400 : 150, alignment: .top)
             }
         }
         .padding(16)
@@ -350,6 +365,8 @@ struct MindPane: View {
                                 Text(([Clock.time(t.tick), t.mood] + [t.planted ? "your whisper" : nil]).compactMap { $0 }.joined(separator: " · "))
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
                             }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                             .opacity(i == 0 || t.planted ? 1 : max(0.45, 1 - Double(i) * 0.08))
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }

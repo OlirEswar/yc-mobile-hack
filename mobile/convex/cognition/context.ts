@@ -163,7 +163,7 @@ export type SpeechContext = {
   avatar?: AvatarContext;
 };
 
-export type DialogueSide = { name: string; identity: string; personality: string; mood: string; voice?: string; want?: string; fear?: string; secret?: string; feels: string; believes: string[]; lately: string[] };
+export type DialogueSide = { name: string; identity: string; personality: string; mood: string; voice?: string; want?: string; fear?: string; secret?: string; feels: string; believes: string[]; lately: string[]; onMind: string[] };
 export type DialogueContext = { kind: 'dialogue'; dialogueId: Id<'dialogues'>; a: DialogueSide; b: DialogueSide; place: string; what: string; storylines: string[]; debts: string[]; news: string[] };
 
 export type JobContext = PlanContext | SpeechContext | ThoughtContext | DialogueContext;
@@ -419,6 +419,7 @@ async function dialogueContext(ctx: QueryCtx, world: Doc<'worlds'>, agent: Doc<'
       feels: tie ? describeTie(tie) : 'barely knows them',
       believes: (await sortedBeliefs(ctx, x._id)).filter((b) => b.subjectAgentId === y._id).slice(0, 3).map((b) => b.text),
       lately: await memoryLines(ctx, world, x._id, 4),
+      onMind: [...(m.plan?.source === 'llm' ? ['Means to: ' + m.plan.intent] : []), ...(await recentThoughts(ctx, x._id, 2))],
     };
   };
   const owes = (m: Doc<'minds'>, from: Doc<'agents'>, to: Doc<'agents'>) => (m.ledger?.owes ?? []).filter((o) => o.to === to._id).map((o) => from.name + ' owes ' + to.name + ' ' + o.qty + ' ' + o.res);

@@ -114,6 +114,7 @@ final class Game: SourceSink {
     @ObservationIgnored private var heartbeatTimer: Timer?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var bannerTask: Task<Void, Never>?
+    @ObservationIgnored private var lastBannerAt = Date.distantPast
     @ObservationIgnored private var storylinesCancel: (() -> Void)?
     /// Last beat tick seen per storyline, so only new beats raise a banner.
     @ObservationIgnored private var beatTicks: [Id: Double]?
@@ -210,9 +211,10 @@ final class Game: SourceSink {
         storylines = next
         let ticks = Dictionary(next.map { ($0.id, $0.lastBeatTick) }, uniquingKeysWith: max)
         defer { beatTicks = ticks }
-        guard let seen = beatTicks else { return }
-        let fresh = next.filter { $0.live && $0.tension >= 0.6 && $0.lastBeatTick > (seen[$0.id] ?? -1) }
+        guard let seen = beatTicks, followingID == nil, Date().timeIntervalSince(lastBannerAt) > 90 else { return }
+        let fresh = next.filter { $0.live && $0.tension >= 0.75 && $0.lastBeatTick > (seen[$0.id] ?? -1) }
         guard let top = fresh.max(by: { $0.tension < $1.tension }), let beat = top.beats.last else { return }
+        lastBannerAt = Date()
         bannerTask?.cancel()
         withAnimation(.smooth) { banner = StoryBanner(id: top.id + "/\(beat.tick)", storylineId: top.id, title: top.title, text: beat.text, tension: top.tension) }
         bannerTask = Task {

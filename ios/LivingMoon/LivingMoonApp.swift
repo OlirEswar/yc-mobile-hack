@@ -89,7 +89,7 @@ struct TickerView: View {
     @Environment(Game.self) private var game
 
     var body: some View {
-        if let e = game.visibleEvents.last {
+        if let e = game.visibleEvents.last(where: { $0.salience >= 0.5 }) {
             Button { game.goTo(e) } label: {
                 HStack(spacing: 10) {
                     Image(systemName: e.symbol).foregroundStyle(e.tint)

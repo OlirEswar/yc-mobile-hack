@@ -9,7 +9,7 @@ struct FollowView: View {
     @State private var detail: AgentDetail?
     @State private var focus: FocusState?
     @State private var conversation: [AskTurn] = []
-    @State private var pane = Pane.now
+    @State private var pane = Pane.mind
     @State private var power: Power?
     @State private var profile = false
     @State private var keyboard = false
@@ -29,10 +29,9 @@ struct FollowView: View {
                     topBar
                     if !keyboard {
                         hooks
-                        if let line = thoughts.first { ThoughtBubble(line: line).onTapGesture { pane = .mind } }
                         CoachCard()
                     }
-                    if let toast = game.toast {
+                    if let toast = game.toast, toast.kind == .error {
                         Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
                     }
                     Spacer(minLength: 0)
@@ -44,6 +43,8 @@ struct FollowView: View {
                 .animation(.smooth, value: focus?.hooks ?? [])
                 .animation(.smooth, value: game.tutorialStep)
                 .animation(.smooth, value: keyboard)
+                .onAppear { if pane == .mind { game.didAct(.read_thoughts) } }
+                .onChange(of: game.tutorialStep) { if pane == .mind { game.didAct(.read_thoughts) } }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }
                 .task(id: c.id) { for await d in game.detailStream(c.id) { detail = d } }
@@ -107,7 +108,7 @@ struct FollowView: View {
         if let hooks = focus?.hooks, !hooks.isEmpty {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    ForEach(hooks) { hook in
+                    ForEach(hooks.prefix(1)) { hook in
                         Button { game.follow(hook.agentId) } label: {
                             HStack(spacing: 8) {
                                 if let c = game.colonist(hook.agentId) { Avatar(spriteId: c.spriteId, size: 30) }
@@ -251,25 +252,6 @@ struct FollowView: View {
 }
 
 /// The newest thought, floating over the map as the character's inner voice.
-struct ThoughtBubble: View {
-    var line: ThoughtLine
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: line.planted ? "sparkles" : "bubble.middle.bottom.fill").font(.caption).foregroundStyle(line.planted ? Color.amber : Color.earth).padding(.top, 3)
-            Text(line.text)
-                .font(.callout.italic())
-                .fontDesign(.serif)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .glassEffect(.regular.tint(Color.earth.opacity(0.12)), in: .rect(cornerRadius: 18))
-        .id(line.id)
-        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
-    }
-}
-
 struct MindPane: View {
     @Environment(Game.self) private var game
     var colonist: AgentLite

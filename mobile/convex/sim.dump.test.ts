@@ -55,7 +55,7 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
     );
   }
   const focus = env('DUMP_FOCUS') ? await named(env('DUMP_FOCUS')!) : null;
-  const samples: { tick: number; awake: boolean; warp: boolean }[] = [];
+  const samples: { tick: number; awake: boolean; warp: boolean; kind: string; withSomeone: boolean; start: boolean }[] = [];
   if (focus) {
     await t.run((ctx) => ctx.db.patch(id, { focusAgentId: focus._id }));
     for (let i = 0; i < days * 144; i++) {
@@ -63,7 +63,7 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
         await t.run(async (ctx) => {
           await runTicks(ctx, id, 1);
           const [w, a] = [(await ctx.db.get(id))!, (await ctx.db.get(focus._id))!];
-          return { tick: w.tick, awake: a.alive && a.activity !== 'sleeping', warp: !!w.focusWarp };
+          return { tick: w.tick, awake: a.alive && a.activity !== 'sleeping', warp: !!w.focusWarp, kind: a.move ? 'go' : (a.cur?.split('|')[0] ?? 'idle'), withSomeone: !!a.interactingWithId, start: a.curStartTick === w.tick };
         }),
       );
     }
@@ -93,6 +93,15 @@ test.skipIf(!env('DUMP_DAYS'))('chronicle dump', async () => {
     if (s.origin === 'seed') for (const b of s.beats) console.log('      ' + b.tick + ': ' + b.text.slice(0, 130));
   }
   if (focus) {
+    const up = samples.filter((s) => s.awake);
+    const share = (f: (s: (typeof samples)[number]) => boolean) => Math.round((100 * up.filter(f).length) / Math.max(1, up.length)) + '%';
+    const NEEDS = ['go', 'flee', 'eat', 'drink', 'ration', 'buy', 'sell'];
+    const starts = up.filter((s) => s.start && s.kind !== 'go');
+    const byKind = new Map<string, number>();
+    for (const s of up) byKind.set(s.kind, (byKind.get(s.kind) ?? 0) + 1);
+    console.log('\nWaking time of ' + focus.name + ': needs and travel ' + share((s) => NEEDS.includes(s.kind)) + ', work ' + share((s) => s.kind === 'work') + ', with someone ' + share((s) => s.withSomeone) + '; warp while awake ' + share((s) => s.warp) + '. Steps started: ' + starts.length + ', with another person ' + Math.round((100 * starts.filter((s) => s.withSomeone).length) / Math.max(1, starts.length)) + '%.');
+    console.log('  by step: ' + [...byKind].sort((x, y) => y[1] - x[1]).map(([k, n]) => k + ' ' + n).join(', '));
+    console.log('Recap: ' + (await t.query(api.focus.state, { worldId: id, agentId: focus._id }))?.recap);
     const talks = await t.run((ctx) => ctx.db.query('dialogues').collect());
     console.log('\nConversations (' + talks.length + '):');
     for (const d of talks.slice(0, 12)) console.log('  [' + d.kind + ' -> ' + d.outcome + ', tick ' + d.startTick + ']\n' + d.lines.map((l) => '    ' + (l.speakerId === d.aId ? d.aName : d.bName).split(' ')[0] + ': ' + l.text).join('\n'));

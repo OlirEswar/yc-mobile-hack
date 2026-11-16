@@ -11,6 +11,7 @@ import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interru
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
 import { cool, cooling, debtsTo } from '../engine/ledger';
 import { inDialogue } from './dialogue';
+import { orgsOf } from '../society/orgs';
 import { queueThought, recentThoughts, ruleThought, writeThought } from './monologue';
 import type { Moment } from './monologue';
 import { describeStoryline, involvedIn } from './storylines';
@@ -29,9 +30,9 @@ const ORBIT_RECENT = 18;
 /** Least time between two LLM speech lines for one colonist (30 minutes). */
 const SPEECH_GAP = 3;
 /** In-game time without a story beat before the director brings the story to them (50 minutes). */
-const QUIET_TICKS = 5;
+const QUIET_TICKS = 2;
 /** Least time between two nudges for the same colonist (an hour). */
-const NUDGE_GAP = 6;
+const NUDGE_GAP = 3;
 
 export async function spotlightTick(tx: Tx, live: StorylineDoc[], events: Doc<'events'>[]): Promise<void> {
   const a = tx.world.focusAgentId ? await loadAgent(tx, tx.world.focusAgentId) : null;
@@ -248,6 +249,10 @@ export async function visitStep(tx: Tx, visitor: AgentDoc, a: AgentDoc, story?: 
     const leverage = beliefs.find((b) => b.subjectAgentId === a._id && b.valence < 0 && b.confidence >= 0.5);
     return leverage && visitor.traits.empathy < 0.5 ? encodeStep('blackmail', a._id, leverage.key) : encodeStep('threaten', a._id);
   }
+  if (toward?.kind === 'romance' || toward?.kind === 'partner') return encodeStep(['grieving', 'shaken', 'afraid'].includes(a.mood) ? 'comfort' : 'court', a._id);
+  const vm = await loadMind(tx, visitor);
+  const org = vm ? (await orgsOf(tx, vm)).find((o) => ['cult', 'gang', 'militia', 'party'].includes(o.kind) && !o.memberIds.includes(a._id)) : undefined;
+  if (org && (toward?.affinity ?? 0) > -0.2 && (tx.tick + visitor.seq) % 3 === 0) return encodeStep('recruit', a._id, org._id);
   if ((toward?.affinity ?? 0) >= 0.45 && (toward?.trust ?? 0) >= 0.3) {
     return ['grieving', 'shaken', 'afraid', 'desperate'].includes(a.mood) ? encodeStep('comfort', a._id) : encodeStep('confide', a._id);
   }

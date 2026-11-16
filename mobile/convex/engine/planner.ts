@@ -241,7 +241,7 @@ async function supply(c: Ctx, res: 'food' | 'water'): Promise<Choice | null> {
   const { a, tx, household, p } = c;
   const need = res === 'water' ? a.needs.thirst : a.needs.hunger;
   const urgency = need < 50 ? 0 : (need - 50) / 40;
-  const meal = mealtime(p) && need > 30 && c.free ? 0.55 : 0;
+  const meal = mealtime(p) && need > 36 && c.free ? 0.55 : 0;
   const score = Math.max(urgency * 1.1, meal);
   if (score <= 0) return null;
   const verb = res === 'food' ? 'eat' : 'drink';
@@ -256,7 +256,7 @@ async function supply(c: Ctx, res: 'food' | 'water'): Promise<Choice | null> {
   const canteen = stock(tx.world, 'canteen', res) >= 1 && a.inv.credits >= fee;
   const sociable = canteen && meal > 0 && p >= LUNCH[0] && a.traits.sociability > 0.5 && a.inv.credits > 15;
   if (household && household.pantry[res] >= 1 && !sociable) {
-    return { ...base, intent: 'Heading home to ' + verb + ' from the household pantry', ...plan.go(a.homeLocationId, 'Going home').add(verb, [], consume + ' at home') };
+    return { ...base, intent: 'Heading home to ' + verb + ' from the household pantry', ...plan.go(a.homeLocationId, 'Going home').add(verb, [], consume + ' at home').add('talk', ['any'], 'Talking over the ' + (res === 'food' ? 'meal' : 'water')) };
   }
   if (urgency < 0.35 && !canteen && !(household && household.rationDay <= c.day)) return null;
   return meetNeed(c, res, score, need);

@@ -113,7 +113,7 @@ async function needOptions(c: Ctx, res: 'food' | 'water', need: number): Promise
   }
   const fee = Math.max(1, Math.round(price * 0.5));
   if (stock(tx.world, 'canteen', res) >= 1 && a.inv.credits >= fee) {
-    add({ s: 'work', fit: 0.7, intent: intentLine('need.canteen', r('i-cant'), vars), plan: new Plan(a.locationId).go('canteen').add(verb, [], consume + ' at the canteen') });
+    add({ s: 'work', fit: 0.7, intent: intentLine('need.canteen', r('i-cant'), vars), plan: new Plan(a.locationId).go('canteen').add(verb, [], consume + ' at the canteen').add('talk', ['any'], 'Talking over the ' + (res === 'food' ? 'meal' : 'water')) });
   }
   const marketHas = stock(tx.world, 'depot', res) > RESERVE_FLOOR[res] || price > BASE_PRICES[res];
   if (marketHas && a.inv.credits >= Math.ceil(price * 1.3)) {

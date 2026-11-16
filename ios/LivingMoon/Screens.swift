@@ -64,6 +64,8 @@ struct ColonyView: View {
                             .padding(.horizontal, 12).padding(.vertical, 7)
                             .glassEffect()
                     }
+                    StoryBannerView()
+                    CoachCard()
                     Spacer()
                     if let loc = game.selectedLocation { PlaceCard(location: loc) }
                 }
@@ -92,10 +94,16 @@ struct ColonyView: View {
                     .tint(.white)
                     .accessibilityLabel("\(game.stamp), simulation speed")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(game.speed == 0 ? "Resume" : "Pause", systemImage: game.speed == 0 ? "play.fill" : "pause.fill") { game.togglePause() }
+                        .tint(.white)
+                }
                 ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button("Skip ahead…", systemImage: "hourglass") { game.showTimeskip = true }
+                        if game.intro != nil { Button("Story so far", systemImage: "book.pages") { game.showIntro = true } }
                         Button(game.premium ? "Colony Pass" : "Become a Patron", systemImage: "moon.circle") { game.showPatron = true }
                         Toggle("Live backend", systemImage: "antenna.radiowaves.left.and.right", isOn: $game.useLive)
                     } label: {
@@ -231,6 +239,8 @@ struct Avatar: View {
 struct InspectSheet: View {
     @Environment(Game.self) private var game
     var id: Id
+    /// Opened from follow mode, where following and powers are already at hand.
+    var inFollow = false
     @State private var detail: AgentDetail?
 
     var body: some View {
@@ -246,13 +256,16 @@ struct InspectSheet: View {
                             }
                             Text(c.name).font(.title.weight(.regular)).fontDesign(.serif)
                             Text(occupation(c.occupation).label + (c.alive ? " · feels \(c.mood)" : " · died")).font(.subheadline).foregroundStyle(.secondary)
+                            if let epithet = detail?.persona?.epithet {
+                                Text(epithet).font(.footnote.italic()).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
                     .listRowSeparator(.hidden)
 
-                    if c.alive {
+                    if c.alive && !inFollow {
                         HStack(spacing: 8) {
                             Button { open(nil, following: c.id) } label: { Text("Follow").frame(maxWidth: .infinity) }
                                 .buttonStyle(.glassProminent)
@@ -264,6 +277,42 @@ struct InspectSheet: View {
                         .controlSize(.large)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    }
+                }
+
+                if let p = detail?.persona {
+                    Section("Their story") {
+                        LabeledContent("Wants", value: p.want)
+                        LabeledContent("Fears", value: p.fear)
+                        LabeledContent("Flaw", value: p.flaw)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(p.arc.stage.capitalized).font(.caption.weight(.semibold)).foregroundStyle(Color.amber)
+                            Text(p.arc.note)
+                        }
+                    }
+                }
+
+                let life = LifeLines.of(detail)
+                if !life.isEmpty {
+                    Section("Life") { ForEach(life, id: \.self) { Text($0) } }
+                }
+
+                let stories = game.storylines.filter { $0.participantIds.contains(id) }
+                if !stories.isEmpty {
+                    Section("Storylines") {
+                        ForEach(stories) { s in
+                            Button {
+                                game.selectedID = nil
+                                if inFollow { game.unfollow() }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { game.openStoryline(s.id) }
+                            } label: {
+                                HStack {
+                                    Text(s.title).foregroundStyle(.primary)
+                                    Spacer()
+                                    TensionMeter(tension: s.tension, width: 44)
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -279,7 +328,7 @@ struct InspectSheet: View {
                     }
                 }
 
-                if let persona = detail?.persona {
+                if let persona = detail?.avatarPersona {
                     Section("Who they are") {
                         if !persona.summary.isEmpty { Text(persona.summary) }
                         if !persona.interests.isEmpty { LabeledContent("Into", value: persona.interests.joined(separator: ", ")) }
@@ -673,166 +722,6 @@ struct CreatorSheet: View {
     }
 }
 
-// MARK: - Follow
-
-struct FollowView: View {
-    @Environment(Game.self) private var game
-    @State private var detail: AgentDetail?
-    /// Shows the colony through the colonist's eyes: who they know, what they believe, what they think.
-    @State private var mind = false
-
-    var body: some View {
-        ZStack {
-            MapView(focus: game.followingID, lens: mind ? detail : nil)
-            if let c = game.colonist(game.followingID) {
-                VStack {
-                    HStack {
-                        Button { game.unfollow() } label: {
-                            Label("Colony", systemImage: "chevron.left").padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.glass)
-                        Button { withAnimation(.smooth) { mind.toggle() } } label: {
-                            Image(systemName: mind ? "brain.head.profile.fill" : "brain.head.profile")
-                                .symbolEffect(.bounce, value: mind)
-                        }
-                        .buttonStyle(.glass)
-                        .tint(mind ? .earth : nil)
-                        .foregroundStyle(mind ? Color.earth : .primary)
-                        .accessibilityLabel(mind ? "Hide their mind" : "See through their eyes")
-                        Spacer()
-                        Picker("Speed", selection: Binding(get: { game.speed }, set: { game.setSpeed($0) })) {
-                            Image(systemName: "pause.fill").tag(0.0)
-                            Text("1×").tag(1.0)
-                            Text("4×").tag(4.0)
-                            Text("8×").tag(8.0)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 170)
-                    }
-                    if let toast = game.toast {
-                        Text(toast.text).font(.subheadline).padding(12).glassEffect().onTapGesture { game.toast = nil }
-                    }
-                    Spacer()
-                    if mind { mindHud(c).transition(.move(edge: .bottom).combined(with: .opacity)) } else { hud(c) }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .task(id: c.id) {
-                    for await d in game.detailStream(c.id) { detail = d }
-                }
-            }
-        }
-    }
-
-    private func header(_ c: AgentLite) -> some View {
-        HStack(spacing: 12) {
-            Avatar(spriteId: c.spriteId)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(c.name).font(.title3).fontDesign(.serif)
-                Text("\(occupation(c.occupation).label) · \(game.stamp)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 5) {
-                MiniBar(label: "Hunger", value: c.needs.hunger, tint: .amber)
-                MiniBar(label: "Rest", value: 100 - c.needs.fatigue, tint: .white)
-                MiniBar(label: "Health", value: c.health, tint: .green)
-            }
-        }
-    }
-
-    /// The follow card in mind mode: what they are thinking, the plan it led to, and a key to the map.
-    private func mindHud(_ c: AgentLite) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header(c)
-            ThoughtCard(agent: c, detail: detail, nowTick: game.world?.tick ?? 0)
-            HStack(spacing: 14) {
-                legend("Family", .amber)
-                legend("Friend", .green)
-                legend("Rival", .red)
-                legend("Belief", .earth)
-            }
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(Color.earth.opacity(0.12)), in: .rect(cornerRadius: 30))
-    }
-
-    private func legend(_ label: String, _ tint: Color) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(tint).frame(width: 7, height: 7)
-            Text(label)
-        }
-    }
-
-    private func hud(_ c: AgentLite) -> some View {
-        let nearby = game.agents.filter { $0.id != c.id && $0.alive && $0.move == nil && $0.locationId == c.locationId }.prefix(2).map(\.name)
-        return VStack(alignment: .leading, spacing: 14) {
-            header(c)
-            Divider()
-            Grid(alignment: .topLeading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow { key("Doing"); Label(c.activityLabel, systemImage: Mind.symbol(activity: c.activity)) }
-                if let thought = detail?.lastThought {
-                    GridRow { key("Thinks"); Text("\u{201C}" + thought.intent + "\u{201D}").fontDesign(.serif).italic().foregroundStyle(Color.earth) }
-                }
-                if let goal = detail?.goals.first { GridRow { key("Wants"); Text(goal.description) } }
-                if let beliefs = detail?.beliefs.prefix(2), !beliefs.isEmpty {
-                    GridRow {
-                        key("Believes")
-                        VStack(alignment: .leading, spacing: 5) {
-                            ForEach(beliefs) { b in
-                                HStack(spacing: 6) {
-                                    if b.divine { Image(systemName: "sparkles").font(.caption) }
-                                    Text(b.text)
-                                    Spacer(minLength: 4)
-                                    Text("\(Int(b.confidence * 100))%").font(.caption2.monospacedDigit()).opacity(0.8)
-                                }
-                                .foregroundStyle(b.divine ? Color.earth : .primary)
-                            }
-                        }
-                    }
-                }
-                GridRow { key("Nearby"); Text((nearby.isEmpty ? "" : nearby.joined(separator: ", ") + " · ") + (c.move != nil ? "on the way to " : "") + c.locationId.name) }
-            }
-            .font(.subheadline)
-            HStack(spacing: 8) {
-                Button { game.skipToNotable() } label: {
-                    Label(game.skipping ? "Skipping…" : "Next Notable Event", systemImage: "forward.end.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(game.skipping)
-                Button("Ties") {
-                    let id = c.id
-                    game.unfollow()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { game.selectedID = id }
-                }
-                .buttonStyle(.glass)
-            }
-            .controlSize(.large)
-        }
-        .padding(18)
-        .glassEffect(.regular, in: .rect(cornerRadius: 30))
-    }
-
-    private func key(_ s: String) -> some View {
-        Text(s.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 3)
-            .gridColumnAlignment(.leading)
-    }
-}
-
-struct MiniBar: View {
-    var label: String
-    var value: Double
-    var tint: Color
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            ProgressView(value: min(100, max(0, value)), total: 100).tint(tint).frame(width: 46)
-        }
-    }
-}
-
 // MARK: - People
 
 struct PeopleView: View {
@@ -844,28 +733,55 @@ struct PeopleView: View {
         return list.sorted { ($0.alive ? 0 : 1, $0.name) < ($1.alive ? 0 : 1, $1.name) }
     }
 
+    private var keys: [KeyCharacterCard] {
+        guard query.isEmpty else { return [] }
+        return game.intro?.keyCharacters ?? []
+    }
+
     var body: some View {
         NavigationStack {
-            List(shown) { c in
-                Button { game.selectedID = c.id } label: {
-                    HStack(spacing: 12) {
-                        Avatar(spriteId: c.spriteId, alive: c.alive, size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(c.name).foregroundStyle(c.alive ? .primary : .secondary)
-                                if let owner = c.ownerName { Badge(text: game.isMine(c.id) ? "You" : owner) }
+            List {
+                if !keys.isEmpty {
+                    Section("Key characters") {
+                        ForEach(keys) { k in
+                            Button { game.selectedID = k.agentId } label: {
+                                HStack(spacing: 12) {
+                                    Avatar(spriteId: k.spriteId, alive: game.colonist(k.agentId)?.alive ?? true, size: 40)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(k.name)
+                                        Text(k.epithet).font(.caption.italic()).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                }
                             }
-                            Text(c.alive ? c.activityLabel : "Died").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .tint(.primary)
                         }
-                        Spacer()
-                        Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .tint(.primary)
+                Section(keys.isEmpty ? "" : "Everyone") {
+                    ForEach(shown) { c in row(c) }
+                }
             }
             .navigationTitle("People")
             .searchable(text: $query, prompt: "Name or occupation")
         }
+    }
+
+    private func row(_ c: AgentLite) -> some View {
+        Button { game.selectedID = c.id } label: {
+            HStack(spacing: 12) {
+                Avatar(spriteId: c.spriteId, alive: c.alive, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(c.name).foregroundStyle(c.alive ? .primary : .secondary)
+                        if let owner = c.ownerName { Badge(text: game.isMine(c.id) ? "You" : owner) }
+                    }
+                    Text(c.alive ? c.activityLabel : "Died").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Text(occupation(c.occupation).label).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .tint(.primary)
     }
 }
 
@@ -912,7 +828,7 @@ struct ChronicleView: View {
                                 Image(systemName: e.symbol).foregroundStyle(e.tint).frame(width: 26)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(e.summary)
-                                    Text("\(Clock.stamp(e.tick)) · \(e.categoryLabel)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(([Clock.stamp(e.tick), e.categoryLabel] + [game.storyline(e.storylineId)?.title].compactMap { $0 }).joined(separator: " · ")).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -970,7 +886,7 @@ struct ChainRow: View {
                 .foregroundStyle(event.byPlayer ? event.tint : .secondary)
                 Text(event.summary)
                 if let cause {
-                    Label("because " + cause.summary.prefix(1).lowercased() + cause.summary.dropFirst(), systemImage: "arrow.turn.down.right")
+                    Label("because " + cause.summary, systemImage: "arrow.turn.down.right")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }

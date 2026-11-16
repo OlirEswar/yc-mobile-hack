@@ -218,7 +218,7 @@ export const spawn = mutation({
     agent.activityLabel = 'Just arrived as ' + owner + "'s avatar";
     touch(tx, agent);
     const mind = (await loadMind(tx, agent))!;
-    mind.persona = { summary: profile.summary, interests: profile.interests, speechStyle: profile.speechStyle, habits: profile.habits };
+    mind.avatarPersona = { summary: profile.summary, interests: profile.interests, speechStyle: profile.speechStyle, habits: profile.habits };
     touchMind(tx, mind);
 
     if (friends.length > 0) {
@@ -332,7 +332,7 @@ export const forget = mutation({
       touch(tx, agent);
       const mind = await loadMind(tx, agent);
       if (mind) {
-        mind.persona = undefined;
+        mind.avatarPersona = undefined;
         mind.directive = undefined;
         touchMind(tx, mind);
       }

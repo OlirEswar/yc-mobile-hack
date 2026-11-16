@@ -59,6 +59,14 @@ export type AgentLite = {
   busyUntilTick: Tick;
   /** The other party in a talk, trade, gift, theft or help, for speech bubbles and links. */
   interactingWithId?: Id;
+  /**
+   * The step the agent is executing right now, set when the step starts and absent while idle or
+   * walking between steps. kind is the step type (fight, rob, extort, vandalize, intimidate, gamble,
+   * carouse, dance, ritual, pray, chase, kiss, cry, celebrate, duel, spy, gloat, rush, inspect, loot,
+   * steal, sabotage, preach, recruit, perform, mourn, flee, work, sleep, eat, talk ...); targetId is
+   * the other agent involved, if any (it can be a dead agent for mourn, gloat, rush, inspect).
+   */
+  act?: { kind: string; targetId?: Id; startTick: Tick };
   /** Short line of dialogue for a speech bubble, when the current interaction has one. */
   speech?: string;
   mood: string;
@@ -112,7 +120,7 @@ export type RelationshipPublic = {
   toAgentId: Id;
   toAgentName: string;
   toAgentAlive: boolean;
-  kind: 'family' | 'friend' | 'colleague' | 'rival' | 'acquaintance';
+  kind: 'family' | 'friend' | 'colleague' | 'rival' | 'acquaintance' | 'romance' | 'partner';
   affinity: number; // -1..1
   trust: number; // -1..1
   fear: number; // 0..1
@@ -152,11 +160,13 @@ export type WorldEventPublic = {
   causationEventId?: Id;
   /** True when the event deserves a banner in the wide view. */
   banner: boolean;
+  /** Storyline this event is a beat of, if any. */
+  storylineId?: Id;
   visibility: 'public' | 'local' | 'private';
 };
 
 export type AgentDetail = AgentLite & {
-  ageBand: 'young' | 'adult' | 'elder';
+  ageBand: 'child' | 'young' | 'adult' | 'elder';
   background: string;
   homeLocationId: LocationId;
   workLocationId?: LocationId;
@@ -177,7 +187,101 @@ export type AgentDetail = AgentLite & {
   /** Set when the agent is dead. */
   death?: { tick: Tick; cause: string };
   /** Set when this colonist is a player's avatar: who they are modelled on, in general terms. */
-  persona?: AvatarPersona;
+  avatarPersona?: AvatarPersona;
+  /** The character's story: who they are in a line, what they want and fear, their arc. Never their secret. */
+  persona?: PersonaPublic;
+  /** Live storylines this colonist is part of, by id (see story:storylines). */
+  storylineIds?: Id[];
+  /** Society layer (docs/STORY_SPEC.md 8). Presented as story, never as raw numbers. */
+  organizations?: { id: Id; name: string; kind: OrganizationKind; role: 'founder' | 'leader' | 'officer' | 'member' }[];
+  family?: { partnerId?: Id; partnerName?: string; parentIds: Id[]; childIds: Id[] };
+  pets?: { name: string; species: string }[];
+  /** A goal that has taken over their life, in words. */
+  obsession?: string;
+  /** Their notable works, newest first. */
+  works?: { id: Id; title: string; kind: string; fame: number }[];
+  /** How the colony sees them, in words ("a respected elder", "a nobody", "notorious"). Never the hidden number. */
+  standingLabel?: string;
+  /** What they are learning or have mastered, in words. */
+  education?: string;
+};
+
+export type OrganizationKind = 'company' | 'guild' | 'cult' | 'gang' | 'militia' | 'party' | 'school' | 'troupe' | 'breakaway';
+
+export type OrganizationPublic = {
+  id: Id;
+  name: string;
+  kind: OrganizationKind;
+  /** What they are for or believe, one sentence. */
+  creed: string;
+  leaderId?: Id;
+  memberIds: Id[];
+  foundedTick: Tick;
+  status: 'active' | 'disbanded';
+  /** For a breakaway colony: where it holds and the rules it declared. */
+  territory?: LocationId[];
+  rules?: string[];
+  /** Organizations it is at odds with. */
+  rivalIds: Id[];
+};
+
+export type DiscoveryPublic = {
+  key: string;
+  name: string;
+  /** What it changed in the world, one sentence. */
+  effect: string;
+  tick: Tick;
+  discovererIds: Id[];
+  eventId?: Id;
+};
+
+export type StructurePublic = {
+  id: Id;
+  key: string;
+  name: string;
+  locationId: LocationId;
+  builderIds: Id[];
+  /** 0..1 until finished. */
+  progress: number;
+  builtTick?: Tick;
+};
+
+export type WorkPublic = {
+  id: Id;
+  title: string;
+  kind: string;
+  creatorId: Id;
+  creatorName: string;
+  /** 0..1. Famous works are what the colony talks about. */
+  fame: number;
+  createdTick: Tick;
+  /** What it is about, one sentence. */
+  about: string;
+};
+
+/** The almanac: the colony's institutions, discoveries, landmarks and culture, for the story view. */
+export type SocietyOverview = {
+  organizations: OrganizationPublic[];
+  discoveries: DiscoveryPublic[];
+  structures: StructurePublic[];
+  works: WorkPublic[];
+  /** The colony's famous people in words, e.g. { agentId, name, for: "the painter of the Long Dark mural" }. */
+  notables: { agentId: Id; name: string; for: string }[];
+};
+
+export type ArcStage = 'setup' | 'rising' | 'crisis' | 'climax' | 'resolution';
+
+export type PersonaPublic = {
+  /** Short tag shown under the name, e.g. "the quartermaster who keeps two ledgers". */
+  epithet: string;
+  want: string;
+  fear: string;
+  flaw: string;
+  /** How they talk. */
+  voice: string;
+  arc: { stage: ArcStage; note: string };
+  /** True for the ~20 authored key characters. */
+  key: boolean;
 };
 
 export type EffectType = 'drought' | 'storm';
@@ -227,7 +331,103 @@ export type WorldPublic = {
   treasury?: number;
   /** Raw regolith waiting at the quarry and at the works. Feeds parts; not a tradeable resource. */
   regolith?: { quarry: number; workshop: number };
+  /** True while the tick loop fast-forwards through the followed colonist's routine. */
+  focusWarp?: boolean;
 };
+
+// ---------- Story ----------
+
+export type StorylineStatus = 'brewing' | 'rising' | 'climax' | 'resolved' | 'fizzled';
+
+export type StoryBeat = { tick: Tick; text: string; eventId?: Id };
+
+export type StorylinePublic = {
+  id: Id;
+  title: string;
+  /** One or two sentences: what is at stake. */
+  premise: string;
+  status: StorylineStatus;
+  tension: number; // 0..1
+  participantIds: Id[];
+  /** Newest last, capped. */
+  beats: StoryBeat[];
+  origin: 'seed' | 'emergent' | 'player';
+  createdTick: Tick;
+  lastBeatTick: Tick;
+};
+
+export type KeyCharacterCard = {
+  agentId: Id;
+  name: string;
+  spriteId: SpriteId;
+  epithet: string;
+  /** Why the player should care, one sentence. */
+  hook: string;
+  factionId?: string;
+};
+
+/** A tutorial card. The client advances when the named player action happens (or on tap). */
+export type TutorialStep = {
+  id: string;
+  title: string;
+  body: string;
+  advanceOn: 'tap' | 'follow_starter' | 'read_thoughts' | 'ask_question' | 'switch_character' | 'use_power' | 'open_chronicle' | 'open_storylines';
+  /** Agent the step is about, when it points at someone. */
+  agentId?: Id;
+};
+
+export type StoryIntro = {
+  title: string;
+  /** Short paragraphs: the place and the moment. */
+  setting: string[];
+  history: { era: string; text: string }[];
+  /** What is at stake right now, one sentence each. */
+  tensions: string[];
+  keyCharacters: KeyCharacterCard[];
+  /** The colonist the player starts by following. */
+  starterAgentId: Id;
+  tutorial: TutorialStep[];
+};
+
+/** One line of a colonist's inner monologue. */
+export type ThoughtLine = {
+  id: Id;
+  tick: Tick;
+  text: string;
+  mood?: string;
+  /** planted: a thought the player put in their head (focus:plant). */
+  source: 'llm' | 'rules' | 'planted';
+};
+
+/** What focus:plant returns. message explains a refusal, in the story's voice. */
+export type PlantResult = { ok: boolean; message?: string };
+
+/** A reason to switch the camera to someone else. */
+export type StoryHook = { agentId: Id; name: string; reason: string; storylineId?: Id };
+
+/** Everything the follow view needs beyond agents:get. Reactive. */
+export type FocusState = {
+  agentId: Id;
+  thoughts: ThoughtLine[]; // newest first
+  hooks: StoryHook[];
+  storylines: StorylinePublic[];
+  /** True only while the world fast-forwards through the followed colonist's sleep. */
+  warping: boolean;
+  /**
+   * One or two sentences for a viewer who just arrived: who this person is and what they are in the
+   * middle of right now (epithet, want, their hottest storyline's latest beat, current aim).
+   */
+  recap: string;
+  /**
+   * Their latest conversations, newest first (at most 3). A conversation in progress grows one line
+   * at a time, in step with the speech bubbles on AgentLite.speech of the two speakers.
+   */
+  dialogue?: { withId: Id; withName: string; lines: { speakerId: Id; text: string }[]; tick: Tick }[];
+};
+
+export type AskTurn = { id: Id; tick: Tick; question: string; answer: string };
+
+export type AskResult = { ok: true; turn: AskTurn } | { ok: false; code: 'unauthorized' | 'not_found' | 'dead' | 'rate_limited' | 'unavailable' | 'invalid'; message: string };
 
 export type SyncUpdates = {
   version: number;
@@ -237,6 +437,76 @@ export type SyncUpdates = {
   /** Events created after sinceVersion, oldest first. */
   events: WorldEventPublic[];
 };
+
+// ---------- Timeskip ----------
+
+/** How far the player can skip ahead (convex/timeskip). */
+export type TimeskipSpan = 'week' | 'month' | 'half_year' | 'year' | 'five_years' | 'decade';
+
+/** One headline of the skipped years, with the people in it. */
+export type TimeskipBeat = {
+  tick: Tick;
+  /** "Year 2", "Month 5", "Week 3" or "Sol 12". */
+  period: string;
+  text: string;
+  agentIds: Id[];
+  kind: string;
+  eventId?: Id;
+};
+
+/** A person as the chronicle remembers them: one or two sentences in a story voice. */
+export type TimeskipPerson = {
+  agentId: Id;
+  name: string;
+  spriteId: SpriteId;
+  alive: boolean;
+  text: string;
+  /** followed, key, risen, fallen, newcomer, born or gone. */
+  role: string;
+};
+
+/** The chronicle of a finished skip: read like an epilogue, never a report. */
+export type TimeskipSummary = {
+  title: string;
+  /** Three to six paragraphs. */
+  narrative: string[];
+  /** Headline beats, oldest first, a few per period. */
+  beats: TimeskipBeat[];
+  /** Where the followed colonist is now. */
+  followed?: TimeskipPerson;
+  /** Key characters and anyone who rose or fell, alive or dead. */
+  people: TimeskipPerson[];
+  /** Newcomers and the colony-born to watch. */
+  newPeople: TimeskipPerson[];
+  /** What the world resumes with, one sentence each. */
+  tensions: string[];
+  /** Storylines seeded from the end state. */
+  storylineIds: Id[];
+  source: 'llm' | 'rules';
+};
+
+export type TimeskipPublic = {
+  id: Id;
+  span: TimeskipSpan;
+  status: 'running' | 'summarizing' | 'done' | 'failed';
+  startTick: Tick;
+  endTick: Tick;
+  /** World tick reached so far. */
+  tick: Tick;
+  chapter: number;
+  chapters: number;
+  /** 0..1. */
+  progress: number;
+  /** Story-voice progress line, e.g. "Year 2 of 5: the Union and the council…". */
+  progressLabel: string;
+  latestBeat?: string;
+  summary?: TimeskipSummary;
+  error?: string;
+};
+
+export type TimeskipStartResult =
+  | { ok: true; timeskipId: Id }
+  | { ok: false; code: 'unauthorized' | 'invalid' | 'rate_limited' | 'busy'; message: string };
 
 // ---------- God powers ----------
 

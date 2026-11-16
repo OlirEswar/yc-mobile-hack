@@ -7,10 +7,20 @@ import type { Speed } from './colony';
 import type {
   AgentDetail,
   AgentLite,
+  AskResult,
+  PlantResult,
+  AskTurn,
+  FocusState,
+  SocietyOverview,
+  StoryIntro,
+  StorylinePublic,
   AvatarProfile,
   AvatarPublic,
   AvatarResult,
   Id,
+  TimeskipPublic,
+  TimeskipSpan,
+  TimeskipStartResult,
   MultiplayerPublic,
   MultiplayerResult,
   PersonaSourceInput,
@@ -53,6 +63,14 @@ export type ApiContract = {
     args: { sessionToken: string; worldId: Id; agentId?: Id };
     returns: { advancedTicks: number; eventId?: Id };
   };
+  /**
+   * mutation. Skips the world ahead by a week up to ten years. The world pauses while a chain of
+   * coarse macro steps (and LLM chapter decisions) plays the years out, then resumes at its old
+   * speed. Idempotent: while a skip runs, it returns that skip. Follow progress with timeskip:get.
+   */
+  'world:timeskip': { args: { sessionToken: string; worldId: Id; span: TimeskipSpan }; returns: TimeskipStartResult };
+  /** query. Reactive. A skip's progress and, once done, its chronicle. Without timeskipId, the world's latest skip. */
+  'timeskip:get': { args: { worldId: Id; timeskipId?: Id }; returns: TimeskipPublic | null };
   /** mutation. Deletes the world and seeds a fresh one. For demos and tests. */
   'world:reset': { args: { sessionToken: string }; returns: { worldId: Id } };
 
@@ -77,6 +95,30 @@ export type ApiContract = {
   };
   /** query. The cause chain through one event: its ancestors from the root, then the event, then its direct effects. */
   'chronicle:chain': { args: { worldId: Id; eventId: Id }; returns: WorldEventPublic[] };
+
+  // ----- story -----
+  /** query. The introduction for this world: setting, history, key characters, starter and tutorial. */
+  'story:intro': { args: { worldId: Id }; returns: StoryIntro | null };
+  /** query. Reactive. Live and recent storylines, highest tension first. With agentId, only theirs. */
+  'story:storylines': { args: { worldId: Id; agentId?: Id }; returns: StorylinePublic[] };
+
+  // ----- society -----
+  /** query. Reactive. Organizations, discoveries, structures, famous works and notable people. */
+  'society/api:overview': { args: { worldId: Id }; returns: SocietyOverview };
+
+  // ----- follow mode -----
+  /** query. Reactive. Inner monologue, story hooks and storylines of the followed colonist. */
+  'focus:state': { args: { worldId: Id; agentId: Id }; returns: FocusState | null };
+  /** query. Reactive. The player's questions to this colonist and their answers, oldest first. */
+  'focus:conversation': { args: { sessionToken: string; agentId: Id }; returns: AskTurn[] };
+  /** action. Ask the colonist a question. They answer in character; it never changes the world. */
+  'focus:ask': { args: { sessionToken: string; worldId: Id; agentId: Id; question: string }; returns: AskResult };
+  /**
+   * action. Plant a thought (3 to 200 characters of free text) in a colonist's head. It is read into
+   * a whisper (a belief about someone, a goal), surfaces at once as a 'planted' monologue line, and
+   * the colonist reacts to it within a tick or two. Counts as a god power for rate limits.
+   */
+  'focus:plant': { args: { sessionToken: string; worldId: Id; agentId: Id; text: string }; returns: PlantResult };
 
   // ----- billing -----
   /** query. Reactive. True once the Whop payment.succeeded webhook has marked this session premium. */

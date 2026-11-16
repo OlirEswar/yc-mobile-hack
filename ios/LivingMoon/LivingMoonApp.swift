@@ -23,7 +23,10 @@ struct RootView: View {
         @Bindable var game = game
 
         if !onboarded {
-            OnboardingView { withAnimation(.smooth(duration: 0.6)) { onboarded = true } }
+            OnboardingView {
+                withAnimation(.smooth(duration: 0.6)) { onboarded = true }
+                game.showIntro = game.intro != nil
+            }
                 .transition(.opacity)
         } else {
             switch game.phase {
@@ -41,9 +44,14 @@ struct RootView: View {
             case .ready:
                 TabView(selection: $game.tab) {
                     Tab("Colony", systemImage: "moon.fill", value: .colony) { ColonyView() }
+                    Tab("Stories", systemImage: "book.pages.fill", value: .stories) { StoriesView() }
                     Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
-                    Tab("Chronicle", systemImage: "book.fill", value: .chronicle) { ChronicleView() }
+                    Tab("Chronicle", systemImage: "scroll.fill", value: .chronicle) { ChronicleView() }
                     Tab("You", systemImage: "person.crop.circle.badge.plus", value: .you) { YouView() }
+                }
+                .onChange(of: game.tab) { _, tab in
+                    if tab == .chronicle { game.didAct(.open_chronicle) }
+                    if tab == .stories { game.didAct(.open_storylines) }
                 }
                 .tabViewBottomAccessory { TickerView() }
                 // One inspector, one power sheet and one follow cover serve every tab.
@@ -59,8 +67,17 @@ struct RootView: View {
                     .presentationDetents(power == .arrival || power.believed ? [.large] : [.medium, .large])
                 }
                 .sheet(isPresented: $game.showPatron) { PatronSheet() }
+                .sheet(isPresented: $game.showTimeskip) { TimeskipView() }
                 .fullScreenCover(isPresented: Binding(get: { game.followingID != nil }, set: { if !$0 { game.unfollow() } })) {
                     FollowView()
+                }
+                .fullScreenCover(isPresented: $game.showIntro) {
+                    if let intro = game.intro { StoryIntroView(intro: intro) }
+                }
+                .overlay(alignment: .bottom) {
+                    if game.tab != .colony && game.followingID == nil {
+                        CoachCard().padding(.horizontal, 16).padding(.bottom, 120)
+                    }
                 }
                 .overlay(alignment: .top) { ToastView() }
                 .overlay {
@@ -80,7 +97,7 @@ struct TickerView: View {
     @Environment(Game.self) private var game
 
     var body: some View {
-        if let e = game.visibleEvents.last {
+        if let e = game.visibleEvents.last(where: { $0.salience >= 0.5 }) {
             Button { game.goTo(e) } label: {
                 HStack(spacing: 10) {
                     Image(systemName: e.symbol).foregroundStyle(e.tint)

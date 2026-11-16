@@ -9,7 +9,7 @@ final class ConvexSource: WorldSource {
     let isLive = true
     private let client: ConvexClient
     private var sessionToken = ""
-    private var worldId = ""
+    private(set) var worldId = ""
     private var bag: Set<AnyCancellable> = []
     private weak var sink: SourceSink?
 
@@ -59,14 +59,6 @@ final class ConvexSource: WorldSource {
         let _: Ok = try await client.mutation("world:setSpeed", with: ["sessionToken": sessionToken, "worldId": worldId, "speed": speed])
     }
 
-    private struct Skip: Decodable { let advancedTicks: Double; let eventId: String? }
-    func skipToNotable(agentId: Id?) async throws -> (advancedTicks: Double, eventId: Id?) {
-        var args: [String: ConvexEncodable?] = ["sessionToken": sessionToken, "worldId": worldId]
-        if let agentId { args["agentId"] = agentId }
-        let r: Skip = try await client.mutation("world:skipToNotable", with: args)
-        return (r.advancedTicks, r.eventId)
-    }
-
     func watchDetail(_ agentId: Id, _ onDetail: @escaping (AgentDetail?) -> Void) -> () -> Void {
         let c = watch("agents:get", ["worldId": worldId, "agentId": agentId], as: AgentDetail?.self, onError: { _ in onDetail(nil) }, onDetail)
         return { c.cancel() }
@@ -74,6 +66,54 @@ final class ConvexSource: WorldSource {
 
     func chain(_ eventId: Id) async throws -> [WorldEventPublic] {
         try await first("chronicle:chain", ["worldId": worldId, "eventId": eventId], as: [WorldEventPublic].self)
+    }
+
+    func intro() async -> StoryIntro? {
+        try? await first("story:intro", ["worldId": worldId], as: StoryIntro?.self)
+    }
+
+    func society() async -> SocietyOverview? {
+        for path in ["society/api:overview", "society:overview"] {
+            if let overview = try? await first(path, ["worldId": worldId], as: SocietyOverview.self) { return overview }
+        }
+        return nil
+    }
+
+    /// The story and focus queries are newer than some deployments: a missing function reads as empty.
+    func watchStorylines(agentId: Id?, _ onValue: @escaping ([StorylinePublic]) -> Void) -> () -> Void {
+        var args: [String: ConvexEncodable?] = ["worldId": worldId]
+        if let agentId { args["agentId"] = agentId }
+        let c = watch("story:storylines", args, as: [StorylinePublic].self, onError: { _ in onValue([]) }, onValue)
+        return { c.cancel() }
+    }
+
+    func watchFocus(_ agentId: Id, _ onValue: @escaping (FocusState?) -> Void) -> () -> Void {
+        let c = watch("focus:state", ["worldId": worldId, "agentId": agentId], as: FocusState?.self, onError: { _ in onValue(nil) }, onValue)
+        return { c.cancel() }
+    }
+
+    func watchConversation(_ agentId: Id, _ onValue: @escaping ([AskTurn]) -> Void) -> () -> Void {
+        let c = watch("focus:conversation", ["sessionToken": sessionToken, "agentId": agentId], as: [AskTurn].self, onError: { _ in onValue([]) }, onValue)
+        return { c.cancel() }
+    }
+
+    func startTimeskip(span: TimeskipSpan) async throws -> TimeskipStartResult {
+        try await client.mutation("world:timeskip", with: ["sessionToken": sessionToken, "worldId": worldId, "span": span.rawValue])
+    }
+
+    func watchTimeskip(_ timeskipId: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void {
+        var args: [String: ConvexEncodable?] = ["worldId": worldId]
+        if let timeskipId { args["timeskipId"] = timeskipId }
+        let c = watch("timeskip:get", args, as: TimeskipPublic?.self, onError: { _ in onValue(nil) }, onValue)
+        return { c.cancel() }
+    }
+
+    func ask(_ agentId: Id, question: String) async throws -> AskResult {
+        try await client.action("focus:ask", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "question": question])
+    }
+
+    func plant(_ agentId: Id, text: String) async throws -> PlantResult {
+        try await client.action("focus:plant", with: ["sessionToken": sessionToken, "worldId": worldId, "agentId": agentId, "text": text])
     }
 
     /// One value from a query. ConvexMobile only exposes reactive queries.

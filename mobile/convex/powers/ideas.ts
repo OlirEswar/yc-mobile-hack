@@ -6,9 +6,10 @@
 import { LOCATION_IDS, LOCATIONS, RUMOR_PRESETS, TICKS_PER_DAY, WHISPER_PRESETS } from '../../shared/colony';
 import type { IdeaPreset, LocationId } from '../../shared/colony';
 import type { GoalKind } from '../../shared/types';
-import { agentsAt, emitEvent, enqueueCognition, learnBelief, loadAgent, loadMind, replan, touchMind } from '../engine/core';
+import { agentsAt, emitEvent, encodeStep, enqueueCognition, interrupt, learnBelief, loadAgent, loadMind, replan, tieTo, touch, touchMind } from '../engine/core';
 import type { AgentDoc, AgentId, MindDoc, Tx } from '../engine/core';
 import { rand, round2 } from '../lib/rng';
+import { ACCUSABLE } from '../engine/social';
 import { agentOf, fail, isFailure, locationOf, record, standingAt, textOf, withName } from './common';
 import type { Power, PowerFailure } from './common';
 
@@ -55,7 +56,10 @@ function ideaText(presets: IdeaPreset[], key: unknown, raw: unknown, about: Agen
   return { preset, text };
 }
 
-type WhisperParams = { agent: AgentDoc; presetKey: string; text: string; strength: number; about?: AgentDoc };
+type WhisperParams = { agent: AgentDoc; presetKey: string; text: string; strength: number; about?: AgentDoc; kind?: string };
+
+/** Belief kinds a whisper about someone may plant instead of its preset's (focus:plant reads them from free text). */
+export const WHISPER_KINDS = new Set([...ACCUSABLE, 'admirable']);
 
 /**
  * Plants an idea in one mind: a private belief from a divine source and, for most presets, a goal
@@ -81,11 +85,19 @@ export const whisper: Power<WhisperParams> = {
     if (preset?.needsSubject && !about) return fail('invalid', 'Choose who the whisper is about.');
     const idea = ideaText(WHISPER_PRESETS, p.presetKey, p.text, about, 'The whisper');
     if (isFailure(idea)) return idea;
-    return { agent, presetKey: idea.preset.key, text: idea.text, strength: round2(strength), about };
+    const kind = typeof p.kind === 'string' && WHISPER_KINDS.has(p.kind) && about ? p.kind : undefined;
+    return { agent, presetKey: idea.preset.key, text: idea.text, strength: round2(strength), about, kind };
   },
 
-  async apply(tx, { agent, presetKey, text, strength, about }) {
-    const effect = WHISPER_EFFECTS[presetKey];
+  async apply(tx, { agent, presetKey, text, strength, about, kind: planted }) {
+    const base = WHISPER_EFFECTS[presetKey];
+    // A planted suspicion of a named person works like suspect_hoarding, for whatever they are suspected of.
+    const effect = planted
+      ? {
+          belief: { kind: planted, valence: planted === 'admirable' ? 1 : -1 },
+          goal: planted === 'admirable' ? WHISPER_EFFECTS.befriend.goal : (_a: AgentDoc, b: AgentDoc | undefined): GoalSpec => ({ kind: 'investigate', description: 'Find out whether it is true: ' + text, predicate: 'belief_resolved' }),
+        }
+      : base;
     const { eventId } = await emitEvent(tx, {
       category: 'intervention',
       eventType: 'whisper',
@@ -95,7 +107,7 @@ export const whisper: Power<WhisperParams> = {
       salience: 0.5,
       visibility: 'private',
       witnesses: [],
-      facts: { presetKey, strength, text, aboutAgentId: about?._id },
+      facts: { presetKey, strength, text, aboutAgentId: about?._id, ...(planted ? { kind: planted } : {}) },
     });
 
     const kind = effect.belief?.kind ?? presetKey;
@@ -114,7 +126,7 @@ export const whisper: Power<WhisperParams> = {
 
     const mind = (await loadMind(tx, agent))!;
     const spec = effect.goal?.(agent, about, strength, text);
-    if (spec) addDivineGoal(tx, mind, spec, { drive: presetKey, strength, about, originEventId: eventId });
+    if (spec) addDivineGoal(tx, mind, spec, { drive: planted && planted !== 'admirable' ? planted : presetKey, strength, about, originEventId: eventId });
     mind.stateVersion += 1;
     touchMind(tx, mind);
     replan(tx, agent);
@@ -125,6 +137,12 @@ export const whisper: Power<WhisperParams> = {
       lane: 'crisis',
       eventId,
     });
+    // Visible at once: they stop what they are doing with the thought on their face.
+    if (agent.activity !== 'sleeping') {
+      agent.mood = 'struck';
+      agent.speech = '...Where did that come from?';
+      touch(tx, agent);
+    }
     return { affectedAgentIds: [agent._id] };
   },
 };
@@ -231,6 +249,21 @@ export const rumor: Power<RumorParams> = {
         hops: 1,
       });
     }
-    return { affectedAgentIds: hearerIds };
+    // Most affected first: the hearer with the strongest feelings about the subject reacts in the open.
+    const ranked: { id: AgentId; w: number }[] = [];
+    for (const id of hearerIds) {
+      const t = await tieTo(tx, id, subject._id);
+      ranked.push({ id, w: t ? Math.abs(t.affinity) + Math.abs(t.trust) / 2 + (t.kind === 'family' || t.kind === 'partner' ? 1 : 0) : 0 });
+    }
+    ranked.sort((x, y) => y.w - x.w);
+    const first = await loadAgent(tx, ranked[0].id);
+    if (first?.alive && first.activity !== 'sleeping') {
+      const other = ranked[1]?.id;
+      first.mood = 'agitated';
+      interrupt(tx, first, other ? [encodeStep('talk', other, preset.key + ':' + subject._id)] : [encodeStep('talk', 'any', preset.key + ':' + subject._id)]);
+      first.speech = 'Have you heard what they are saying about ' + subject.name.split(' ')[0] + '?';
+      touch(tx, first);
+    }
+    return { affectedAgentIds: ranked.map((x) => x.id) };
   },
 };

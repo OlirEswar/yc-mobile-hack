@@ -142,7 +142,7 @@ test('spawning puts a persona-driven avatar in the world and asks for its first 
   const agent = await agentOf(t, agentId);
   expect(agent).toMatchObject({ name: 'Neel Sharma', ownerName: 'Neel', locationId: 'landing_pad', alive: true });
   const mind = await mindOf(t, agentId);
-  expect(mind.persona!.interests).toContain('startups');
+  expect(mind.avatarPersona!.interests).toContain('startups');
   const jobs = await jobsOf(t, agentId);
   expect(jobs).toHaveLength(1);
   expect(jobs[0]).toMatchObject({ lane: 'focus', status: 'queued' });
@@ -152,7 +152,7 @@ test('spawning puts a persona-driven avatar in the world and asks for its first 
   const lite = (await t.query(api.agents.list, { worldId })).find((a) => a.id === agentId)!;
   expect(lite.ownerName).toBe('Neel');
   const detail = (await t.query(api.agents.get, { worldId, agentId }))!;
-  expect(detail.persona!.speechStyle.length).toBeGreaterThan(0);
+  expect(detail.avatarPersona!.speechStyle.length).toBeGreaterThan(0);
 
   // The planner prompt speaks for the player.
   const context = await t.query(internal.cognition.context, { jobId: jobs[0]._id });
@@ -202,7 +202,7 @@ test('forgetting deletes the material and frees the avatar', async () => {
   const agent = await agentOf(t, agentId);
   expect(agent.ownerSessionId).toBeUndefined();
   expect(agent.alive).toBe(true);
-  expect((await mindOf(t, agentId)).persona).toBeUndefined();
+  expect((await mindOf(t, agentId)).avatarPersona).toBeUndefined();
 });
 
 test('friends join with a code, their avatars meet as friends, and each guards their own', async () => {

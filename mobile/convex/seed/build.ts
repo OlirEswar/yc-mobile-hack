@@ -1,12 +1,17 @@
 /**
- * Builds the starting colony as plain data: 100 colonists, their households, factions, directed
- * relationships and differing beliefs. Pure and deterministic for a seed. ./insert.ts writes it.
+ * Builds the starting colony as plain data: 100 colonists with personas, their households, factions,
+ * directed relationships, differing beliefs, the storylines in motion and the starter's opening
+ * scene. Pure and deterministic for a seed. ./insert.ts writes it.
  */
-import { LOCATIONS, OCCUPATIONS, SEEDED_POPULATION, SPRITE_VARIANTS } from '../../shared/colony';
+import { LOCATIONS, OCCUPATIONS, SEEDED_POPULATION, SPRITE_ARCHETYPES, SPRITE_VARIANTS } from '../../shared/colony';
 import type { LocationId, SpriteArchetype } from '../../shared/colony';
 import { clamp, round2, sequence } from '../lib/rng';
 import { BUNK_NAMES, FAMILY_NAMES, FIRST_NAMES } from './names';
-import { FACTIONS, KEY_CHARACTERS, KEY_TIES } from './keyCharacters';
+import { FACTIONS, KEY_BELIEFS, KEY_CHARACTERS, KEY_TIES, STARTER_KEY } from './keyCharacters';
+import type { HouseholdMember, KeyCharacter, Opening, SecretKind, Strategy } from './keyCharacters';
+import { generatedPersona } from './personas';
+import { SEED_STORYLINES } from './worldBible';
+import type { StorylineState } from './worldBible';
 
 export type Home = 'habitat_a' | 'habitat_b';
 export type AgeBand = 'young' | 'adult' | 'elder';
@@ -23,6 +28,35 @@ export type SeedGoal = {
   targetOccupation?: string;
   targetFaction?: string;
   drive?: string;
+};
+
+/** minds.persona before insert. Key characters are authored; everyone else is generated (./personas.ts). */
+export type SeedPersona = {
+  epithet: string;
+  want: string;
+  need: string;
+  fear: string;
+  flaw: string;
+  voice: string;
+  secret?: { kind: SecretKind; text: string };
+  strategies: Strategy[];
+  arc: string;
+  key: boolean;
+  hook?: string;
+};
+
+/** A seeded opening scene: steps encoded as "type|arg", with "@<seq>" standing for an agent id. */
+export type SeedOpening = { at: LocationId; activity: string; label: string; intent: string; steps: string[]; labels: string[] };
+
+export type SeedStorylineData = {
+  key: string;
+  title: string;
+  premise: string;
+  status: string;
+  tension: number;
+  participants: number[];
+  beats: string[];
+  state: StorylineState<number>;
 };
 
 export type SeedAgent = {
@@ -48,6 +82,9 @@ export type SeedAgent = {
   health: number;
   markup?: number;
   goals: SeedGoal[];
+  persona?: SeedPersona;
+  thefts: number;
+  opening?: SeedOpening;
 };
 
 export type SeedHousehold = {
@@ -79,6 +116,7 @@ export type SeedBelief = {
   valence: number;
   confidence: number;
   sourceType: 'observed' | 'told' | 'rumor' | 'inference';
+  private?: boolean;
 };
 
 export type SeedFaction = {
@@ -98,6 +136,10 @@ export type SeedColony = {
   beliefs: SeedBelief[];
   factions: SeedFaction[];
   roles: Record<string, number>;
+  /** Authored key (keyCharacters.ts, keyed household members included) to seq. */
+  keyAgents: Record<string, number>;
+  starter: number;
+  storylines: SeedStorylineData[];
 };
 
 const OCCUPATION_COUNTS: Record<string, number> = {
@@ -227,7 +269,8 @@ export function buildColony(seed: number): SeedColony {
   const bunkPool = BUNK_NAMES.slice();
 
   const sprite = (occupation: string): string => {
-    const archetype = occupationDef(occupation).archetype;
+    let archetype = occupationDef(occupation).archetype;
+    if ((spriteCounters[archetype] ?? 0) >= SPRITE_VARIANTS) archetype = SPRITE_ARCHETYPES.find((a) => (spriteCounters[a] ?? 0) < SPRITE_VARIANTS) ?? archetype;
     const n = spriteCounters[archetype] ?? 0;
     spriteCounters[archetype] = n + 1;
     return archetype + '_' + (n % SPRITE_VARIANTS);
@@ -307,6 +350,7 @@ export function buildColony(seed: number): SeedColony {
       health: input.health ?? Math.round(clamp(84 + next() * 16 - (input.ageBand === 'elder' ? 10 : 0), 55, 100)),
       markup: isTrader ? round2(0.12 + traits.ambition * 0.22 + values.wealth * 0.1 - traits.empathy * 0.1) : undefined,
       goals: [],
+      thefts: 0,
     };
     agents.push(agent);
     return agent;
@@ -365,7 +409,7 @@ export function buildColony(seed: number): SeedColony {
     { size: 6, home: 'habitat_a' }, { size: 5, home: 'habitat_a' }, { size: 5, home: 'habitat_b' }, { size: 5, home: 'habitat_b' },
     { size: 4, home: 'habitat_a' }, { size: 4, home: 'habitat_a' }, { size: 4, home: 'habitat_b' }, { size: 4, home: 'habitat_b' },
     { size: 3, home: 'habitat_a' }, { size: 3, home: 'habitat_b' }, { size: 3, home: 'habitat_b' }, { size: 3, home: 'habitat_b' },
-    { size: 3, home: 'habitat_b' }, { size: 2, home: 'habitat_b' }, { size: 2, home: 'habitat_b' }, { size: 2, home: 'habitat_b' },
+    { size: 2, home: 'habitat_b' }, { size: 2, home: 'habitat_b' },
   ];
 
   const addGeneratedMember = (household: number, home: Home, familyName: string, head: boolean, family: boolean, size: number): SeedAgent => {
@@ -387,6 +431,8 @@ export function buildColony(seed: number): SeedColony {
     return makeAgent({ name, familyName: name.split(' ').slice(1).join(' '), ageBand, occupation, faction: pickFaction(occupation, ageBand), household, home });
   };
 
+  const memberOf = new Map<number, HouseholdMember>();
+  const keyCharacterOf = new Map<number, KeyCharacter>();
   for (const k of KEY_CHARACTERS) {
     const index = households.length;
     const household: SeedHousehold = {
@@ -401,10 +447,16 @@ export function buildColony(seed: number): SeedColony {
       key: k.key, name: k.name, familyName: k.familyName, ageBand: k.ageBand, occupation: k.occupation, role: k.role, faction: k.faction,
       household: index, home: k.home, traits: k.traits, values: k.values, skill: k.skill, credits: k.credits, health: k.health, background: k.background,
     });
+    head.thefts = k.thefts ?? 0;
+    keyCharacterOf.set(head.seq, k);
     household.members.push(head.seq);
     if (k.household) {
       for (const m of k.household) {
-        const member = makeAgent({ name: m.name, familyName: k.familyName, ageBand: m.ageBand, occupation: m.occupation, faction: pickFaction(m.occupation, m.ageBand), household: index, home: k.home, credits: 2 });
+        const member = makeAgent({
+          key: m.key, name: m.name, familyName: k.familyName, ageBand: m.ageBand, occupation: m.occupation, faction: pickFaction(m.occupation, m.ageBand),
+          household: index, home: k.home, credits: 2, health: m.health, background: m.background,
+        });
+        memberOf.set(member.seq, m);
         household.members.push(member.seq);
       }
     } else {
@@ -451,7 +503,16 @@ export function buildColony(seed: number): SeedColony {
     return true;
   };
 
-  for (const t of KEY_TIES) tie(keyOf(t.a), keyOf(t.b), t.kind, t.affinity, t.trust, t.fear ?? 0, t.kind === 'friend' ? 0.3 : 0);
+  for (const t of KEY_TIES) {
+    const a = keyOf(t.a);
+    const b = keyOf(t.b);
+    if (!tie(a, b, t.kind, t.affinity, t.trust, t.fear ?? 0, t.obligation ?? (t.kind === 'friend' ? 0.3 : 0))) throw new Error('duplicate key tie ' + t.a + ':' + t.b);
+    const back = relationships[relationships.length - 1];
+    back.affinity = round2(clamp((t.affinityBack ?? t.affinity) + (next() - 0.5) * 0.1, -1, 1));
+    back.trust = round2(clamp((t.trustBack ?? t.trust) + (next() - 0.5) * 0.1, -1, 1));
+    back.fear = round2(clamp(t.fearBack ?? t.fear ?? 0, 0, 1));
+    back.obligation = round2(clamp(t.obligationBack ?? (t.kind === 'friend' ? 0.3 : 0), -1, 1));
+  }
 
   for (const h of households) {
     for (let i = 0; i < h.members.length; i++) {
@@ -536,45 +597,106 @@ export function buildColony(seed: number): SeedColony {
       source: 'needs',
       predicate: 'needs_ok',
     });
-    const key = KEY_CHARACTERS.find((k) => k.key === a.key);
+    const key = keyCharacterOf.get(a.seq);
     if (key) {
-      const g = key.goal;
-      let target: number | undefined;
-      if (g.target?.startsWith('household:')) target = household.members[Number(g.target.split(':')[1])];
-      else if (g.target) target = keyOf(g.target);
-      a.goals.push({ kind: g.kind, description: g.description, priority: g.priority, source: 'personality', predicate: g.predicate, target, targetResource: g.targetResource, targetQuantity: g.targetQuantity, targetOccupation: g.targetOccupation, targetFaction: g.targetFaction, drive: g.drive });
+      for (const g of key.goals) {
+        let target: number | undefined;
+        if (g.target?.startsWith('household:')) target = household.members[Number(g.target.split(':')[1])];
+        else if (g.target) target = keyOf(g.target);
+        a.goals.push({ kind: g.kind, description: g.description, priority: g.priority, source: 'personality', predicate: g.predicate, target, targetResource: g.targetResource, targetQuantity: g.targetQuantity, targetOccupation: g.targetOccupation, targetFaction: g.targetFaction, drive: g.drive });
+      }
       continue;
     }
     a.goals.push(personalGoal(a, agents, households, edgesFrom.get(a.seq) ?? [], next));
   }
 
   // ----- beliefs -----
+  // Authored knowledge goes first; a colonist holds one belief per kind and subject.
   const beliefs: SeedBelief[] = [];
+  const held = new Set<string>();
+  const believe = (b: SeedBelief) => {
+    const key = b.agent + '|' + b.kind + '|' + (b.subject ?? b.worldKey);
+    if (held.has(key)) return;
+    held.add(key);
+    beliefs.push(b);
+  };
+  for (const b of KEY_BELIEFS) {
+    believe({ agent: keyOf(b.holder), kind: b.kind, subject: b.subject ? keyOf(b.subject) : undefined, worldKey: b.worldKey, text: b.text, valence: b.valence, confidence: b.confidence, sourceType: b.sourceType, private: b.private });
+  }
   const dmitri = byKey.get('dmitri')!;
   const soledad = byKey.get('soledad')!;
   const anneliese = byKey.get('anneliese')!;
+  const imani = byKey.get('imani')!;
+  const joao = byKey.get('joao')!;
   const conf = (lo: number, hi: number) => round2(lo + next() * (hi - lo));
   for (const a of agents) {
     const stance = a.faction === 'union' ? (next() < 0.7 ? 'open' : null) : a.faction === 'founders' ? (next() < 0.7 ? 'guard' : null) : next() < 0.25 ? (next() < 0.5 ? 'open' : 'guard') : null;
-    if (stance === 'open') beliefs.push({ agent: a.seq, kind: 'policy_open', worldKey: 'policy_open', text: 'The depot reserve should be opened to the people who fill it.', valence: 0, confidence: conf(0.5, 0.9), sourceType: 'inference' });
-    if (stance === 'guard') beliefs.push({ agent: a.seq, kind: 'policy_guard', worldKey: 'policy_guard', text: 'The depot reserve must be kept back for hard times.', valence: 0, confidence: conf(0.5, 0.9), sourceType: 'inference' });
-    const doubt = a.seq === dmitri.seq ? 0 : a.key === 'priya' ? 1 : a.faction === 'union' ? 0.35 : a.occupation === 'researcher' ? 0.4 : 0.07;
-    if (next() < doubt) beliefs.push({ agent: a.seq, kind: 'hoarding', subject: dmitri.seq, text: 'Dmitri Volkov is secretly hoarding food and water.', valence: -1, confidence: conf(0.25, 0.55), sourceType: 'rumor' });
-    if (a.seq !== soledad.seq && a.occupation !== 'trader' && next() < 0.14) beliefs.push({ agent: a.seq, kind: 'untrustworthy', subject: soledad.seq, text: 'Soledad Marchetti overcharges whenever supplies run short.', valence: -1, confidence: conf(0.35, 0.7), sourceType: next() < 0.5 ? 'observed' : 'told' });
-    if (a.seq !== anneliese.seq && next() < 0.2) beliefs.push({ agent: a.seq, kind: 'hero', subject: anneliese.seq, text: 'Anneliese Brandt has never turned a patient away.', valence: 1, confidence: conf(0.55, 0.9), sourceType: next() < 0.5 ? 'observed' : 'told' });
+    if (stance === 'open') believe({ agent: a.seq, kind: 'policy_open', worldKey: 'policy_open', text: 'The depot reserve should be opened to the people who fill it.', valence: 0, confidence: conf(0.5, 0.9), sourceType: 'inference' });
+    if (stance === 'guard') believe({ agent: a.seq, kind: 'policy_guard', worldKey: 'policy_guard', text: 'The depot reserve must be kept back for hard times.', valence: 0, confidence: conf(0.5, 0.9), sourceType: 'inference' });
+    const doubt = a.seq === dmitri.seq ? 0 : a.faction === 'union' ? 0.35 : a.occupation === 'researcher' ? 0.4 : 0.07;
+    if (next() < doubt) believe({ agent: a.seq, kind: 'hoarding', subject: dmitri.seq, text: 'Dmitri Volkov is secretly hoarding food and water.', valence: -1, confidence: conf(0.25, 0.55), sourceType: 'rumor' });
+    if (a.seq !== soledad.seq && a.occupation !== 'trader' && next() < 0.14) believe({ agent: a.seq, kind: 'untrustworthy', subject: soledad.seq, text: 'Soledad Marchetti overcharges whenever supplies run short.', valence: -1, confidence: conf(0.35, 0.7), sourceType: next() < 0.5 ? 'observed' : 'told' });
+    if (a.seq !== anneliese.seq && next() < 0.2) believe({ agent: a.seq, kind: 'hero', subject: anneliese.seq, text: 'Anneliese Brandt has never turned a patient away.', valence: 1, confidence: conf(0.55, 0.9), sourceType: next() < 0.5 ? 'observed' : 'told' });
     const scarcity = a.occupation === 'ice_miner' ? 0.4 : a.occupation === 'researcher' ? 0.5 : 0.06;
-    if (next() < scarcity) beliefs.push({ agent: a.seq, kind: 'scarcity', worldKey: 'scarcity:water', text: 'The ice wells give less water every season.', valence: -1, confidence: conf(0.3, 0.7), sourceType: a.occupation === 'ice_miner' ? 'observed' : 'inference' });
+    if (next() < scarcity) believe({ agent: a.seq, kind: 'scarcity', worldKey: 'scarcity:water', text: 'The ice wells give less water every season.', valence: -1, confidence: conf(0.3, 0.7), sourceType: a.occupation === 'ice_miner' ? 'observed' : 'inference' });
+    // Who is to blame for the Long Dark splits along faction lines, and neither side has the whole truth.
+    if (a.faction === 'founders' && a.seq !== joao.seq && next() < 0.35) believe({ agent: a.seq, kind: 'untrustworthy', subject: joao.seq, text: "Joao Ferreira's stoppage is why the reactor failed in the Long Dark.", valence: -1, confidence: conf(0.4, 0.75), sourceType: 'told' });
+    if (a.faction === 'union' && a.seq !== imani.seq && next() < 0.3) believe({ agent: a.seq, kind: 'untrustworthy', subject: imani.seq, text: 'Imani Reyes let Ring B freeze in the Long Dark and blamed the union for it.', valence: -1, confidence: conf(0.4, 0.75), sourceType: 'told' });
+    if (a.ageBand !== 'young' && next() < 0.1) believe({ agent: a.seq, kind: 'custom', worldKey: 'longdark:beacon', text: 'The Perseverance did not just crash. Someone on the pad let it come down blind.', valence: -1, confidence: conf(0.2, 0.45), sourceType: 'rumor' });
     for (const edge of edgesFrom.get(a.seq) ?? []) {
-      if (edge.kind === 'rival' && next() < 0.7) beliefs.push({ agent: a.seq, kind: 'untrustworthy', subject: edge.to, text: agents[edge.to].name + ' cannot be trusted.', valence: -1, confidence: conf(0.45, 0.8), sourceType: 'inference' });
+      if (edge.kind === 'rival' && next() < 0.7) believe({ agent: a.seq, kind: 'untrustworthy', subject: edge.to, text: agents[edge.to].name + ' cannot be trusted.', valence: -1, confidence: conf(0.45, 0.8), sourceType: 'inference' });
     }
     const faction = factions.find((f) => f.key === a.faction);
-    if (faction && faction.leader !== a.seq && next() < 0.3) beliefs.push({ agent: a.seq, kind: 'admirable', subject: faction.leader, text: agents[faction.leader].name + ' stands up for people like us.', valence: 1, confidence: conf(0.5, 0.85), sourceType: 'inference' });
+    if (faction && faction.leader !== a.seq && next() < 0.3) believe({ agent: a.seq, kind: 'admirable', subject: faction.leader, text: agents[faction.leader].name + ' stands up for people like us.', valence: 1, confidence: conf(0.5, 0.85), sourceType: 'inference' });
   }
 
   const roles: Record<string, number> = {};
   for (const a of agents) if (a.role) roles[a.role] = a.seq;
 
-  return { agents, households, relationships, beliefs, factions, roles };
+  // ----- personas -----
+  const usedEpithets = new Set<string>(KEY_CHARACTERS.map((k) => k.persona.epithet));
+  for (const a of agents) {
+    const k = keyCharacterOf.get(a.seq);
+    if (k) {
+      const { arc, ...persona } = k.persona;
+      a.persona = { ...persona, arc, key: true };
+      continue;
+    }
+    const member = memberOf.get(a.seq);
+    a.persona = generatedPersona(a, { household: households[a.household], agents, edges: edgesFrom.get(a.seq) ?? [], usedEpithets, next, authored: member });
+  }
+
+  // ----- the opening scene: who is already up at 06:00 and what they are about to do -----
+  const resolveArg = (arg: string) => (arg.startsWith('@') ? '@' + keyOf(arg.slice(1)) : arg);
+  const opening = (o: Opening): SeedOpening => ({
+    at: o.at,
+    activity: o.activity,
+    label: o.label,
+    intent: o.intent,
+    steps: o.steps.map((s) => s.step.map(resolveArg).join('|')),
+    labels: o.steps.map((s) => s.label),
+  });
+  for (const [seq, k] of keyCharacterOf) if (k.opening) agents[seq].opening = opening(k.opening);
+
+  const keyAgents: Record<string, number> = {};
+  for (const [key, a] of byKey) keyAgents[key] = a.seq;
+
+  const storylines: SeedStorylineData[] = SEED_STORYLINES.map((s) => ({
+    key: s.key,
+    title: s.title,
+    premise: s.premise,
+    status: s.status,
+    tension: s.tension,
+    participants: s.participants.map(keyOf),
+    beats: s.beats,
+    state: {
+      ...s.state,
+      secretHolderIds: s.state.secretHolderIds.map(keyOf),
+      choice: s.state.choice ? { ...s.state.choice, agentId: keyOf(s.state.choice.agentId) } : undefined,
+    },
+  }));
+
+  return { agents, households, relationships, beliefs, factions, roles, keyAgents, starter: keyOf(STARTER_KEY), storylines };
 }
 
 function personalGoal(a: SeedAgent, agents: SeedAgent[], households: SeedHousehold[], edges: SeedRelationship[], next: () => number): SeedGoal {

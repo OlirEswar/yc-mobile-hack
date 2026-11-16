@@ -1,4 +1,9 @@
-/** Writes a freshly built colony into the database and returns the new world id. */
+/**
+ * Writes a freshly built colony into the database and returns the new world id: agents, minds with
+ * personas, the opening scene, beliefs, ties, factions, the storylines in motion, the key-character
+ * map (worlds.keyAgents) and the starter (worlds.starterAgentId).
+ */
+import { seedSociety } from '../society/seed';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { COLONY_NAME, LOCATION_IDS } from '../../shared/colony';
@@ -114,7 +119,8 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
   let loc = '';
   let st = '';
   for (const a of colony.agents) {
-    const wakeIn = 1 + (a.seq % 5);
+    const wakeIn = a.opening ? 0 : 1 + (a.seq % 5);
+    const at = a.opening?.at ?? a.home;
     const id = await ctx.db.insert('agents', {
       worldId,
       seq: a.seq,
@@ -125,11 +131,11 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
       factionId: a.faction,
       householdId: householdIds[a.household],
       alive: true,
-      locationId: a.home,
+      locationId: at,
       homeLocationId: a.home,
       workLocationId: a.workLocationId,
-      activity: 'sleeping',
-      activityLabel: 'Asleep at home',
+      activity: a.opening?.activity ?? 'sleeping',
+      activityLabel: a.opening?.label ?? 'Asleep at home',
       busyUntilTick: wakeIn,
       dueTick: wakeIn,
       mood: 'calm',
@@ -150,9 +156,11 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
       failStreak: 0,
     });
     agentIds.push(id);
-    loc += locChar(a.home);
-    st += ROSTER_ASLEEP;
+    loc += locChar(at);
+    st += !a.opening ? ROSTER_ASLEEP : a.opening.activity === 'working' ? ROSTER_WORKING : ROSTER_AWAKE;
   }
+  const resolveStep = (step: string) => step.split('|').map((arg) => (arg.startsWith('@') ? agentIds[Number(arg.slice(1))] : arg)).join('|');
+  for (const a of colony.agents) if (a.opening) await ctx.db.patch(agentIds[a.seq], { q: a.opening.steps.map(resolveStep) });
 
   for (let i = 0; i < colony.households.length; i++) {
     await ctx.db.patch(householdIds[i], { memberIds: colony.households[i].members.map((seq) => agentIds[seq]) });
@@ -176,8 +184,9 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
       learnedAtTick: 0,
       lastReinforcedTick: 0,
       hops: b.sourceType === 'observed' ? 0 : 1,
+      private: b.private,
     });
-    topics[b.agent].push({ key, weight: topicWeight(b.kind, b.confidence) });
+    if (!b.private) topics[b.agent].push({ key, weight: topicWeight(b.kind, b.confidence) });
   }
 
   for (const a of colony.agents) {
@@ -205,10 +214,26 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
         predicate: g.predicate,
         drive: g.drive,
       })),
+      plan: a.opening
+        ? { intent: a.opening.intent, source: 'template', steps: a.opening.steps.map(resolveStep), labels: a.opening.labels, createdAtTick: 0 }
+        : undefined,
       stateVersion: 0,
       llmCooldownUntilTick: 0,
-      thefts: 0,
+      thefts: a.thefts,
       nextGoalSeq: a.goals.length + 1,
+      persona: a.persona && {
+        epithet: a.persona.epithet,
+        want: a.persona.want,
+        need: a.persona.need,
+        fear: a.persona.fear,
+        flaw: a.persona.flaw,
+        voice: a.persona.voice,
+        secret: a.persona.secret,
+        strategies: a.persona.strategies,
+        arc: { stage: 'setup', note: a.persona.arc },
+        key: a.persona.key,
+        hook: a.persona.hook,
+      },
     });
     const top = topics[a.seq].sort((x, y) => y.weight - x.weight).slice(0, 4).map((t) => t.key);
     await ctx.db.patch(agentIds[a.seq], { mindId, topics: top });
@@ -247,8 +272,33 @@ export async function seedWorld(ctx: MutationCtx, deviceId: string, seed: number
 
   await ctx.db.insert('worldIndex', { worldId, agentIds });
 
+  for (const s of colony.storylines) {
+    const { choice, ...state } = s.state;
+    await ctx.db.insert('storylines', {
+      worldId,
+      key: s.key,
+      title: s.title,
+      premise: s.premise,
+      status: s.status,
+      tension: s.tension,
+      participantIds: s.participants.map((seq) => agentIds[seq]),
+      beats: s.beats.map((text) => ({ tick: 0, text })),
+      origin: 'seed',
+      createdTick: 0,
+      lastBeatTick: 0,
+      state: {
+        ...state,
+        secretHolderIds: state.secretHolderIds.map((seq) => agentIds[seq]),
+        ...(choice ? { choice: { ...choice, agentId: agentIds[choice.agentId] } } : {}),
+      },
+    });
+  }
+
   const roles: Record<string, Id<'agents'>> = {};
   for (const [role, seq] of Object.entries(colony.roles)) roles[role] = agentIds[seq];
-  await ctx.db.patch(worldId, { roster: { loc, st }, roles });
+  const keyAgents: Record<string, Id<'agents'>> = {};
+  for (const [key, seq] of Object.entries(colony.keyAgents)) keyAgents[key] = agentIds[seq];
+  await ctx.db.patch(worldId, { roster: { loc, st }, roles, keyAgents, starterAgentId: agentIds[colony.starter] });
+  await seedSociety(ctx, worldId, agentIds, { children: false });
   return worldId;
 }

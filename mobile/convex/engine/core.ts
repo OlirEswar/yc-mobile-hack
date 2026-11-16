@@ -10,12 +10,15 @@
  *   await emitEvent(tx, {...});
  *   await commitTx(tx);                      // the only write of the world document
  */
+import { SOCIETY_STEP_SPECS } from '../society/steps';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
-import { LOCATION_IDS, START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
+import { deathReactions } from '../society/chaos';
+import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR, findPath } from '../../shared/colony';
+import type { LocationId } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
-import { NEVER_DUE } from '../lib/constants';
+import { DEFAULT_LLM_CONFIG, NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import {
   ROSTER_ASLEEP,
@@ -32,6 +35,10 @@ import {
 export type AgentDoc = Doc<'agents'>;
 export type MindDoc = Doc<'minds'>;
 export type WorldDoc = Doc<'worlds'>;
+export type HouseholdDoc = Doc<'households'>;
+export type FactionDoc = Doc<'factions'>;
+export type BeliefDoc = Doc<'beliefs'>;
+export type RelationshipDoc = Doc<'relationships'>;
 export type AgentId = Id<'agents'>;
 export type EventId = Id<'events'>;
 
@@ -70,6 +77,29 @@ export const STEP_SPECS = {
   mourn: { args: ['agentId'], about: 'Grieve for someone who died.' },
   flee: { args: ['locationId'], about: 'Run to a safer location.' },
   wait: { args: ['ticks'], about: 'Do nothing for a while.' },
+  // ----- iteration 2: ways to get by and ways to make trouble (docs/STORY_SPEC.md 3.2) -----
+  grow: { args: ['ticks'], about: 'Tend a private grow rack at Hydroponics or home. Turns a little water into food over time.' },
+  scavenge: { args: ['locationId'], about: 'Search an exposed surface site for salvage: parts, sometimes something valuable. Risky in storms.' },
+  beg: { args: ['agentId', 'resource'], about: 'Ask someone at the same location for food, water or credits. They decide.' },
+  borrow: { args: ['agentId', 'resource', 'quantity'], about: 'Borrow from someone at the same location. Creates a debt they remember.' },
+  repay: { args: ['agentId'], about: 'Pay back what is owed to someone at the same location.' },
+  barter: { args: ['agentId', 'giveResource', 'giveQuantity', 'wantResource', 'wantQuantity'], about: 'Offer a direct swap of goods with someone at the same location.' },
+  bribe: { args: ['agentId', 'quantity', 'favor'], about: 'Offer credits for a favor: "silence", "vote", "ration" or "look_away".' },
+  blackmail: { args: ['agentId', 'beliefKey'], about: 'Threaten to reveal what a held belief says about someone unless they pay or comply.' },
+  lie: { args: ['agentId', 'subjectId', 'kind'], about: 'Tell someone a made-up story about a third person (kind: thief, hoarding, saboteur, corrupt, affair, coward).' },
+  confide: { args: ['agentId', 'beliefKey?'], about: 'Share a secret or private worry with someone trusted. Deepens the bond; the secret may travel.' },
+  court: { args: ['agentId'], about: 'Flirt with or court someone at the same location.' },
+  comfort: { args: ['agentId'], about: 'Console someone who is grieving, afraid or desperate.' },
+  threaten: { args: ['agentId'], about: 'Intimidate someone at the same location. Raises their fear; may provoke them.' },
+  sabotage: { args: ['locationId'], about: 'Secretly damage equipment at a location. May be witnessed.' },
+  smuggle: { args: ['resource', 'quantity'], about: 'Trade off the books with shuttle crews at the Landing Pad, at better prices and real risk.' },
+  rally: { args: ['topic'], about: 'Gather supporters in the plaza for a cause: "strike", "rations_open", "recall_chair" or "trade".' },
+  strike: { args: ['ticks'], about: 'Refuse to work, publicly, as a protest.' },
+  reconcile: { args: ['agentId'], about: 'Apologise to or make peace with someone at the same location.' },
+  eavesdrop: { args: ['agentId'], about: 'Listen in on someone at the same location to learn what they believe or hide.' },
+  hide: { args: ['resource', 'quantity'], about: 'Stash goods out of sight so others cannot find or take them.' },
+  confess: { args: ['beliefKey'], about: 'Publicly admit to something they did or hid.' },
+  ...SOCIETY_STEP_SPECS,
 } as const;
 export type StepType = keyof typeof STEP_SPECS;
 export type Step = { type: StepType; args: string[] };
@@ -98,8 +128,16 @@ export type Tx = {
   rosterSt: string[];
   index: AgentId[] | null;
   indexDirty: boolean;
+  /** Working copies of households (pantries, rations) and factions, written once by commitTx. */
+  households: Map<string, HouseholdDoc>;
+  dirtyHouseholds: Set<string>;
+  factions: FactionDoc[] | null;
+  dirtyFactions: Set<string>;
   /** Events emitted so far, in order. */
   eventIds: EventId[];
+  /** Each agent's strongest ties (tiesOf) and held beliefs (heldBeliefs), read once per Tx and kept current by the writers here. */
+  ties: Map<string, RelationshipDoc[]>;
+  beliefs: Map<string, BeliefDoc[]>;
 };
 
 export function beginTx(ctx: MutationCtx, world: WorldDoc): Tx {
@@ -116,7 +154,13 @@ export function beginTx(ctx: MutationCtx, world: WorldDoc): Tx {
     rosterSt: world.roster.st.split(''),
     index: null,
     indexDirty: false,
+    households: new Map(),
+    dirtyHouseholds: new Set(),
+    factions: null,
+    dirtyFactions: new Set(),
     eventIds: [],
+    ties: new Map(),
+    beliefs: new Map(),
   };
 }
 
@@ -172,6 +216,33 @@ export async function loadMind(tx: Tx, a: AgentDoc): Promise<MindDoc | null> {
 
 export const touchMind = (tx: Tx, m: MindDoc): void => void tx.dirtyMinds.add(m._id);
 
+/** The working copy of a household. Mutate it, then call touchHousehold. */
+export async function loadHousehold(tx: Tx, id: Id<'households'> | undefined): Promise<HouseholdDoc | null> {
+  if (!id) return null;
+  const cached = tx.households.get(id);
+  if (cached) return cached;
+  const doc = await tx.ctx.db.get(id);
+  if (!doc || doc.worldId !== tx.world._id) return null;
+  const copy = JSON.parse(JSON.stringify(doc)) as HouseholdDoc;
+  tx.households.set(id, copy);
+  return copy;
+}
+
+export const touchHousehold = (tx: Tx, h: HouseholdDoc): void => void tx.dirtyHouseholds.add(h._id);
+
+/** Working copies of the world's factions. Mutate one, then call touchFaction. */
+export async function loadFactions(tx: Tx): Promise<FactionDoc[]> {
+  if (tx.factions) return tx.factions;
+  const docs = await tx.ctx.db
+    .query('factions')
+    .withIndex('by_world', (q) => q.eq('worldId', tx.world._id))
+    .collect();
+  tx.factions = docs.map((f) => JSON.parse(JSON.stringify(f)) as FactionDoc);
+  return tx.factions;
+}
+
+export const touchFaction = (tx: Tx, f: FactionDoc): void => void tx.dirtyFactions.add(f._id);
+
 /** Agent ids by seq. */
 export async function agentIndex(tx: Tx): Promise<AgentId[]> {
   if (tx.index) return tx.index;
@@ -222,6 +293,15 @@ export async function commitTx(tx: Tx): Promise<void> {
   }
   for (const id of tx.dirtyMinds) {
     const { _id, _creationTime, ...fields } = tx.minds.get(id)!;
+    await tx.ctx.db.replace(_id, fields);
+  }
+  for (const id of tx.dirtyHouseholds) {
+    const { _id, _creationTime, ...fields } = tx.households.get(id)!;
+    await tx.ctx.db.replace(_id, fields);
+  }
+  for (const f of tx.factions ?? []) {
+    if (!tx.dirtyFactions.has(f._id)) continue;
+    const { _id, _creationTime, ...fields } = f;
     await tx.ctx.db.replace(_id, fields);
   }
   if (tx.indexDirty && tx.index) {
@@ -314,6 +394,23 @@ export async function emitEvent(tx: Tx, e: EventInput): Promise<{ eventId: Event
 
 // ---------- relationships ----------
 
+/** Ties read per agent and cached for the Tx; enough for every caller's top-n. */
+const TIES_CACHED = 16;
+
+/** An agent's strongest ties, strongest first: one indexed read per agent per Tx until one of them changes. */
+export async function tiesOf(tx: Tx, agentId: AgentId, n = TIES_CACHED): Promise<RelationshipDoc[]> {
+  let ties = tx.ties.get(agentId);
+  if (!ties) {
+    ties = await tx.ctx.db
+      .query('relationships')
+      .withIndex('by_from_strength', (q) => q.eq('fromAgentId', agentId))
+      .order('desc')
+      .take(TIES_CACHED);
+    tx.ties.set(agentId, ties);
+  }
+  return ties.slice(0, n);
+}
+
 export type RelationshipDelta = { affinity?: number; trust?: number; fear?: number; obligation?: number; kind?: string };
 
 /**
@@ -321,10 +418,7 @@ export type RelationshipDelta = { affinity?: number; trust?: number; fear?: numb
  * standing, the sum of what others think of them, in step.
  */
 export async function adjustRelationship(tx: Tx, from: AgentDoc, to: AgentDoc, delta: RelationshipDelta): Promise<Doc<'relationships'>> {
-  const existing = await tx.ctx.db
-    .query('relationships')
-    .withIndex('by_from_to', (q) => q.eq('fromAgentId', from._id).eq('toAgentId', to._id))
-    .first();
+  const existing = await tieTo(tx, from._id, to._id);
   const before = existing ? standingWeight(existing.affinity, existing.trust) : 0;
   const affinity = round2(clamp((existing?.affinity ?? 0) + (delta.affinity ?? 0), -1, 1));
   const trust = round2(clamp((existing?.trust ?? 0) + (delta.trust ?? 0), -1, 1));
@@ -348,12 +442,46 @@ export async function adjustRelationship(tx: Tx, from: AgentDoc, to: AgentDoc, d
   };
   to.standing = round2(to.standing + standingWeight(affinity, trust) - before);
   touch(tx, to);
+  let doc: RelationshipDoc;
   if (existing) {
     await tx.ctx.db.patch(existing._id, fields);
-    return { ...existing, ...fields };
+    doc = { ...existing, ...fields };
+  } else {
+    const id = await tx.ctx.db.insert('relationships', { worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields });
+    doc = { _id: id, _creationTime: Date.now(), worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields };
   }
-  const id = await tx.ctx.db.insert('relationships', { worldId: tx.world._id, fromAgentId: from._id, toAgentId: to._id, ...fields });
-  return (await tx.ctx.db.get(id))!;
+  cacheTie(tx, from._id, doc);
+  return doc;
+}
+
+/** One tie, from the cached ties when they hold it (or hold every tie the agent has), else one indexed read. */
+export async function tieTo(tx: Tx, from: AgentId, to: AgentId): Promise<RelationshipDoc | null> {
+  const ties = tx.ties.get(from);
+  const hit = ties?.find((t) => t.toAgentId === to);
+  if (hit) return hit;
+  if (ties && ties.length < TIES_CACHED) return null;
+  return await tx.ctx.db
+    .query('relationships')
+    .withIndex('by_from_to', (q) => q.eq('fromAgentId', from).eq('toAgentId', to))
+    .first();
+}
+
+/**
+ * Keeps an agent's cached strongest ties exact after one of them changed. A short list holds every
+ * tie; a full one holds the top TIES_CACHED, so a tie that falls below all of them drops the cache.
+ */
+function cacheTie(tx: Tx, from: AgentId, doc: RelationshipDoc): void {
+  const ties = tx.ties.get(from);
+  if (!ties) return;
+  const others = ties.filter((t) => t._id !== doc._id);
+  if (ties.length >= TIES_CACHED) {
+    const floor = Math.min(...ties.map((t) => t.strength));
+    if (doc.strength < floor) {
+      if (others.length < ties.length) tx.ties.delete(from);
+      return;
+    }
+  }
+  tx.ties.set(from, [...others, doc].sort((x, y) => y.strength - x.strength).slice(0, TIES_CACHED));
 }
 
 // ---------- beliefs ----------
@@ -382,6 +510,27 @@ export type BeliefInput = {
   private?: boolean;
 };
 
+/** Every belief an agent holds: one indexed read per agent per Tx, kept current by learnBelief and patchBelief. */
+export async function heldBeliefs(tx: Tx, agentId: AgentId): Promise<BeliefDoc[]> {
+  let held = tx.beliefs.get(agentId);
+  if (!held) {
+    held = await tx.ctx.db
+      .query('beliefs')
+      .withIndex('by_agent_key', (q) => q.eq('agentId', agentId))
+      .collect();
+    tx.beliefs.set(agentId, held);
+  }
+  return held;
+}
+
+/** Patches a belief and the holder's cached copy. */
+export async function patchBelief(tx: Tx, belief: BeliefDoc, fields: Partial<BeliefDoc>): Promise<void> {
+  await tx.ctx.db.patch(belief._id, fields);
+  const held = tx.beliefs.get(belief.agentId);
+  const i = held?.findIndex((b) => b._id === belief._id) ?? -1;
+  if (held && i >= 0) held[i] = { ...held[i], ...fields };
+}
+
 export const beliefKey = (kind: string, subjectAgentId?: string, worldKey?: string): string =>
   subjectAgentId ? kind + ':' + subjectAgentId : (worldKey ?? kind);
 
@@ -392,10 +541,8 @@ export const beliefKey = (kind: string, subjectAgentId?: string, worldKey?: stri
  */
 export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): Promise<{ beliefId: Id<'beliefs'>; key: string; created: boolean; delta: number }> {
   const key = beliefKey(input.kind, input.subjectAgentId, input.worldKey);
-  const existing = await tx.ctx.db
-    .query('beliefs')
-    .withIndex('by_agent_key', (q) => q.eq('agentId', agent._id).eq('key', key))
-    .first();
+  const held = await heldBeliefs(tx, agent._id);
+  const existing = held.find((b) => b.key === key);
   const gained = clamp(input.confidence, 0, 1);
   let beliefId: Id<'beliefs'>;
   let delta: number;
@@ -403,14 +550,14 @@ export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): 
     const confidence = round2(clamp(Math.max(existing.confidence, existing.confidence + (1 - existing.confidence) * gained * 0.5), 0, 1));
     delta = confidence - existing.confidence;
     beliefId = existing._id;
-    await tx.ctx.db.patch(existing._id, {
+    await patchBelief(tx, existing, {
       confidence,
       lastReinforcedTick: tx.tick,
-      ...(input.sourceType === 'observed' ? { sourceType: 'observed', truthEventId: input.truthEventId ?? existing.truthEventId } : {}),
+      ...(input.sourceType === 'observed' ? { sourceType: 'observed' as const, truthEventId: input.truthEventId ?? existing.truthEventId } : {}),
     });
   } else {
     delta = round2(gained);
-    beliefId = await tx.ctx.db.insert('beliefs', {
+    const fields = {
       worldId: tx.world._id,
       agentId: agent._id,
       key,
@@ -429,13 +576,11 @@ export async function learnBelief(tx: Tx, agent: AgentDoc, input: BeliefInput): 
       lastReinforcedTick: tx.tick,
       hops: input.hops ?? 0,
       private: input.private,
-    });
+    };
+    beliefId = await tx.ctx.db.insert('beliefs', fields);
+    held.push({ ...fields, _id: beliefId, _creationTime: Date.now() });
   }
 
-  const held = await tx.ctx.db
-    .query('beliefs')
-    .withIndex('by_agent_key', (q) => q.eq('agentId', agent._id))
-    .collect();
   agent.topics = held
     .map((b) => ({ key: b.key, weight: topicWeight(b.kind, b.confidence) + b.lastReinforcedTick / 100_000 }))
     .sort((a, b) => b.weight - a.weight)
@@ -464,6 +609,14 @@ function setActivity(a: AgentDoc, activity: ActivityKind, label: string): void {
   a.activityLabel = label;
 }
 
+/** The route node nearest to where a walker is right now. */
+export function standingNode(move: NonNullable<AgentDoc['move']>, tick: number): string {
+  const path = findPath(move.from as LocationId, move.to as LocationId);
+  if (!path || path.nodes.length < 2) return move.from;
+  const frac = clamp((tick - move.departTick) / Math.max(1, move.arriveTick - move.departTick), 0, 1);
+  return path.nodes[Math.round(frac * (path.nodes.length - 1))];
+}
+
 /** Makes the agent due on this tick, abandoning the step in progress (its effects do not apply). */
 export function wake(tx: Tx, a: AgentDoc): void {
   if (!a.alive) return;
@@ -472,8 +625,8 @@ export function wake(tx: Tx, a: AgentDoc): void {
   a.interactingWithId = undefined;
   a.speech = undefined;
   if (a.move) {
-    // Stop where the walk started rather than teleport to the destination.
-    if (tx.tick < a.move.arriveTick) a.locationId = a.move.from;
+    // Stop at the point of the route they have reached: no jump back to the start or ahead to the end.
+    if (tx.tick < a.move.arriveTick) a.locationId = standingNode(a.move, tx.tick);
     a.move = undefined;
   }
   a.busyUntilTick = tx.tick;
@@ -539,18 +692,23 @@ export async function setPlan(tx: Tx, a: AgentDoc, plan: PlanInput): Promise<voi
 
 // ---------- death ----------
 
+/** Causes of death that make the bereaved look for someone to blame. */
+const VIOLENT_CAUSE = /murder|kill|stab|shot|poison|strangl|attack|beat|violen|blood/i;
+
 /**
  * Kills an agent: writes the death, the public event and the population count, marks every tie to
  * them, vacates their role, and puts grief in front of whatever their family and friends were doing.
+ * The death ripples: bystanders are shaken, a faction that loses its leader picks a successor, and
+ * a violent death sets the bereaved suspecting the victim's rivals.
  */
 export async function killAgent(
   tx: Tx,
   a: AgentDoc,
-  death: { cause: string; summary?: string; causationEventId?: EventId; category?: EventCategory; salience?: number },
+  death: { cause: string; summary?: string; causationEventId?: EventId; category?: EventCategory; salience?: number; killerId?: AgentId },
 ): Promise<EventId | null> {
   if (!a.alive) return null;
   a.alive = false;
-  if (a.move && tx.tick < a.move.arriveTick) a.locationId = a.move.from;
+  if (a.move && tx.tick < a.move.arriveTick) a.locationId = standingNode(a.move, tx.tick);
   a.move = undefined;
   a.cur = undefined;
   a.curStartTick = undefined;
@@ -569,39 +727,132 @@ export async function killAgent(
     touchMind(tx, mind);
   }
   tx.world.population = { alive: tx.world.population.alive - 1, dead: tx.world.population.dead + 1 };
-  if (tx.world.focusAgentId === a._id) tx.world.focusAgentId = undefined;
-  for (const [role, holder] of Object.entries(tx.world.roles)) {
-    if (holder !== a._id) continue;
-    delete tx.world.roles[role];
-    tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role });
-  }
+  const vacated = Object.entries(tx.world.roles).filter(([, holder]) => holder === a._id).map(([role]) => role);
+  for (const role of vacated) delete tx.world.roles[role];
+  if (tx.world.sim) tx.world.sim.council = tx.world.sim.council.filter((id) => id !== a._id);
 
   const ties = await tx.ctx.db
     .query('relationships')
     .withIndex('by_to', (q) => q.eq('toAgentId', a._id))
     .collect();
-  const close = ties.filter((t) => t.kind === 'family' || (t.kind === 'friend' && t.affinity >= 0.3));
-  const { eventId } = await emitEvent(tx, {
+  const close = ties.filter((t) => t.kind === 'family' || t.kind === 'partner' || ((t.kind === 'friend' || t.kind === 'romance') && t.affinity >= 0.3));
+  const here = (await agentsAt(tx, a.locationId, { exclude: [a._id] })).slice(0, 10);
+  const { eventId, witnessIds } = await emitEvent(tx, {
     category: death.category ?? 'health',
     eventType: 'death',
     actorId: a._id,
-    participantIds: close.map((t) => t.fromAgentId),
+    participantIds: [...new Set([...here, ...close.map((t) => t.fromAgentId)])],
     locationId: a.locationId,
     summary: death.summary ?? a.name + ' died: ' + death.cause + '.',
     salience: death.salience ?? 0.9,
     causationEventId: death.causationEventId,
     visibility: 'public',
     witnesses: 'location',
-    facts: { cause: death.cause },
+    facts: { cause: death.cause, killerId: death.killerId },
   });
+  for (const role of vacated) tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, role, eventId });
+  if (vacated.length === 0 && a.occupation !== 'resident') tx.world.vacancies.push({ occupation: a.occupation, sinceTick: tx.tick, eventId });
   for (const t of ties) await tx.ctx.db.patch(t._id, { toAlive: false });
+  tx.ties.clear();
   for (const t of close) {
     const mourner = await loadAgent(tx, t.fromAgentId);
     if (!mourner || !mourner.alive) continue;
     mourner.mood = 'grieving';
     interrupt(tx, mourner, [encodeStep('mourn', a._id)]);
+    await enqueueCognition(tx, mourner, {
+      kind: 'plan',
+      trigger: (t.kind === 'family' ? 'family member ' : 'close friend ') + a.name + ' died',
+      detail: death.cause,
+      priority: 0.8,
+      lane: 'crisis',
+      eventId,
+    });
   }
+  for (const id of witnessIds) {
+    const witness = await loadAgent(tx, id);
+    if (!witness || !witness.alive || witness.mood === 'grieving') continue;
+    witness.needs.safety = Math.min(100, witness.needs.safety + 35);
+    witness.mood = 'shaken';
+    touch(tx, witness);
+  }
+  for (const id of here) {
+    const witness = await loadAgent(tx, id);
+    if (!witness?.alive || witness.mood === 'grieving') continue;
+    witness.needs.safety = Math.min(100, witness.needs.safety + 35);
+    witness.mood = 'shaken';
+    touch(tx, witness);
+  }
+  await deathReactions(tx, a, eventId, { cause: death.cause, killerId: death.killerId, here, closeIds: close.map((t) => t.fromAgentId) });
+  await succeedFactionLeader(tx, a, eventId);
+  if (!death.killerId && VIOLENT_CAUSE.test(death.cause)) await suspectRivals(tx, a, close, eventId);
   return eventId;
+}
+
+/** A faction that loses its leader turns to its most respected surviving officer. */
+async function succeedFactionLeader(tx: Tx, dead: AgentDoc, deathEventId: EventId): Promise<void> {
+  for (const f of await loadFactions(tx)) {
+    if (f.key === dead.factionId) {
+      f.memberCount = Math.max(0, f.memberCount - 1);
+      touchFaction(tx, f);
+    }
+    if (f.leaderAgentId !== dead._id) continue;
+    f.officerIds = f.officerIds.filter((id) => id !== dead._id);
+    let heir: AgentDoc | null = null;
+    for (const id of f.officerIds) {
+      const officer = await loadAgent(tx, id);
+      if (officer?.alive && (!heir || officer.standing > heir.standing)) heir = officer;
+    }
+    f.leaderAgentId = heir?._id;
+    touchFaction(tx, f);
+    if (!heir) continue;
+    f.officerIds = f.officerIds.filter((id) => id !== heir._id);
+    await emitEvent(tx, {
+      category: 'politics',
+      eventType: 'leadership_change',
+      actorId: heir._id,
+      participantIds: [dead._id],
+      summary: heir.name + ' now leads the ' + f.name + ' after the death of ' + dead.name + '.',
+      salience: 0.8,
+      causationEventId: deathEventId,
+      visibility: 'public',
+    });
+  }
+}
+
+/** After a violent death, the bereaved wonder aloud about the victim's worst rival. */
+async function suspectRivals(tx: Tx, dead: AgentDoc, close: Doc<'relationships'>[], deathEventId: EventId): Promise<void> {
+  const rivals = await tiesOf(tx, dead._id, 16);
+  const rival = rivals.filter((r) => r.toAlive && r.affinity < -0.15).sort((x, y) => x.affinity - y.affinity)[0];
+  if (!rival) return;
+  const suspect = await loadAgent(tx, rival.toAgentId);
+  if (!suspect?.alive) return;
+  const suspicious: AgentId[] = [];
+  for (const t of close.slice(0, 6)) {
+    const mourner = await loadAgent(tx, t.fromAgentId);
+    if (!mourner?.alive || mourner._id === suspect._id) continue;
+    await learnBelief(tx, mourner, {
+      kind: 'suspect',
+      text: suspect.name + ' may have had a hand in the death of ' + dead.name + '.',
+      valence: -1,
+      confidence: 0.35 + 0.3 * (1 - mourner.traits.caution),
+      sourceType: 'inference',
+      subjectAgentId: suspect._id,
+      subjectName: suspect.name,
+      originEventId: deathEventId,
+    });
+    suspicious.push(mourner._id);
+  }
+  if (suspicious.length === 0) return;
+  await emitEvent(tx, {
+    category: 'social',
+    eventType: 'suspicion',
+    actorId: suspicious[0],
+    participantIds: [...suspicious, suspect._id],
+    summary: 'Those closest to ' + dead.name + ' are asking whether ' + suspect.name + ', a known rival, had a hand in it.',
+    salience: 0.65,
+    causationEventId: deathEventId,
+    visibility: 'public',
+  });
 }
 
 // ---------- LLM planning queue ----------
@@ -614,8 +865,8 @@ export type CognitionRequest = {
   detail?: string;
   /** 0..1. Higher runs first. */
   priority: number;
-  /** focus: the followed colonist. crisis: reacting to a high-salience event. normal: the rest. */
-  lane: 'focus' | 'crisis' | 'normal';
+  /** focus: the followed colonist. orbit: the people around them. crisis: reacting to a high-salience event. normal: the rest. */
+  lane: 'focus' | 'orbit' | 'crisis' | 'normal';
   eventId?: EventId;
 };
 
@@ -630,6 +881,7 @@ export async function enqueueCognition(tx: Tx, a: AgentDoc, request: CognitionRe
   const mind = await loadMind(tx, a);
   if (!mind) return false;
   if (request.kind === 'plan' && request.lane === 'normal' && mind.llmCooldownUntilTick > tx.tick) return false;
+  if (request.kind === 'plan' && request.lane === 'orbit' && tx.tick - (mind.lastLlmPlanTick ?? -Infinity) < (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks)) return false;
   const pending = await tx.ctx.db
     .query('cognitionJobs')
     .withIndex('by_agent_status', (q) => q.eq('agentId', a._id).eq('status', 'queued'))

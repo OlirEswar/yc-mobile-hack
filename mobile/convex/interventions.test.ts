@@ -87,7 +87,7 @@ test('drought starts a standing condition, tells the well crew and queues the le
 test('storm damages sites, injures people caught outside and sends them to shelter', async () => {
   const { t, apply, worldId, world } = await setup('device-storm');
   const caught = await placeAt(t, worldId, [3, 4, 5], 'ice_wells');
-  const [frail] = await placeAt(t, worldId, [6], 'quarry', { health: 5 });
+  const [frail] = await placeAt(t, worldId, [7], 'quarry', { health: 5 });
   const result = ok(await apply({ type: 'storm', params: { severity: 0.8, locationIds: ['ice_wells', 'quarry'] } }));
   const after = await world();
   expect(after.damage.ice_wells).toBeGreaterThan(0.5);
@@ -175,11 +175,11 @@ test('whisper plants a private divine belief and goal, and the agent replans', a
 
 test('rumor reaches two to four awake people at the seed spot, never the subject', async () => {
   const { t, apply, worldId } = await setup('device-rumor');
-  const present = await placeAt(t, worldId, [20, 21, 22, 23, 24, 25], 'canteen');
+  const present = await placeAt(t, worldId, [20, 21, 22, 23, 24, 25], 'plaza');
   const subject = present[0];
   const result = ok(await apply({ type: 'rumor', params: { aboutAgentId: subject, presetKey: 'hoarding', text: '' } }));
   const event = await eventOf(t, result.eventIds[0]);
-  expect(event).toMatchObject({ eventType: 'rumor_started', category: 'intervention', locationId: 'canteen', visibility: 'local' });
+  expect(event).toMatchObject({ eventType: 'rumor_started', category: 'intervention', locationId: 'plaza', visibility: 'local' });
   expect(result.affectedAgentIds.length).toBeGreaterThanOrEqual(2);
   expect(result.affectedAgentIds.length).toBeLessThanOrEqual(4);
   expect(result.affectedAgentIds).not.toContain(subject);
@@ -192,7 +192,7 @@ test('rumor reaches two to four awake people at the seed spot, never the subject
   }
   expect((await beliefsOf(t, subject)).some((x) => x.originEventId === result.eventIds[0])).toBe(false);
 
-  const custom = ok(await apply({ type: 'rumor', params: { aboutAgentId: subject, presetKey: 'custom', text: '{name} talks to the drills at night.', seedLocationId: 'canteen' } }));
+  const custom = ok(await apply({ type: 'rumor', params: { aboutAgentId: subject, presetKey: 'custom', text: '{name} talks to the drills at night.', seedLocationId: 'plaza' } }));
   const heard = (await beliefsOf(t, custom.affectedAgentIds[0])).find((x) => x.key === 'custom:' + subject)!;
   expect(heard.text).toBe(subjectName + ' talks to the drills at night.');
   expect(await apply({ type: 'rumor', params: { aboutAgentId: subject, presetKey: 'custom', text: '' } })).toMatchObject({ code: 'invalid' });

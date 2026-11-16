@@ -65,6 +65,42 @@ export const effectV = v.object({
 });
 
 export const personaV = v.object({
+  epithet: str,
+  want: str,
+  need: str,
+  fear: str,
+  flaw: str,
+  voice: str,
+  /** A true fact about them that others can discover. kind maps to a belief kind (e.g. embezzler, affair, saboteur). */
+  secret: v.optional(v.object({ kind: str, text: str, exposedAtTick: v.optional(num) })),
+  /** Preferred ways to meet needs, most preferred first: work, grow, trade, charm, borrow, beg, scavenge, smuggle, steal, scheme. */
+  strategies: v.array(str),
+  arc: v.object({ stage: str, note: str }),
+  key: v.boolean(),
+  /** For key characters: why the player should care, one sentence. */
+  hook: v.optional(str),
+});
+
+/** The engine's per-colonist bookkeeping (engine/ledger.ts): debts, hidden goods, what worked, deeds, favours owed. */
+export const ledgerV = v.object({
+  /** What this colonist owes and to whom. The lender holds a 'debt' belief about it. */
+  owes: v.array(v.object({ to: v.id('agents'), toName: str, res: str, qty: num, tick: num, dueTick: num, pressed: num, eventId: v.optional(v.id('events')) })),
+  /** Goods hidden at home, safe from thieves and searches until someone finds them. */
+  stash: resourcesV,
+  /** Recent ways they tried to meet a need (persona strategies) and whether it worked, newest last. */
+  tried: v.array(v.object({ s: str, ok: v.boolean(), tick: num })),
+  /** The strategy behind the plan in progress, settled when the need is met or the plan fails. */
+  pending: v.optional(v.object({ s: str, res: str, tick: num })),
+  /** Hidden wrongdoing an investigation can uncover, counted by kind (saboteur, smuggler, liar, briber, blackmailer). */
+  deeds: v.record(str, num),
+  /** Favours bought from this colonist with a bribe or extorted by blackmail. */
+  favors: v.array(v.object({ forId: v.id('agents'), kind: str, until: num })),
+  /** Tick until which the planner will not try a move again, by key (e.g. "bribe:<agentId>"), so a refusal is not repeated every tick. */
+  cooldowns: v.optional(v.record(str, num)),
+});
+
+/** Who a player's avatar is modelled on, for the LLM prompts. */
+export const avatarPersonaV = v.object({
   summary: str,
   interests: v.array(str),
   speechStyle: str,
@@ -94,6 +130,8 @@ export const llmConfigV = v.object({
   focusReserve: num,
   crisisReserve: num,
   speechPerDay: num,
+  orbitReserve: v.optional(num),
+  orbitCooldownTicks: v.optional(num),
 });
 
 export default defineSchema({
@@ -129,7 +167,7 @@ export default defineSchema({
     /** Event ids of standing conditions, used as honest parents for the events they cause. */
     causes: v.record(str, v.id('events')),
     roles: v.record(str, v.id('agents')),
-    vacancies: v.array(v.object({ occupation: str, sinceTick: num, role: v.optional(str) })),
+    vacancies: v.array(v.object({ occupation: str, sinceTick: num, role: v.optional(str), eventId: v.optional(v.id('events')) })),
     llm: v.object({
       enabled: v.boolean(),
       callsToday: num,
@@ -139,7 +177,12 @@ export default defineSchema({
       day: num,
       focusUsed: num,
       crisisUsed: num,
+      orbitUsed: v.optional(num),
       speechToday: num,
+      /** Dollars spent on the LLM on the UTC day spendDay (days since the epoch), and ever. */
+      spendDay: v.optional(num),
+      spendUsd: v.optional(num),
+      spendTotalUsd: v.optional(num),
       failStreak: num,
       disabledUntil: v.optional(num),
       lastError: v.optional(str),
@@ -156,6 +199,45 @@ export default defineSchema({
     lastBannerTick: num,
     lastDailyDay: num,
     lastPriceTick: num,
+    /** Set by the story director while the tick loop should fast-forward the followed colonist's routine. */
+    focusWarp: v.optional(v.boolean()),
+    /** The people around the followed colonist, whose decisions go to the LLM's orbit lane. */
+    orbitIds: v.optional(v.array(v.id('agents'))),
+    /** Whether the followed colonist was asleep at the last tick, so waking up gets a monologue line. */
+    focusAsleep: v.optional(v.boolean()),
+    /** The colonist the story introduction starts the player on. */
+    starterAgentId: v.optional(v.id('agents')),
+    /** Authored character key (seed/keyCharacters.ts, e.g. 'ines', 'dmitri') to agent id, for story:intro. */
+    keyAgents: v.optional(v.record(v.string(), v.id('agents'))),
+    /** The director's last nudge: when it brought the story to the followed colonist, and who it sent. */
+    nudge: v.optional(v.object({ agentId: v.id('agents'), tick: num, visitorId: v.optional(v.id('agents')) })),
+    /** Set while a timeskip (convex/timeskip) runs the world forward in coarse steps: the loop stays stopped until it ends. */
+    timeskip: v.optional(v.object({ id: v.id('timeskips'), resumeSpeed: num })),
+    /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
+    sim: v.optional(
+      v.object({
+        /** Effect ids whose onset the engine has already played out. */
+        seenEffects: v.array(str),
+        /** Causes raised at the plaza, heard at the next council session. */
+        petitions: v.array(v.object({ topic: str, agentId: v.id('agents'), tick: num, eventId: v.id('events') })),
+        lastCouncilTick: num,
+        /** Sitting councilors, the chair included. */
+        council: v.array(v.id('agents')),
+        /** Open security cases: thefts reported or discovered and not yet answered. */
+        cases: v.array(v.object({ eventId: v.id('events'), suspectId: v.optional(v.id('agents')), locationId: str, tick: num })),
+        /** Depot stock taken unseen, until the quartermaster's count finds it. */
+        missing: v.object({ food: num, water: num, parts: num }),
+        missingEventId: v.optional(v.id('events')),
+        /** Tick of the last public accusation against each agent, so a crowd does not pile on. */
+        accused: v.optional(v.record(v.string(), v.number())),
+        /** Tick security last fined a thief or searched a hoarder, so a closed case is not reopened. */
+        punished: v.optional(v.record(v.string(), v.number())),
+        /** Causes being rallied for in the plaza today, with everyone who has stood up for each. */
+        rallies: v.optional(v.array(v.object({ topic: str, organizerId: v.id('agents'), supporters: v.array(v.id('agents')), tick: num, eventId: v.id('events') }))),
+        /** A walkout in progress: who called it, what they demand, and when it ends. */
+        strike: v.optional(v.object({ leaderId: v.id('agents'), demand: str, startTick: num, untilTick: num, eventId: v.id('events'), answered: v.optional(v.boolean()) })),
+      }),
+    ),
     /** Join code for friends, set once the host opens the world to multiplayer. */
     inviteCode: v.optional(str),
   })
@@ -263,10 +345,34 @@ export default defineSchema({
     /** Bumped by events that should invalidate an LLM plan computed before them. */
     stateVersion: num,
     llmCooldownUntilTick: num,
+    /** When an LLM plan was last committed; the orbit lane waits orbitCooldownTicks after it. */
+    lastLlmPlanTick: v.optional(num),
     thefts: num,
     nextGoalSeq: num,
-    /** Who a player's avatar is modelled on, for the LLM prompts. */
+    /** Society layer (docs/STORY_SPEC.md 8). All optional so older worlds still load. */
+    society: v.optional(
+      v.object({
+        /** Hidden social status 0..100: prestige from job, wealth, fame, org rank, deeds. */
+        status: num,
+        fame: num,
+        orgIds: v.array(v.id('organizations')),
+        partnerId: v.optional(v.id('agents')),
+        parentIds: v.array(v.id('agents')),
+        childIds: v.array(v.id('agents')),
+        /** Ticks of age for children; they grow up into colonists. */
+        bornTick: v.optional(num),
+        obsession: v.optional(v.object({ text: str, kind: str, target: v.optional(str), intensity: num, sinceTick: num })),
+        education: v.optional(v.object({ studying: v.optional(str), progress: num, mastered: v.array(str) })),
+        jobHistory: v.array(v.object({ occupation: str, fromTick: num })),
+        inspiration: num,
+      }),
+    ),
+    /** The character's story (docs/STORY_SPEC.md 3.1). Absent on worlds seeded before iteration 2. */
     persona: v.optional(personaV),
+    /** Engine bookkeeping, created on first use. */
+    ledger: v.optional(ledgerV),
+    /** Who a player's avatar is modelled on, for the LLM prompts. */
+    avatarPersona: v.optional(avatarPersonaV),
     /** The player's latest wish for their avatar, until it is replaced. */
     directive: v.optional(v.object({ text: str, tick: num })),
   }).index('by_agent', ['agentId']),
@@ -312,6 +418,8 @@ export default defineSchema({
     lastReinforcedTick: num,
     hops: num,
     private: v.optional(v.boolean()),
+    /** Tick at which the holder last acted on it (investigated, accused, petitioned). */
+    acted: v.optional(num),
   })
     .index('by_agent_key', ['agentId', 'key'])
     .index('by_world_key', ['worldId', 'key']),
@@ -342,6 +450,8 @@ export default defineSchema({
     banner: v.boolean(),
     visibility: str,
     facts: v.optional(v.any()),
+    /** Storyline this event is a beat of, set by the director. */
+    storylineId: v.optional(v.id('storylines')),
   })
     .index('by_world_version', ['worldId', 'version'])
     .index('by_world_tier_tick', ['worldId', 'tier', 'tick'])
@@ -382,6 +492,186 @@ export default defineSchema({
     .index('by_world_status', ['worldId', 'status', 'priority'])
     .index('by_agent_status', ['agentId', 'status']),
 
+  /** Live and finished storylines (docs/STORY_SPEC.md 4). Seeded at Sol 1 and created by the director. */
+  storylines: defineTable({
+    worldId: v.id('worlds'),
+    /** Stable key for seeded storylines and for deduping emergent ones. */
+    key: str,
+    title: str,
+    premise: str,
+    status: str,
+    tension: num,
+    participantIds: v.array(v.id('agents')),
+    beats: v.array(v.object({ tick: num, text: str, eventId: v.optional(v.id('events')) })),
+    origin: str,
+    createdTick: num,
+    lastBeatTick: num,
+    resolvedTick: v.optional(num),
+    /** Director bookkeeping (what it is waiting for, what it last nudged). */
+    state: v.optional(v.any()),
+  })
+    .index('by_world_status', ['worldId', 'status'])
+    .index('by_world_key', ['worldId', 'key']),
+
+  // ----- society layer (docs/STORY_SPEC.md 8) -----
+  organizations: defineTable({
+    worldId: v.id('worlds'),
+    key: str,
+    name: str,
+    kind: str,
+    creed: str,
+    founderId: v.optional(v.id('agents')),
+    leaderId: v.optional(v.id('agents')),
+    officerIds: v.array(v.id('agents')),
+    memberIds: v.array(v.id('agents')),
+    treasury: num,
+    /** Hidden: how the colony regards it, -1..1. */
+    reputation: num,
+    status: str,
+    foundedTick: num,
+    territory: v.optional(v.array(str)),
+    rules: v.optional(v.array(str)),
+    rivalIds: v.array(v.id('organizations')),
+    state: v.optional(v.any()),
+  }).index('by_world_status', ['worldId', 'status']),
+
+  discoveries: defineTable({
+    worldId: v.id('worlds'),
+    /** Key into DISCOVERIES in shared/society.ts. */
+    key: str,
+    tick: num,
+    discovererIds: v.array(v.id('agents')),
+    eventId: v.optional(v.id('events')),
+  }).index('by_world_key', ['worldId', 'key']),
+
+  /** Research progress toward discoveries not yet made, per world. */
+  research: defineTable({
+    worldId: v.id('worlds'),
+    key: str,
+    progress: num,
+    contributorIds: v.array(v.id('agents')),
+  }).index('by_world_key', ['worldId', 'key']),
+
+  structures: defineTable({
+    worldId: v.id('worlds'),
+    /** Key into STRUCTURES in shared/society.ts. */
+    key: str,
+    name: str,
+    locationId: str,
+    builderIds: v.array(v.id('agents')),
+    ownerOrgId: v.optional(v.id('organizations')),
+    progress: num,
+    builtTick: v.optional(num),
+    eventId: v.optional(v.id('events')),
+  }).index('by_world', ['worldId']),
+
+  works: defineTable({
+    worldId: v.id('worlds'),
+    creatorId: v.id('agents'),
+    title: str,
+    kind: str,
+    about: str,
+    quality: num,
+    fame: num,
+    locationId: v.optional(str),
+    createdTick: num,
+    inspiredByEventId: v.optional(v.id('events')),
+  })
+    .index('by_world_fame', ['worldId', 'fame'])
+    .index('by_creator', ['creatorId']),
+
+  pets: defineTable({
+    worldId: v.id('worlds'),
+    ownerId: v.optional(v.id('agents')),
+    name: str,
+    species: str,
+    alive: v.boolean(),
+    bornTick: num,
+    bond: num,
+  }).index('by_owner', ['ownerId']),
+
+  /** Inner monologue lines (docs/STORY_SPEC.md 5). */
+  /** Multi-line conversations of the followed colonist and their orbit (storyteller/dialogue.ts). */
+  dialogues: defineTable({
+    worldId: v.id('worlds'),
+    live: v.boolean(),
+    aId: v.id('agents'),
+    bId: v.id('agents'),
+    aName: str,
+    bName: str,
+    kind: str,
+    lines: v.array(v.object({ speakerId: v.id('agents'), text: str })),
+    /** Lines revealed so far. */
+    shown: num,
+    startTick: num,
+    source: str,
+    outcome: v.optional(str),
+    summary: v.optional(str),
+    applied: v.boolean(),
+  })
+    .index('by_world_live', ['worldId', 'live'])
+    .index('by_a', ['aId', 'startTick'])
+    .index('by_b', ['bId', 'startTick']),
+
+  thoughts: defineTable({
+    worldId: v.id('worlds'),
+    agentId: v.id('agents'),
+    tick: num,
+    text: str,
+    mood: v.optional(str),
+    source: str,
+  }).index('by_agent_tick', ['agentId', 'tick']),
+
+  /** The player's questions to colonists and their answers. Never read by the simulation. */
+  conversations: defineTable({
+    worldId: v.id('worlds'),
+    sessionId: v.id('sessions'),
+    agentId: v.id('agents'),
+    tick: num,
+    question: str,
+    answer: str,
+  }).index('by_session_agent', ['sessionId', 'agentId']),
+
+  /** Multi-year skips (convex/timeskip): progress, the beats collected on the way, and the closing chronicle. */
+  timeskips: defineTable({
+    worldId: v.id('worlds'),
+    sessionId: v.optional(v.id('sessions')),
+    span: str,
+    /** running, summarizing, done or failed. */
+    status: str,
+    startTick: num,
+    endTick: num,
+    /** Chapters done so far; each chapter is one LLM decision and one macro mutation. */
+    chapter: num,
+    chapters: num,
+    chapterTicks: num,
+    resumeSpeed: num,
+    focusAgentId: v.optional(v.id('agents')),
+    createdAt: num,
+    updatedAt: num,
+    beats: v.array(
+      v.object({
+        tick: num,
+        chapter: num,
+        period: str,
+        kind: str,
+        text: str,
+        weight: num,
+        agentIds: v.array(v.id('agents')),
+        eventId: v.optional(v.id('events')),
+        storylineId: v.optional(v.id('storylines')),
+      }),
+    ),
+    stats: v.record(str, num),
+    /** Who the key people were when the skip began (occupation, status, partner...), for the closing contrast. */
+    start: v.any(),
+    llm: v.object({ calls: num, failures: num, tokensIn: num, tokensOut: num, lastError: v.optional(str) }),
+    newStorylineIds: v.array(v.id('storylines')),
+    /** TimeskipSummary (shared/types.ts) once done. */
+    summary: v.optional(v.any()),
+    error: v.optional(str),
+  }).index('by_world', ['worldId']),
+
   sessions: defineTable({
     deviceId: str,
     token: str,
@@ -394,6 +684,8 @@ export default defineSchema({
     /** Set by the Whop payment.succeeded webhook once this install buys the Colony Pass. */
     premium: v.optional(v.boolean()),
     premiumPaymentId: v.optional(str),
+    /** focus:ask rate limit: the last question (wall clock) and the questions asked this sim day. */
+    ask: v.optional(v.object({ lastAt: num, day: num, count: num })),
     /** Display name shown to the other players in a shared world. */
     playerName: v.optional(str),
     /** The session's own world while it is a guest in a friend's world. */

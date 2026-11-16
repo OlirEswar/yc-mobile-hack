@@ -75,6 +75,15 @@ struct Flight: Equatable {
     var zoom: CGFloat
 }
 
+/// A high-tension storyline beat, shown as a banner over the wide view.
+struct StoryBanner: Identifiable, Equatable {
+    let id: String
+    var storylineId: Id
+    var title: String
+    var text: String
+    var tension: Double
+}
+
 struct Toast: Identifiable, Equatable {
     enum Kind { case ok, info, error }
     let id = UUID()
@@ -87,7 +96,7 @@ struct Toast: Identifiable, Equatable {
 @MainActor
 final class Game: SourceSink {
     enum Phase: Equatable { case loading, ready, failed(String) }
-    enum Tab: Hashable { case colony, people, chronicle, you }
+    enum Tab: Hashable { case colony, people, stories, chronicle, you }
 
     static let convexURL = "https://utmost-hyena-958.convex.cloud"
     private static let liveKey = "livingMoon.useLiveBackend"
@@ -103,7 +112,8 @@ final class Game: SourceSink {
     private(set) var avatar: AvatarPublic?
     /// Who shares this world.
     private(set) var multiplayer: MultiplayerPublic?
-    var useLive = UserDefaults.standard.bool(forKey: liveKey) {
+    /// The live deployment by default; the offline mock stays behind the menu toggle.
+    var useLive = UserDefaults.standard.object(forKey: liveKey) as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(useLive, forKey: Self.liveKey)
             Task { await boot() }
@@ -118,20 +128,46 @@ final class Game: SourceSink {
     /// Who the next power targets: the colonist selected when the power was opened.
     var powerTarget: Id?
     var showPatron = false
+    /// The timeskip sheet: choose a span, watch the years pass, read the chronicle.
+    var showTimeskip = false
     var chronicleEventID: Id?
     var toast: Toast?
     var cinematic: Cinematic?
     var flight: Flight?
     /// Colonists who just felt a power, and when, so the map can show them react.
     var reactions: [Id: Date] = [:]
-    var skipping = false
     var backendNote: String?
 
+    /// The world's introduction, when the backend has one.
+    private(set) var intro: StoryIntro?
+    var showIntro = false
+    /// Live and recent storylines, highest tension first.
+    private(set) var storylines: [StorylinePublic] = []
+    var banner: StoryBanner?
+    var storylineID: Id?
+    /// Index of the current tutorial card; past the end once finished or skipped.
+    private(set) var tutorialIndex = 0
+
     /// When the current world tick arrived, so the map can interpolate between ticks.
-    @ObservationIgnored private(set) var tickArrivedAt = Date()
+    @ObservationIgnored private var tickArrivedAt = Date()
+    @ObservationIgnored private var shownTick = 0.0
+    @ObservationIgnored private var shownAt = Date()
+    /// Measured ticks per real second, so movement runs at the pace ticks actually arrive.
+    @ObservationIgnored private var tickRate = 1 / Clock.secondsPerTick
+    /// How many ticks usually land at once: the loop runs several per invocation at higher speeds.
+    @ObservationIgnored private var burst = 1.0
+    /// The pace the shown tick advances at, eased so walkers never lurch when a tick lands late or early.
+    @ObservationIgnored private var shownRate = 1 / Clock.secondsPerTick
+    /// When each colonist was first seen dead, so the map can show the body before the grave.
+    @ObservationIgnored private(set) var diedAt: [Id: Date] = [:]
     @ObservationIgnored private var source: WorldSource?
     @ObservationIgnored private var heartbeatTimer: Timer?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var bannerTask: Task<Void, Never>?
+    @ObservationIgnored private var lastBannerAt = Date.distantPast
+    @ObservationIgnored private var storylinesCancel: (() -> Void)?
+    /// Last beat tick seen per storyline, so only new beats raise a banner.
+    @ObservationIgnored private var beatTicks: [Id: Double]?
 
     var isLive: Bool { source?.isLive ?? false }
 
@@ -149,6 +185,12 @@ final class Game: SourceSink {
         backendNote = nil
         selectedID = nil
         followingID = nil
+        intro = nil
+        showIntro = false
+        storylines = []
+        banner = nil
+        beatTicks = nil
+        storylinesCancel?()
         let next: WorldSource = useLive ? ConvexSource(url: Self.convexURL) : MockSource()
         source = next
         do {
@@ -158,6 +200,8 @@ final class Game: SourceSink {
                 _ = MainActor.assumeIsolated { Task { await self?.source?.heartbeat() } }
             }
             phase = .ready
+            storylinesCancel = next.watchStorylines(agentId: nil) { [weak self] in self?.received(storylines: $0) }
+            await loadIntro(from: next)
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -170,20 +214,91 @@ final class Game: SourceSink {
         return id
     }
 
+    // MARK: Story
+
+    private func worldKey(_ name: String) -> String { "livingMoon.\(name).\(source?.worldId ?? "none")" }
+
+    private func loadIntro(from source: WorldSource) async {
+        guard let loaded = await source.intro(), source === self.source else { return }
+        intro = loaded
+        tutorialIndex = UserDefaults.standard.integer(forKey: worldKey("tutorial"))
+        if !UserDefaults.standard.bool(forKey: worldKey("introSeen")) { showIntro = true }
+    }
+
+    /// Closes the introduction. With begin set, starts following the starter character.
+    func finishIntro(begin: Bool) {
+        UserDefaults.standard.set(true, forKey: worldKey("introSeen"))
+        showIntro = false
+        guard begin, let starter = intro?.starterAgentId else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.follow(starter) }
+    }
+
+    var tutorialStep: TutorialStep? {
+        guard let steps = intro?.tutorial, steps.indices.contains(tutorialIndex), !showIntro else { return nil }
+        return steps[tutorialIndex]
+    }
+
+    /// Advances the tutorial when the player does what the current card asks.
+    func didAct(_ action: TutorialAction) {
+        guard let step = tutorialStep, step.action == action else { return }
+        advanceTutorial()
+    }
+
+    func advanceTutorial() {
+        withAnimation(.smooth) {
+            tutorialIndex += 1
+            if let step = tutorialStep, step.action == .follow_starter, let id = followingID, id == (step.agentId ?? intro?.starterAgentId) { tutorialIndex += 1 }
+        }
+        UserDefaults.standard.set(tutorialIndex, forKey: worldKey("tutorial"))
+    }
+
+    func skipTutorial() {
+        withAnimation(.smooth) { tutorialIndex = intro?.tutorial.count ?? 0 }
+        UserDefaults.standard.set(tutorialIndex, forKey: worldKey("tutorial"))
+    }
+
+    func storyline(_ id: Id?) -> StorylinePublic? { id.flatMap { id in storylines.first { $0.id == id } } }
+
+    private func received(storylines next: [StorylinePublic]) {
+        storylines = next
+        let ticks = Dictionary(next.map { ($0.id, $0.lastBeatTick) }, uniquingKeysWith: max)
+        defer { beatTicks = ticks }
+        guard let seen = beatTicks, followingID == nil, Date().timeIntervalSince(lastBannerAt) > 90 else { return }
+        let fresh = next.filter { $0.live && $0.tension >= 0.75 && $0.lastBeatTick > (seen[$0.id] ?? -1) }
+        guard let top = fresh.max(by: { $0.tension < $1.tension }), let beat = top.beats.last else { return }
+        lastBannerAt = Date()
+        bannerTask?.cancel()
+        withAnimation(.smooth) { banner = StoryBanner(id: top.id + "/\(beat.tick)", storylineId: top.id, title: top.title, text: beat.text, tension: top.tension) }
+        bannerTask = Task {
+            try? await Task.sleep(for: .seconds(7))
+            if !Task.isCancelled { withAnimation(.smooth) { banner = nil } }
+        }
+    }
+
+    func openStoryline(_ id: Id) {
+        banner = nil
+        storylineID = id
+        tab = .stories
+    }
+
     // MARK: SourceSink
 
     func received(world next: WorldPublic) {
+        if let old = world?.tick, next.tick > old {
+            let elapsed = Date().timeIntervalSince(tickArrivedAt)
+            if elapsed > 0.2, elapsed < 12 { tickRate = tickRate * 0.6 + (next.tick - old) / elapsed * 0.4 }
+            burst = burst * 0.7 + min(8, next.tick - old) * 0.3
+        }
         if next.tick != world?.tick { tickArrivedAt = Date() }
         world = next
     }
 
     func received(agents next: [AgentLite]) {
+        if !agents.isEmpty {
+            for a in next where !a.alive && colonist(a.id)?.alive == true { diedAt[a.id] = Date() }
+        }
         agents = next
         index = Dictionary(uniqueKeysWithValues: next.enumerated().map { ($1.id, $0) })
-        if let f = followingID, colonist(f)?.alive == false {
-            followingID = nil
-            show(.info, (colonist(f)?.name ?? "They") + " has died. Back to the colony view.")
-        }
     }
 
     func received(events next: [WorldEventPublic]) { events = next }
@@ -203,11 +318,27 @@ final class Game: SourceSink {
     func isMine(_ id: Id) -> Bool { avatar?.agentId == id }
 
     /// The world tick with the fraction elapsed since it arrived, for smooth movement.
+    /// Trails the latest tick by about one batch of ticks and advances at an eased pace, gently sped up
+    /// or slowed to hold that lag, so walkers keep a steady stride however unevenly ticks arrive.
     func displayTick(at date: Date) -> Double {
         guard let world else { return 0 }
-        guard world.running else { return world.tick }
-        let fraction = date.timeIntervalSince(tickArrivedAt) / (Clock.secondsPerTick / world.speed)
-        return world.tick + min(1, max(0, fraction))
+        let dt = min(0.1, max(0, date.timeIntervalSince(shownAt)))
+        shownAt = date
+        let lag = burst + 0.75
+        let behind = world.tick - shownTick
+        if behind < 0 || behind > lag + 8 {
+            shownTick = world.tick - min(lag, max(0, behind))
+            shownRate = tickRate
+            return shownTick
+        }
+        guard world.running else {
+            shownTick += behind * (1 - exp(-dt / 0.35))
+            return shownTick
+        }
+        let target = tickRate * (1 + min(0.5, max(-0.5, (behind - lag) / lag * 0.3)))
+        shownRate += (target - shownRate) * (1 - exp(-dt / 1.5))
+        shownTick = min(world.tick - 0.02 * min(1, behind), shownTick + dt * max(0, shownRate))
+        return shownTick
     }
 
     var stamp: String { world.map { Clock.stamp($0.tick) } ?? "" }
@@ -229,6 +360,71 @@ final class Game: SourceSink {
         return try await source.chain(eventId)
     }
 
+    func focusStream(_ id: Id) -> AsyncStream<FocusState?> {
+        AsyncStream { continuation in
+            guard let source else { return continuation.finish() }
+            let cancel = source.watchFocus(id) { continuation.yield($0) }
+            continuation.onTermination = { _ in Task { @MainActor in cancel() } }
+        }
+    }
+
+    func conversationStream(_ id: Id) -> AsyncStream<[AskTurn]> {
+        AsyncStream { continuation in
+            guard let source else { return continuation.finish() }
+            let cancel = source.watchConversation(id) { continuation.yield($0) }
+            continuation.onTermination = { _ in Task { @MainActor in cancel() } }
+        }
+    }
+
+    /// Asks the colonist a question. Returns the answer, or throws a message to show.
+    func plant(_ id: Id, _ text: String) async throws {
+        guard let source else { throw SourceError.unsupported("Not connected.") }
+        let result: PlantResult
+        do {
+            result = try await source.plant(id, text: text)
+        } catch {
+            if let message = await apply(.whisper(agentId: id, presetKey: "custom", text: text, strength: 0.7, aboutAgentId: nil), commandId: UUID().uuidString) {
+                throw SourceError.unsupported(message)
+            }
+            return
+        }
+        guard result.ok else { throw SourceError.unsupported(result.message ?? "The thought doesn't take.") }
+        didAct(.use_power)
+    }
+
+    func ask(_ id: Id, _ question: String) async throws -> AskTurn {
+        guard let source else { throw SourceError.unsupported("Not connected.") }
+        let result: AskResult
+        do { result = try await source.ask(id, question: question) } catch { throw SourceError.unsupported(unsupported(error, "ask them")) }
+        switch result {
+        case let .answered(turn):
+            didAct(.ask_question)
+            return turn
+        case let .refused(_, message):
+            throw SourceError.unsupported(message)
+        }
+    }
+
+    func society() async -> SocietyOverview? { await source?.society() }
+
+    /// Starts a timeskip. Returns the skip id, or a message for the sheet.
+    func startTimeskip(_ span: TimeskipSpan) async -> (id: Id?, message: String?) {
+        guard let source else { return (nil, "Not connected.") }
+        do {
+            let r = try await source.startTimeskip(span: span)
+            return r.ok ? (r.timeskipId, nil) : (nil, r.message ?? "The years would not turn.")
+        } catch {
+            return (nil, unsupported(error, "skip ahead"))
+        }
+    }
+
+    func watchTimeskip(_ id: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void {
+        source?.watchTimeskip(id, onValue) ?? {}
+    }
+
+    /// True while the backend fast-forwards through the followed colonist's routine.
+    var warping: Bool { followingID != nil && world?.focusWarp == true }
+
     // MARK: Actions
 
     func show(_ kind: Toast.Kind, _ text: String) {
@@ -240,6 +436,17 @@ final class Game: SourceSink {
         }
     }
 
+    @ObservationIgnored private var resumeSpeed = 1.0
+
+    func togglePause() {
+        if speed > 0 {
+            resumeSpeed = speed
+            setSpeed(0)
+        } else {
+            setSpeed(resumeSpeed)
+        }
+    }
+
     func setSpeed(_ speed: Double) {
         Task {
             do { try await source?.setSpeed(speed) } catch { show(.error, unsupported(error, "change the speed")) }
@@ -247,31 +454,20 @@ final class Game: SourceSink {
     }
 
     func follow(_ id: Id) {
-        guard colonist(id)?.alive == true else { return }
+        guard colonist(id)?.alive == true, id != followingID else { return }
+        let starter = intro?.starterAgentId
+        let switching = followingID != nil
         tab = .colony
+        selectedID = nil
         followingID = id
         Task { await source?.setFocus(id) }
+        if id == starter { didAct(.follow_starter) }
+        if switching || (starter != nil && id != starter) { didAct(.switch_character) }
     }
 
     func unfollow() {
         followingID = nil
         Task { await source?.setFocus(nil) }
-    }
-
-    func skipToNotable() {
-        guard !skipping, let source else { return }
-        skipping = true
-        Task {
-            defer { skipping = false }
-            do {
-                let r = try await source.skipToNotable(agentId: followingID)
-                let hours = (r.advancedTicks / Clock.ticksPerHour * 10).rounded() / 10
-                let e = events.first { $0.id == r.eventId }
-                show(.info, e.map { "Skipped \(hours.formatted())h: \($0.summary)" } ?? "Skipped \(hours.formatted())h. Nothing notable happened.")
-            } catch {
-                show(.error, unsupported(error, "skip ahead"))
-            }
-        }
     }
 
     /// Sends a power. Returns nil on success, else a message for the sheet.
@@ -280,6 +476,7 @@ final class Game: SourceSink {
         do {
             let r = try await source.apply(intervention, commandId: commandId)
             guard r.ok else { return r.message ?? "The colony refused." }
+            didAct(.use_power)
             withAnimation(.easeOut(duration: 0.35)) { cinematic = makeCinematic(intervention, r) }
             return nil
         } catch {

@@ -1,38 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// The placeholder pixel art from mobile/src/dev/placeholderArt, bundled flat under Art/.
+/// The pixel art from mobile/assets/game, bundled flat under Art/ by ios/tools/sync-art.mjs.
 @MainActor
 enum Art {
     private static var cache: [String: UIImage] = [:]
     private static var frames: [String: Image] = [:]
 
-    static func ui(_ name: String) -> UIImage? {
-        if let hit = cache[name] { return hit }
+    static func ui(_ name: String, scale: CGFloat = 1) -> UIImage? {
+        let key = scale == 1 ? name : "\(name)@\(scale)"
+        if let hit = cache[key] { return hit }
         let url = Bundle.main.url(forResource: name, withExtension: "png") ?? Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Art")
-        let image = url.flatMap { UIImage(contentsOfFile: $0.path) }
-        cache[name] = image
+        var image = url.flatMap { UIImage(contentsOfFile: $0.path) }
+        if scale != 1, let cg = image?.cgImage { image = UIImage(cgImage: cg, scale: scale, orientation: .up) }
+        cache[key] = image
         return image
     }
+
+    /// Map art (ground, buildings, characters, fx) is drawn at MapLayout.artScale pixels per world px,
+    /// so its size comes back in world px.
+    static func map(_ name: String) -> UIImage? { ui(name, scale: MapLayout.artScale) }
 
     static func image(_ name: String) -> Image? {
         ui(name).map { Image(uiImage: $0).interpolation(.none) }
     }
 
-    static func portrait(_ spriteId: String) -> Image? { image(spriteId) }
+    static func portrait(_ spriteId: String) -> Image? { IconArt.portraits[spriteId].flatMap(image) }
 
     /// One frame of a colonist from the character atlas. Directions: 0 down, 1 left, 2 right, 3 up.
-    static let frameSize = CGSize(width: 24, height: 36)
-    static let feet = CGPoint(x: 12, y: 33)
     static func sprite(_ spriteId: String, direction: Int, frame: Int) -> Image? {
         let key = "\(spriteId)/\(direction)/\(frame)"
         if let hit = frames[key] { return hit }
-        let parts = spriteId.split(separator: "_")
-        guard parts.count == 2, let archetype = SPRITE_ARCHETYPES.firstIndex(of: String(parts[0])), let variant = Int(parts[1]),
-              let atlas = ui("characters")?.cgImage else { return nil }
-        let row = archetype * SPRITE_VARIANTS + variant
-        let col = direction * 4 + frame
-        let rect = CGRect(x: CGFloat(col) * frameSize.width, y: CGFloat(row) * frameSize.height, width: frameSize.width, height: frameSize.height)
+        guard let row = CharacterArt.rows[spriteId], let atlas = ui(CharacterArt.atlas)?.cgImage else { return nil }
+        let s = MapLayout.artScale
+        let size = CGSize(width: CharacterArt.frame.width * s, height: CharacterArt.frame.height * s)
+        let col = direction * CharacterArt.framesPerDirection + frame
+        let rect = CGRect(x: CGFloat(col) * size.width, y: CGFloat(row) * size.height, width: size.width, height: size.height)
         guard let cropped = atlas.cropping(to: rect) else { return nil }
         let image = Image(uiImage: UIImage(cgImage: cropped)).interpolation(.none)
         frames[key] = image
@@ -40,25 +43,167 @@ enum Art {
     }
 }
 
+/// How each kind of action looks on the map: a floating emote and a way of moving.
+enum ActionFX {
+    enum Style { case aggressive, bouncy, sneaky, sad, busy, calm }
+
+    static func kind(of a: AgentLite) -> String? {
+        if let k = a.act?.kind { return k }
+        switch a.activity {
+        case "sleeping": return "sleep"
+        case "eating": return "eat"
+        case "drinking": return "drink"
+        case "working": return "work"
+        case "stealing": return "steal"
+        case "mourning": return "mourn"
+        case "helping": return "help"
+        case "giving": return "give"
+        case "trading": return "barter"
+        case "investigating": return "investigate"
+        default: return nil
+        }
+    }
+
+    static func style(_ kind: String) -> Style {
+        switch kind {
+        case "fight", "duel", "rob", "extort", "threaten", "intimidate", "vandalize", "sabotage", "kill", "attack", "brawl", "chase", "arrest": return .aggressive
+        case "dance", "carouse", "celebrate", "perform", "kiss", "rally", "strike", "ritual", "preach", "gamble", "propose": return .bouncy
+        case "steal", "spy", "eavesdrop", "hide", "smuggle", "lie", "blackmail": return .sneaky
+        case "cry", "mourn", "beg", "confess": return .sad
+        case "work", "build", "repair", "experiment", "create_art", "study", "grow", "scavenge", "teach", "investigate": return .busy
+        default: return .calm
+        }
+    }
+
+    static func emote(_ kind: String) -> String? {
+        switch kind {
+        case "fight", "brawl", "attack", "threaten", "intimidate", "arrest": return "💢"
+        case "duel", "kill": return "⚔️"
+        case "rob", "extort", "bribe", "borrow", "repay", "sell", "buy": return "💰"
+        case "vandalize": return "💥"
+        case "sabotage", "repair", "build": return "🔨"
+        case "steal", "lie", "confide": return "🤫"
+        case "spy", "eavesdrop": return "👂"
+        case "hide": return "👀"
+        case "smuggle", "barter", "give": return "📦"
+        case "blackmail": return "✉️"
+        case "preach": return "📣"
+        case "ritual": return "🕯️"
+        case "recruit", "help", "join_org", "found_org", "reconcile": return "🤝"
+        case "perform": return "🎵"
+        case "dance": return "🎶"
+        case "carouse": return "🍺"
+        case "gamble": return "🎲"
+        case "court": return "💕"
+        case "kiss": return "❤️"
+        case "propose": return "💍"
+        case "comfort", "care": return "🫂"
+        case "cry", "mourn": return "💧"
+        case "celebrate": return "🎉"
+        case "accuse", "confess": return "❗"
+        case "rally", "org_action": return "✊"
+        case "strike", "petition": return "📜"
+        case "study", "teach": return "📖"
+        case "experiment": return "⚗️"
+        case "create_art": return "🎨"
+        case "work": return "⚙️"
+        case "grow": return "🌱"
+        case "scavenge": return "🔩"
+        case "investigate": return "🔍"
+        case "sleep", "rest": return "💤"
+        case "eat", "ration": return "🍽️"
+        case "drink": return "🥤"
+        case "flee", "chase": return "💨"
+        case "beg": return "🙏"
+        case "adopt_pet": return "🐾"
+        default: return nil
+        }
+    }
+}
+
 /// Where a colonist stands or walks at a given (fractional) tick, in world pixels.
+@MainActor
 enum Placement {
+    private static var paths: [String: [CGPoint]] = [:]
+
     private static func hash(_ s: String) -> UInt32 {
         s.utf8.reduce(5381) { ($0 &<< 5) &+ $0 &+ UInt32($1) }
     }
 
+    /// A stable spot on the open floor of a location, picked per colonist and weighted by floor area.
     static func stand(_ id: Id, at loc: LocationId) -> CGPoint {
-        let r = MapLayout.locations[loc]!.stand
+        let areas = MapLayout.locations[loc]!.standAreas
         let h = hash(id)
-        return CGPoint(x: r.minX + CGFloat(h % 997) / 997 * r.width, y: r.minY + CGFloat((h / 997) % 991) / 991 * r.height)
+        let total = areas.reduce(0) { $0 + $1.width * $1.height }
+        var pick = CGFloat(h % 10007) / 10007 * total
+        let r = areas.first { area in
+            pick -= area.width * area.height
+            return pick <= 0
+        } ?? areas[areas.count - 1]
+        return CGPoint(x: r.minX + CGFloat((h / 7) % 997) / 997 * r.width, y: r.minY + CGFloat((h / 6997) % 991) / 991 * r.height)
+    }
+
+    /// The walk from one location to another: off the floor, through each door and along the painted
+    /// tubes and tracks (ROUTE_WAYPOINTS), onto the floor at the destination.
+    private static func path(_ id: Id, _ move: Move) -> [CGPoint] {
+        let key = "\(id)/\(move.from.rawValue)/\(move.to.rawValue)"
+        if let hit = paths[key] { return hit }
+        let nodes = findPath(move.from, move.to)?.nodes ?? [move.from, move.to]
+        var pts = [stand(id, at: move.from)]
+        for (a, b) in zip(nodes, nodes.dropFirst()) {
+            for p in MapLayout.leg(a, b) where p != pts.last { pts.append(p) }
+        }
+        pts.append(stand(id, at: move.to))
+        if paths.count > 2000 { paths.removeAll() }
+        paths[key] = pts
+        return pts
+    }
+
+    /// Every living colonist's position, with standing colonists who share a spot nudged apart into a tidy
+    /// row so sprites never pile on top of each other. Each stays inside the stand area it was placed in.
+    static func placements(_ agents: [AgentLite], at tick: Double) -> [(AgentLite, (point: CGPoint, heading: Int?))] {
+        var placed = agents.filter(\.alive).map { ($0, position(of: $0, at: tick)) }
+        let standing = placed.indices.filter { placed[$0].1.heading == nil }
+        let areas: [Int: CGRect] = Dictionary(uniqueKeysWithValues: standing.compactMap { i -> (Int, CGRect)? in
+            let p = placed[i].1.point
+            return MapLayout.locations[placed[i].0.locationId]?.standAreas.first { $0.insetBy(dx: -1, dy: -1).contains(p) }.map { (i, $0) }
+        })
+        let gapX: CGFloat = 14, gapY: CGFloat = 10
+        for _ in 0..<10 {
+            var moved = false
+            for (n, i) in standing.enumerated() {
+                for j in standing[(n + 1)...] where placed[j].0.locationId == placed[i].0.locationId {
+                    let a = placed[i].1.point, b = placed[j].1.point
+                    let dx = b.x - a.x, dy = b.y - a.y
+                    let ox = gapX - abs(dx), oy = gapY - abs(dy)
+                    guard ox > 0, oy > 0 else { continue }
+                    moved = true
+                    let tieLeft: CGFloat = placed[i].0.id < placed[j].0.id ? 1 : -1
+                    var push = CGVector(dx: 0, dy: 0)
+                    if ox / gapX <= oy / gapY || (areas[i]?.height ?? 0) < gapY * 2 {
+                        push.dx = (dx == 0 ? tieLeft : (dx > 0 ? 1 : -1)) * (ox / 2 + 0.5)
+                    } else {
+                        push.dy = (dy == 0 ? tieLeft : (dy > 0 ? 1 : -1)) * (oy / 2 + 0.5)
+                    }
+                    placed[i].1.point = clamp(CGPoint(x: a.x - push.dx, y: a.y - push.dy), to: areas[i])
+                    placed[j].1.point = clamp(CGPoint(x: b.x + push.dx, y: b.y + push.dy), to: areas[j])
+                }
+            }
+            if !moved { break }
+        }
+        return placed
+    }
+
+    private static func clamp(_ p: CGPoint, to area: CGRect?) -> CGPoint {
+        guard let r = area else { return p }
+        return CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
     }
 
     /// Position and the direction of travel (0 down, 1 left, 2 right, 3 up), or nil when standing.
     static func position(of a: AgentLite, at tick: Double) -> (point: CGPoint, heading: Int?) {
         guard let move = a.move, tick < move.arriveTick else { return (stand(a.id, at: a.locationId), nil) }
-        let start = stand(a.id, at: move.from)
-        guard tick > move.departTick else { return (start, nil) }
-        let nodes = findPath(move.from, move.to)?.nodes ?? [move.from, move.to]
-        let pts = [start] + nodes.map { MapLayout.locations[$0]!.entry } + [stand(a.id, at: move.to)]
+        let pts = path(a.id, move)
+        guard tick > move.departTick else { return (pts[0], nil) }
         var lengths: [CGFloat] = []
         for i in 1..<pts.count { lengths.append(hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)) }
         let total = lengths.reduce(0, +)
@@ -80,28 +225,57 @@ enum Placement {
 }
 
 /// The colony map: ground, buildings and colonists drawn from the pixel art, with pan and pinch.
-/// With focus set, the camera tracks that colonist (follow mode). With a lens, the map shows the
+/// With focus set, the camera tracks that colonist (follow mode) and glides when the focus changes. With a lens, the map shows the
 /// colony as that colonist sees it: the people they know, how they feel about them, what they believe.
 struct MapView: View {
     @Environment(Game.self) private var game
     var focus: Id? = nil
+    /// Where the followed colonist sits vertically, as a fraction of the height.
+    var focusAnchor: CGFloat = 0.3
     var lens: AgentDetail? = nil
 
     @State private var center = CGPoint(x: 640, y: 960)
     /// Starts zoomed in past the fit so the map pans both ways; pinching out to 1 shows the whole map.
     @State private var zoom: CGFloat = 1.6
+    @State private var glide: (from: CGPoint, start: Date)?
+    @State private var lastCenter = LastCenter()
+    @State private var motion = Motion()
+    @Environment(\.displayScale) private var displayScale
     /// Where the camera was when a flight began, to ease from there to the new centre and zoom.
     @State private var flightFrom: (center: CGPoint, zoom: CGFloat, start: Date)?
     @GestureState private var drag: CGSize = .zero
     @GestureState private var pinch: CGFloat = 1
 
+    /// The camera centre of the last frame, kept outside SwiftUI state so drawing never invalidates.
+    private final class LastCenter { var point: CGPoint? }
+
+    /// Where each colonist was drawn last frame and the walk it was on, kept outside SwiftUI state.
+    /// Colonists ease toward where the simulation puts them, so a late update, a step up to a target or a
+    /// crowd shuffling apart glides instead of popping, and a walk the server already finished plays out.
+    private final class Motion {
+        var points: [Id: CGPoint] = [:]
+        var moves: [Id: Move] = [:]
+        var at: Date?
+    }
+
+    /// The colonists as this frame draws them.
+    private struct Scene {
+        var placed: [(AgentLite, (point: CGPoint, heading: Int?))]
+        /// Who faces whom while acting on someone: 1 left, 2 right.
+        var facing: [Id: Int]
+        /// Who is on the receiving end of an aggressive act.
+        var struck: Set<Id>
+        func point(_ id: Id?) -> CGPoint? { placed.first { $0.0.id == id }?.1.point }
+    }
+
     var body: some View {
         GeometryReader { geo in
             TimelineView(.animation) { timeline in
                 let tick = game.displayTick(at: timeline.date)
-                let cam = camera(geo.size, tick: tick, date: timeline.date)
+                let scene = scene(tick: tick, date: timeline.date)
+                let cam = camera(geo.size, scene: scene, tick: tick, date: timeline.date)
                 Canvas { ctx, size in
-                    draw(&ctx, size: size, cam: cam, tick: tick, date: timeline.date)
+                    draw(&ctx, size: size, cam: cam, scene: scene, tick: tick, date: timeline.date)
                 }
                 .contentShape(Rectangle())
                 .gesture(SpatialTapGesture().onEnded { tap($0.location, cam: cam, tick: tick) })
@@ -116,6 +290,9 @@ struct MapView: View {
         }
         .ignoresSafeArea()
         .background(Color.black)
+        .onChange(of: focus) { old, new in
+            if old != nil, new != nil, let from = lastCenter.point { glide = (from, Date()) }
+        }
     }
 
     private struct Camera {
@@ -126,11 +303,28 @@ struct MapView: View {
 
     private func fit(_ s: CGSize) -> CGFloat { max(s.width / MapLayout.size.width, s.height / MapLayout.size.height) }
 
-    private func camera(_ s: CGSize, tick: Double, date: Date) -> Camera {
+    /// Snaps the map's origin to whole device pixels, so pixel art keeps its shape while the camera moves.
+    private func snapped(_ cam: Camera) -> Camera {
+        Camera(k: cam.k, origin: CGPoint(x: (cam.origin.x * displayScale).rounded() / displayScale, y: (cam.origin.y * displayScale).rounded() / displayScale))
+    }
+
+    private func camera(_ s: CGSize, scene: Scene, tick: Double, date: Date) -> Camera {
+        snapped(rawCamera(s, scene: scene, tick: tick, date: date))
+    }
+
+    private func rawCamera(_ s: CGSize, scene: Scene, tick: Double, date: Date) -> Camera {
         if let f = game.colonist(focus) {
             let k = fit(s) * 2.6
-            let p = Placement.position(of: f, at: tick).point
-            return Camera(k: k, origin: CGPoint(x: s.width / 2 - p.x * k, y: s.height * 0.3 - p.y * k))
+            var p = scene.point(f.id) ?? Placement.position(of: f, at: tick).point
+            if let glide {
+                let t = min(1, date.timeIntervalSince(glide.start) / 1.1)
+                let e = CGFloat(t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
+                p = CGPoint(x: glide.from.x + (p.x - glide.from.x) * e, y: glide.from.y + (p.y - glide.from.y) * e)
+            }
+            lastCenter.point = p
+            let x = min(0, max(s.width - MapLayout.size.width * k, s.width / 2 - p.x * k))
+            let y = min(0, max(s.height - MapLayout.size.height * k, s.height * focusAnchor - p.y * k))
+            return Camera(k: k, origin: CGPoint(x: x, y: y))
         }
         var k = fit(s) * zoom * pinch
         var c = clamp(CGPoint(x: center.x - drag.width / k, y: center.y - drag.height / k), k: k, size: s)
@@ -172,15 +366,15 @@ struct MapView: View {
     }
 
     private func tap(_ p: CGPoint, cam: Camera, tick: Double) {
-        guard focus == nil else { return }
         let world = CGPoint(x: (p.x - cam.origin.x) / cam.k, y: (p.y - cam.origin.y) / cam.k)
         let reach = 24 / cam.k
-        let nearest = game.agents.filter(\.alive)
-            .map { a -> (AgentLite, CGFloat) in
-                let q = Placement.position(of: a, at: tick).point
-                return (a, hypot(q.x - world.x, q.y - 16 - world.y))
-            }
+        let nearest = Placement.placements(game.agents, at: tick)
+            .map { e -> (AgentLite, CGFloat) in (e.0, hypot(e.1.point.x - world.x, e.1.point.y - 18 - world.y)) }
             .min { $0.1 < $1.1 }
+        if let focus {
+            if let (a, d) = nearest, d < reach, a.id != focus { game.follow(a.id) }
+            return
+        }
         if let (a, d) = nearest, d < reach {
             game.selectedLocation = nil
             game.selectedID = a.id
@@ -191,25 +385,120 @@ struct MapView: View {
 
     // MARK: Drawing
 
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, cam: Camera, tick: Double, date: Date) {
+    private func tile(_ name: String?, over rect: CGRect, in map: GraphicsContext, opacity: Double) {
+        guard let name, let img = Art.map(name) else { return }
+        var layer = map
+        layer.clip(to: Path(rect))
+        layer.opacity = opacity
+        let image = Image(uiImage: img).interpolation(.none)
+        var y = rect.minY
+        while y < rect.maxY {
+            var x = rect.minX
+            while x < rect.maxX {
+                layer.draw(image, in: CGRect(origin: CGPoint(x: x, y: y), size: img.size))
+                x += img.size.width
+            }
+            y += img.size.height
+        }
+    }
+
+    /// Places every colonist for this frame: on their walk or at their spot, stepped up to whoever they act on,
+    /// then eased from where they were drawn last frame.
+    private func scene(tick: Double, date: Date) -> Scene {
+        let agents = game.agents.map { a -> AgentLite in
+            if let move = a.move {
+                motion.moves[a.id] = move
+                return a
+            }
+            guard let last = motion.moves[a.id] else { return a }
+            guard tick < last.arriveTick, last.to == a.locationId else {
+                motion.moves[a.id] = nil
+                return a
+            }
+            var walking = a
+            walking.move = last
+            return walking
+        }
+        var placed = Placement.placements(agents, at: tick)
+        // Whoever acts on someone steps up beside them, so a fight, a kiss or a shakedown reads at a glance.
+        var spot: [Id: Int] = [:]
+        for (i, e) in placed.enumerated() { spot[e.0.id] = i }
+        var facing: [Id: Int] = [:]
+        var struck: Set<Id> = []
+        for i in placed.indices {
+            let a = placed[i].0
+            guard placed[i].1.heading == nil, let act = a.act, let tid = act.targetId, let j = spot[tid], placed[j].1.heading == nil, placed[j].0.locationId == a.locationId else { continue }
+            let other = placed[j].0
+            if other.act?.targetId == a.id, other.id < a.id { continue }
+            let from = placed[i].1.point, to = placed[j].1.point
+            let side: CGFloat = from.x <= to.x ? -1 : 1
+            let u = CGFloat(min(1, max(0, (tick - act.startTick) / 0.5)))
+            let e = u * u * (3 - 2 * u)
+            let goal = CGPoint(x: to.x + side * 15, y: to.y + 1)
+            placed[i].1.point = CGPoint(x: from.x + (goal.x - from.x) * e, y: from.y + (goal.y - from.y) * e)
+            facing[a.id] = side < 0 ? 2 : 1
+            if facing[other.id] == nil { facing[other.id] = side < 0 ? 1 : 2 }
+            if ActionFX.style(act.kind) == .aggressive, e > 0.9 { struck.insert(other.id) }
+        }
+
+        let dt = min(0.1, max(0, motion.at.map { date.timeIntervalSince($0) } ?? 0))
+        motion.at = date
+        let ease = CGFloat(1 - exp(-dt / 0.12))
+        var drawn: [Id: CGPoint] = [:]
+        for i in placed.indices {
+            let id = placed[i].0.id
+            let target = placed[i].1.point
+            if let last = motion.points[id], hypot(target.x - last.x, target.y - last.y) < 160 {
+                placed[i].1.point = CGPoint(x: last.x + (target.x - last.x) * ease, y: last.y + (target.y - last.y) * ease)
+            }
+            drawn[id] = placed[i].1.point
+        }
+        motion.points = drawn
+        if motion.moves.count > drawn.count * 2 { motion.moves = motion.moves.filter { drawn[$0.key] != nil } }
+        return Scene(placed: placed, facing: facing, struck: struck)
+    }
+
+    private func draw(_ ctx: inout GraphicsContext, size: CGSize, cam: Camera, scene: Scene, tick: Double, date: Date) {
         let world = game.world
         let t = date.timeIntervalSinceReferenceDate
         var map = ctx
         map.translateBy(x: cam.origin.x, y: cam.origin.y)
         map.scaleBy(x: cam.k, y: cam.k)
-        if let ground = Art.image("ground") { map.draw(ground, in: CGRect(origin: .zero, size: MapLayout.size)) }
+        if let ground = Art.image(MapLayout.ground) { map.draw(ground, in: CGRect(origin: .zero, size: MapLayout.size)) }
 
         let damaged = Set((world?.damage ?? [:]).filter { $0.value > 0 }.keys)
         for loc in LocationId.allCases {
-            guard let o = MapLayout.buildingOrigin[loc] else { continue }
-            let base = loc.rawValue
-            if let img = Art.ui(base + "_base") { map.draw(Image(uiImage: img).interpolation(.none), in: CGRect(origin: o, size: img.size)) }
-            if damaged.contains(loc.rawValue), let img = Art.ui(base + "_damaged") { map.draw(Image(uiImage: img).interpolation(.none), in: CGRect(origin: o, size: img.size)) }
+            guard let b = MapLayout.buildings[loc] else { continue }
+            let box = CGRect(origin: b.origin, size: b.size)
+            if let img = Art.image(b.base) { map.draw(img, in: box) }
+            if damaged.contains(loc.rawValue), let name = b.damaged, let img = Art.image(name) { map.draw(img, in: box) }
         }
 
-        let frame = Int(date.timeIntervalSinceReferenceDate * 6) % 4
-        let placed = game.agents.filter(\.alive).map { ($0, Placement.position(of: $0, at: tick)) }.sorted { $0.1.point.y < $1.1.point.y }
+        for a in game.agents where !a.alive {
+            guard let grave = Art.map(IconArt.grave) else { break }
+            let p = Placement.stand(a.id, at: a.locationId)
+            // The body lies where they fell for a while before the grave marks the spot.
+            let since = game.diedAt[a.id].map { date.timeIntervalSince($0) } ?? 999
+            if since < 40, let sprite = Art.sprite(a.spriteId, direction: 0, frame: 0) {
+                var body = map
+                body.translateBy(x: p.x, y: p.y - 5)
+                body.rotate(by: .degrees(90 * min(1, since / 0.5)))
+                body.opacity = since > 34 ? max(0, (40 - since) / 6) : 1
+                body.fill(Path(ellipseIn: CGRect(x: -16, y: -9, width: 30, height: 18)), with: .color(.red.opacity(0.28 * min(1, since / 6))))
+                body.draw(sprite, in: CGRect(x: -CharacterArt.feet.x, y: -CharacterArt.feet.y + 6, width: CharacterArt.frame.width, height: CharacterArt.frame.height))
+                if since < 34 { continue }
+            }
+            map.draw(Image(uiImage: grave).interpolation(.none), in: CGRect(x: p.x - grave.size.width / 2, y: p.y - grave.size.height + 2, width: grave.size.width, height: grave.size.height))
+        }
+
+        let seconds = date.timeIntervalSinceReferenceDate
+        let frame = Int(seconds * 8) % CharacterArt.framesPerDirection
         let marked = focus ?? game.selectedID
+        let facing = scene.facing, struck = scene.struck
+        // Back to front; equal rows keep a fixed order so neighbours never flicker over each other.
+        let placed = scene.placed.sorted { ($0.0.id == marked ? 1 : 0, ($0.1.point.y * 2).rounded(), $0.0.id) < ($1.0.id == marked ? 1 : 0, ($1.1.point.y * 2).rounded(), $1.0.id) }
+        let feet = CharacterArt.feet, fsize = CharacterArt.frame
+        let close = cam.k >= fit(size) * 2.2
         let reacting = game.reactions.compactMapValues { since -> Double? in
             let age = date.timeIntervalSince(since)
             return age < 6 ? age : nil
@@ -221,34 +510,78 @@ struct MapView: View {
             map.stroke(ellipse(pos.point, rx, rx * 0.4), with: .color(Color.amber.opacity(0.9 * (1 - age / 3))), lineWidth: 2)
         }
         for (a, pos) in placed {
-            let p = pos.point
+            var p = pos.point
+            let kind = pos.heading == nil ? ActionFX.kind(of: a) : (a.act?.kind == "flee" || a.act?.kind == "chase" ? a.act?.kind : nil)
+            let style = kind.map(ActionFX.style) ?? .calm
+            let phase = Double(a.id.utf8.reduce(0) { ($0 &+ Int($1)) % 97 }) / 9.7
+            let t = seconds + phase
+            var opacity = 1.0
+            if pos.heading == nil {
+                switch style {
+                case .aggressive:
+                    let dir: CGFloat = facing[a.id] == 1 ? -1 : 1
+                    p.x += dir * CGFloat(max(0, sin(t * 9))) * 4
+                    p.y -= CGFloat(abs(sin(t * 9))) * 1.5
+                case .bouncy: p.y -= CGFloat(abs(sin(t * 6))) * 4
+                case .busy: p.y -= CGFloat(abs(sin(t * 5))) * 1.2
+                case .sneaky: opacity = 0.6
+                case .sad, .calm: break
+                }
+                if struck.contains(a.id) { p.x += CGFloat(sin(t * 18)) * 0.9 }
+            }
             if a.id == marked {
-                let ring = CGRect(x: p.x - 16, y: p.y - 6, width: 32, height: 12)
-                map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.35)))
-                map.stroke(Path(ellipseIn: ring), with: .color(.amber), lineWidth: 2)
+                let ring = CGRect(x: p.x - 13, y: p.y - 4.5, width: 26, height: 9)
+                map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.22)))
+                map.stroke(Path(ellipseIn: ring), with: .color(.amber.opacity(0.9)), lineWidth: 1)
             } else if a.ownerName != nil {
                 let ring = CGRect(x: p.x - 13, y: p.y - 5, width: 26, height: 10)
                 let mine = game.isMine(a.id)
                 map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(mine ? 0.35 : 0.12)))
                 map.stroke(Path(ellipseIn: ring), with: .color(.amber), style: StrokeStyle(lineWidth: 1.5, dash: mine ? [] : [3, 2]))
             }
-            if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? 0, frame: pos.heading == nil ? 0 : frame) {
-                map.draw(sprite, in: CGRect(x: p.x - Art.feet.x, y: p.y - Art.feet.y, width: Art.frameSize.width, height: Art.frameSize.height))
+            if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? facing[a.id] ?? 0, frame: pos.heading == nil ? 0 : frame) {
+                var body = map
+                body.opacity = opacity
+                // Whole device pixels, so the art keeps its shape instead of shimmering as it moves.
+                let sx = ((cam.origin.x + (p.x - feet.x) * cam.k) * displayScale).rounded() / displayScale
+                let sy = ((cam.origin.y + (p.y - feet.y) * cam.k) * displayScale).rounded() / displayScale
+                body.draw(sprite, in: CGRect(x: (sx - cam.origin.x) / cam.k, y: (sy - cam.origin.y) / cam.k, width: fsize.width, height: fsize.height))
+                if struck.contains(a.id), sin(t * 9) > 0.55 {
+                    map.draw(Text("💥").font(.system(size: 11)), at: CGPoint(x: p.x, y: p.y - fsize.height * 0.45), anchor: .center)
+                }
+            }
+            // The action's emote drifts up from their head; quiet ones only when the camera is close.
+            if let kind, let emote = ActionFX.emote(kind), close || style == .aggressive || style == .bouncy || style == .sad {
+                let u = (t * 0.7).truncatingRemainder(dividingBy: 1)
+                var fx = map
+                fx.opacity = (u < 0.15 ? u / 0.15 : 1 - max(0, (u - 0.6) / 0.4)) * (style == .busy || style == .calm ? 0.8 : 1)
+                let lift: CGFloat = a.id == marked ? 16 : 4
+                fx.draw(Text(emote).font(.system(size: style == .busy || style == .calm ? 8 : 10)), at: CGPoint(x: p.x + 7, y: p.y - feet.y - lift - CGFloat(u) * 8), anchor: .center)
+            }
+            if a.id == marked, let pointer = Art.map(IconArt.selection) {
+                let bob = CGFloat(sin(seconds * 4)) * 2
+                map.draw(Image(uiImage: pointer).interpolation(.none), in: CGRect(x: p.x - pointer.size.width / 2, y: p.y - feet.y - pointer.size.height - 2 + bob, width: pointer.size.width, height: pointer.size.height))
             }
         }
 
         for loc in LocationId.allCases {
-            guard let o = MapLayout.buildingOrigin[loc], let img = Art.ui(loc.rawValue + "_overlay") else { continue }
-            map.draw(Image(uiImage: img).interpolation(.none), in: CGRect(origin: o, size: img.size))
+            guard let b = MapLayout.buildings[loc], let name = b.overlay, let img = Art.image(name) else { continue }
+            map.draw(img, in: CGRect(origin: b.origin, size: b.size))
         }
 
         for loc in LocationId.allCases where damaged.contains(loc.rawValue) { smoke(map, over: loc, t: t) }
         for effect in world?.activeEffects ?? [] {
             if effect.type == "drought" {
                 drought(ctx, size: size, severity: effect.severity, t: t)
+                for loc in [LocationId.ice_wells, .hydroponics] {
+                    tile(IconArt.droughtOverlay, over: MapLayout.locations[loc]!.footprint, in: map, opacity: 0.35 + effect.severity * 0.4)
+                }
             } else {
                 let sites = effect.locationIds.isEmpty ? LocationId.allCases.filter { $0.def.exposed } : effect.locationIds
-                for (i, s) in sites.enumerated() { storm(map, at: s, index: i, t: t) }
+                for (i, s) in sites.enumerated() {
+                    tile(IconArt.stormOverlay, over: MapLayout.locations[s]!.footprint.insetBy(dx: -12, dy: -12), in: map, opacity: 0.5 + effect.severity * 0.4)
+                    storm(map, at: s, index: i, t: t)
+                }
                 ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(Gradient(colors: [.clear, .red.opacity(0.18 + 0.06 * sin(t * 2))]), center: CGPoint(x: size.width / 2, y: size.height / 2), startRadius: size.width * 0.45, endRadius: size.height * 0.8))
             }
         }
@@ -257,17 +590,46 @@ struct MapView: View {
         }
 
         var labels = ctx
-        labels.addFilter(.shadow(color: .black.opacity(0.9), radius: 2))
+        labels.addFilter(.shadow(color: .black.opacity(0.7), radius: 1.5))
         for loc in LocationId.allCases {
             let l = MapLayout.locations[loc]!
-            let p = CGPoint(x: cam.origin.x + l.center.x * cam.k, y: cam.origin.y + l.footprint.minY * cam.k - 8)
-            labels.draw(Text(loc.name.uppercased()).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundStyle(damaged.contains(loc.rawValue) ? .red : .white.opacity(0.8)), at: p, anchor: .center)
+            let hurt = damaged.contains(loc.rawValue)
+            let p = CGPoint(x: cam.origin.x + l.center.x * cam.k, y: cam.origin.y + l.footprint.minY * cam.k - 6)
+            labels.draw(Text(loc.name.uppercased()).font(.system(size: 7, weight: .semibold, design: .rounded)).tracking(1.2).foregroundStyle(hurt ? Color.red.opacity(0.9) : Color.white.opacity(0.42)), at: p, anchor: .center)
+        }
+
+        // Names only for the followed and selected colonists, plus the few nearest the camera's focus when zoomed in.
+        var named: [Id] = [focus, game.selectedID].compactMap { $0 }
+        if cam.k >= fit(size) * 2.2 {
+            let anchor = CGPoint(x: size.width / 2, y: focus == nil ? size.height / 2 : size.height * focusAnchor)
+            let eye = CGPoint(x: (anchor.x - cam.origin.x) / cam.k, y: (anchor.y - cam.origin.y) / cam.k)
+            let already = named
+            let nearby = placed.filter { !already.contains($0.0.id) }
+                .map { ($0.0.id, hypot($0.1.point.x - eye.x, $0.1.point.y - eye.y)) }
+                .filter { $0.1 < 110 }
+                .sorted { $0.1 < $1.1 }
+                .prefix(3)
+                .map { $0.0 }
+            named += nearby
+        }
+        var taken: [CGRect] = []
+        for id in named {
+            guard let (a, pos) = placed.first(where: { $0.0.id == id }) else { continue }
+            let isMarked = a.id == marked
+            let text = ctx.resolve(Text(a.first).font(.system(size: 8.5, weight: .semibold, design: .rounded)).foregroundStyle(isMarked ? Color.amber : Color.white.opacity(0.9)))
+            let s = text.measure(in: CGSize(width: 120, height: 20))
+            let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y + 3) * cam.k)
+            let pill = CGRect(x: p.x - s.width / 2 - 5, y: p.y, width: s.width + 10, height: s.height + 3)
+            if taken.contains(where: { $0.intersects(pill) }) { continue }
+            taken.append(pill)
+            ctx.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(.black.opacity(0.55)))
+            ctx.draw(text, in: pill.insetBy(dx: 5, dy: 1.5))
         }
 
         for (a, pos) in placed {
             guard let owner = a.ownerName else { continue }
             let mine = game.isMine(a.id)
-            let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y - 38) * cam.k)
+            let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y - feet.y - 8) * cam.k)
             let tag = ctx.resolve(Text(mine ? "You" : owner).font(.system(size: 10, weight: .bold)).foregroundStyle(mine ? Color.black : .amber))
             let s = tag.measure(in: CGSize(width: 120, height: 20))
             let pill = CGRect(x: p.x - s.width / 2 - 6, y: p.y - s.height - 4, width: s.width + 12, height: s.height + 4)
@@ -285,18 +647,20 @@ struct MapView: View {
         let scale = min(1.25, max(0.85, Double(cam.k) / 0.9))
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
         // The marked colonist and anyone reacting claim their spot first; in a crowd the rest share one bubble per spot.
-        let ranked = placed.sorted { (($0.0.id == marked ? 2 : 0) + (reacting[$0.0.id] != nil ? 1 : 0)) > (($1.0.id == marked ? 2 : 0) + (reacting[$1.0.id] != nil ? 1 : 0)) }
-        var taken: [CGPoint] = []
+        let rank = { (id: Id) -> Int in (id == marked ? 2 : 0) + (reacting[id] != nil ? 1 : 0) }
+        let ranked = placed.sorted { rank($0.0.id) > rank($1.0.id) }
+        var heads: [CGPoint] = []
         for (a, pos) in ranked {
             if lens != nil && a.id != lens?.id && !known.contains(a.id) { continue }
-            var head = cam.screen(CGPoint(x: pos.point.x, y: pos.point.y - Art.feet.y))
+            var head = cam.screen(CGPoint(x: pos.point.x, y: pos.point.y - feet.y))
             if a.ownerName != nil { head.y -= 5 * cam.k + 18 }
             guard bounds.contains(head) else { continue }
             let age = reacting[a.id]
             let isMarked = a.id == marked
             if cam.k < 0.5 && !isMarked && age == nil { continue }
-            if !isMarked && taken.contains(where: { abs($0.x - head.x) < 22 * scale && abs($0.y - head.y) < 22 * scale }) { continue }
-            taken.append(head)
+            let spread = 22 * CGFloat(scale)
+            if !isMarked && heads.contains(where: { abs($0.x - head.x) < spread && abs($0.y - head.y) < spread }) { continue }
+            heads.append(head)
             let bob = sin(t * 2.2 + Double(abs(a.id.hashValue % 100))) * 1.2
             let at = CGPoint(x: head.x, y: head.y + bob)
             if let speech = a.speech, isMarked || cam.k >= 1 {

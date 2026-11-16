@@ -880,7 +880,7 @@ struct DirectiveComposer: View {
     @Environment(Game.self) private var game
     var avatar: AgentLite
     @State private var order = ""
-    @FocusState private var typing: Bool
+    @SwiftUI.FocusState private var typing: Bool
     @State private var sending = false
     @State private var error: String?
 

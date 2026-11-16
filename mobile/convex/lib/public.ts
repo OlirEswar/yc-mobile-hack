@@ -1,5 +1,6 @@
 /** Converters from stored documents to the public shapes in shared/types.ts. */
 import type { Doc } from '../_generated/dataModel';
+import { STEP_SPECS } from '../engine/core';
 import type { LocationId, ResourceId, Speed, SpriteId } from '../../shared/colony';
 import type {
   ActiveEffect,
@@ -8,12 +9,29 @@ import type {
   EventCategory,
   FactionPublic,
   GoalPublic,
+  PersonaPublic,
+  StorylinePublic,
   WorldEventPublic,
   WorldPublic,
 } from '../../shared/types';
 
+const NO_ACT = new Set(['go', 'wait', 'rest']);
+
+/** The step in progress as the app animates it: its kind and the other person in it. */
+function actOf(a: Doc<'agents'>): AgentLite['act'] {
+  if (!a.alive || !a.cur) return undefined;
+  const [kind, ...args] = a.cur.split('|');
+  if (NO_ACT.has(kind)) return undefined;
+  const spec = (STEP_SPECS as Record<string, { args: readonly string[] }>)[kind];
+  const at = spec ? spec.args.findIndex((n) => /^(agentId|target|targetId)\??$/.test(n)) : -1;
+  const arg = at >= 0 ? args[at] : undefined;
+  const targetId = a.interactingWithId ?? (arg && arg.length >= 16 && !arg.includes(':') ? arg : undefined);
+  return { kind, targetId, startTick: a.curStartTick ?? a.busyUntilTick };
+}
+
 export function toAgentLite(a: Doc<'agents'>): AgentLite {
   return {
+    act: actOf(a),
     id: a._id,
     name: a.name,
     spriteId: a.spriteId as SpriteId,
@@ -54,7 +72,29 @@ export function toEventPublic(e: Doc<'events'>): WorldEventPublic {
     salience: e.salience,
     causationEventId: e.causationEventId,
     banner: e.banner,
+    storylineId: e.storylineId ?? (typeof e.facts?.storylineId === 'string' ? e.facts.storylineId : undefined),
     visibility: e.visibility as WorldEventPublic['visibility'],
+  };
+}
+
+/** The public face of a persona: never the secret, never the need. */
+export function toPersonaPublic(p: NonNullable<Doc<'minds'>['persona']>): PersonaPublic {
+  return { epithet: p.epithet, want: p.want, fear: p.fear, flaw: p.flaw, voice: p.voice, arc: { stage: p.arc.stage as PersonaPublic['arc']['stage'], note: p.arc.note }, key: p.key };
+}
+
+/** Newest twelve beats only. */
+export function toStorylinePublic(s: Doc<'storylines'>): StorylinePublic {
+  return {
+    id: s._id,
+    title: s.title,
+    premise: s.premise,
+    status: s.status as StorylinePublic['status'],
+    tension: s.tension,
+    participantIds: s.participantIds,
+    beats: s.beats.slice(-12),
+    origin: s.origin as StorylinePublic['origin'],
+    createdTick: s.createdTick,
+    lastBeatTick: s.lastBeatTick,
   };
 }
 
@@ -111,5 +151,6 @@ export function toWorldPublic(w: Doc<'worlds'>, factions: Doc<'factions'>[]): Wo
     rationLevel: w.econ.rationLevel as 0 | 1 | 2,
     treasury: Math.round(w.econ.treasury),
     regolith: { quarry: Math.round(w.econ.regolith.quarry), workshop: Math.round(w.econ.regolith.workshop) },
+    focusWarp: w.focusWarp,
   };
 }

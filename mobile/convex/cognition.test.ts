@@ -215,7 +215,7 @@ test('a job whose mind moved on is never committed', async () => {
 
 test('claims respect concurrency, lane order, reserves, the daily budget and day rollover', async () => {
   const t = newTest();
-  const { worldId, agents } = await setup(t, { budgetPerDay: 4, focusReserve: 1, crisisReserve: 1, maxConcurrent: 2, speechPerDay: 1 });
+  const { worldId, agents } = await setup(t, { budgetPerDay: 4, focusReserve: 1, orbitReserve: 0, crisisReserve: 1, maxConcurrent: 2, speechPerDay: 1 });
   const normal = [await queue(t, worldId, agents[0]._id, { priority: 0.9 }), await queue(t, worldId, agents[1]._id), await queue(t, worldId, agents[2]._id)];
   const crisis = await queue(t, worldId, agents[3]._id, { lane: 'crisis', priority: 0.2 });
   const focus = await queue(t, worldId, agents[4]._id, { lane: 'focus', priority: 0.1 });
@@ -276,7 +276,7 @@ test('jobs are dropped while the LLM is disabled or unconfigured', async () => {
 
 test('repeated failures back off and the world keeps running on rules', async () => {
   const t = newTest();
-  const { worldId, agents } = await setup(t);
+  const { worldId, agents } = await setup(t, { maxConcurrent: 3 });
   const jobs: Id<'cognitionJobs'>[] = [];
   for (let i = 0; i < 4; i++) jobs.push(await queue(t, worldId, agents[i]._id));
   const calls = mockModel(null, 500);

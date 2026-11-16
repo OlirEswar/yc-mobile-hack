@@ -38,6 +38,8 @@ const TIE_TONE: Record<RelationshipPublic['kind'], { affinity: number; trust: nu
   colleague: { affinity: 0.2, trust: 0.3 },
   rival: { affinity: -0.5, trust: -0.3 },
   acquaintance: { affinity: 0.1, trust: 0.15 },
+  romance: { affinity: 0.7, trust: 0.5 },
+  partner: { affinity: 0.75, trust: 0.7 },
 };
 
 /**

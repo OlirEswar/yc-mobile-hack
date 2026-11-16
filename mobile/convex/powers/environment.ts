@@ -82,7 +82,18 @@ export const drought: Power<{ severity: number; durationDays: number }> = {
         eventId,
       });
     }
-    return { affectedAgentIds: [...new Set([...crew, ...leaders].map((a) => a._id))] };
+    // Someone takes it hardest, in the open: the thirstiest of the well crew on site (or anyone awake) panics.
+    const awake = crew.filter((a) => a.activity !== 'sleeping');
+    const hit = [...awake].sort((x, y) => Number(onSite.has(y._id)) - Number(onSite.has(x._id)) || y.needs.thirst - x.needs.thirst)[0] ?? leaders[0];
+    if (hit) {
+      hit.mood = 'panicked';
+      hit.needs.safety = Math.min(100, hit.needs.safety + 40);
+      const reaction = hit.traits.empathy < 0.4 ? [encodeStep('go', 'depot'), encodeStep('loot', 'depot')] : hit.traits.caution > 0.55 ? [encodeStep('go', 'market'), encodeStep('buy', 'water', 4), encodeStep('hide', 'water', 3)] : [encodeStep('pray', 2), encodeStep('go', 'plaza'), encodeStep('preach', 'the wells are dying and the council knew')];
+      interrupt(tx, hit, reaction);
+      hit.speech = 'The wells are dying! There will not be enough for all of us!';
+      touch(tx, hit);
+    }
+    return { affectedAgentIds: [...new Set([...(hit ? [hit] : []), ...crew.filter((a) => onSite.has(a._id)), ...crew, ...leaders].map((a) => a._id))] };
   },
 };
 
@@ -177,11 +188,13 @@ export const storm: Power<{ severity: number; locationIds: LocationId[] }> = {
     }
 
     const affected: AgentId[] = [];
+    const lossOf = new Map<string, number>();
     for (const a of caught) {
       const where = standingAt(tx, a) as LocationId;
       const loss = Math.max(1, Math.round(severity * (10 + 30 * rand(tx.world.seed, tx.tick, a.seq, 'storm'))));
       a.health = Math.max(0, a.health - loss);
       affected.push(a._id);
+      lossOf.set(a._id, loss + (a.activity === 'sleeping' ? -100 : 0));
       if (a.health <= 0 || (severity >= 0.75 && a.health < 12)) {
         await killAgent(tx, a, { cause: 'caught in the ' + kind + ' at ' + LOCATIONS[where].name, causationEventId: eventId, category: 'environment' });
         continue;
@@ -201,9 +214,13 @@ export const storm: Power<{ severity: number; locationIds: LocationId[] }> = {
         facts: { healthLost: loss },
       });
       const shelter = nearestShelter(where, hit);
-      if (shelter && shelter !== where) interrupt(tx, a, [encodeStep('flee', shelter)]);
-      else touch(tx, a);
+      if (shelter && shelter !== where) interrupt(tx, a, [encodeStep('flee', shelter), encodeStep(a.traits.caution > 0.5 ? 'pray' : 'cry', 2)]);
+      else if (a.activity !== 'sleeping') interrupt(tx, a, [encodeStep('pray', 2)]);
+      a.speech = 'Get inside! Everybody get inside!';
+      touch(tx, a);
     }
+    // Hardest hit first (the living and awake before the rest).
+    affected.sort((x, y) => (lossOf.get(y) ?? 0) - (lossOf.get(x) ?? 0));
     return { affectedAgentIds: affected };
   },
 };

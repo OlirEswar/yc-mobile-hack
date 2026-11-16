@@ -9,8 +9,9 @@ import { LOCATIONS, LOCATION_IDS, RESOURCES, TRADED_RESOURCES } from '../../shar
 import type { LocationId } from '../../shared/colony';
 import { STEP_SPECS, encodeStep } from '../engine/core';
 import type { StepType } from '../engine/core';
+import { validateSocietyArgs } from '../society/validate';
 import type { PersonRef, PlanContext } from './context';
-import { GOAL_KINDS, MAX_SPEECH_CHARS, MAX_STEPS, PETITION_TOPICS } from './prompt';
+import { BEG_RESOURCES, BRIBE_FAVORS, GOAL_KINDS, LIE_KINDS, DIALOGUE_OUTCOMES, MAX_ANSWER_CHARS, MAX_DIALOGUE_LINE_CHARS, MAX_SPEECH_CHARS, MAX_STEPS, MAX_THOUGHT_CHARS, PETITION_TOPICS, RALLY_TOPICS } from './prompt';
 
 export type ValidGoal = { kind: string; description: string; priority: number; targetAgentId?: Id<'agents'> };
 
@@ -21,12 +22,14 @@ export type ValidPlan = {
   labels: string[];
   goal?: ValidGoal;
   speech?: string;
+  /** A monologue line, asked of the followed colonist only. */
+  thought?: string;
 };
 
 export type PlanValidation = { ok: true; plan: ValidPlan; dropped: string[] } | { ok: false; reason: string; dropped: string[] };
 
 /** Bounds per step type for tick arguments. */
-const TICK_BOUNDS: Partial<Record<StepType, [number, number]>> = { work: [1, 48], sleep: [6, 60], rest: [1, 18], wait: [1, 18] };
+const TICK_BOUNDS: Partial<Record<StepType, [number, number]>> = { work: [1, 48], sleep: [6, 60], rest: [1, 18], wait: [1, 18], grow: [1, 24], strike: [1, 36] };
 const MAX_GOODS = 10;
 const MAX_CREDITS = 100;
 const NEEDS_TARGET = new Set(['protect_person', 'improve_relationship', 'avoid_person', 'investigate']);
@@ -74,7 +77,12 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
     const p = person(value);
     return p?.alive ? p : undefined;
   };
-  const belief = (value: string) => c.beliefs.find((b) => b.ref === value.trim().toLowerCase());
+  const belief = (value: string): Held | undefined => {
+    const ref = value.trim().toLowerCase();
+    if (c.secret && ref === c.secret.ref) return { key: c.secret.key, subjectId: c.agentId, own: true };
+    const b = c.beliefs.find((x) => x.ref === ref);
+    return b ? { key: b.key, subjectId: b.subjectId, own: false } : undefined;
+  };
 
   let here: LocationId = c.locationId;
   const steps: string[] = [];
@@ -99,7 +107,7 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
       fail('expected ' + required + ' args');
       continue;
     }
-    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, householdId: c.householdId, living, person, belief });
+    const encoded = encodeArgs(type as StepType, args.slice(0, spec.args.length), { here, householdId: c.householdId, living, person, belief, society: c.societyRefs });
     if (typeof encoded === 'string') {
       fail(encoded);
       continue;
@@ -113,6 +121,7 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
   const first = c.name.split(' ')[0];
   const intent = cleanText(out.intent, 220) ?? first + ' acts on ' + c.trigger.toLowerCase() + '.';
   const plan: ValidPlan = { intent, steps, labels, speech: cleanText(out.speech, MAX_SPEECH_CHARS) };
+  if (c.followed) plan.thought = cleanText(out.thought, MAX_THOUGHT_CHARS);
 
   const goal = asRecord(out.goal);
   if (goal) {
@@ -127,13 +136,19 @@ export function validatePlan(raw: unknown, c: PlanContext): PlanValidation {
   return { ok: true, plan, dropped };
 }
 
+/** A belief the planner may point at: a held belief, or their own secret (own). */
+type Held = { key: string; subjectId?: string; own: boolean };
+
 type Lookup = {
   here: LocationId;
   householdId?: string;
   living: (value: string) => PersonRef | undefined;
   person: (value: string) => PersonRef | undefined;
-  belief: (value: string) => PlanContext['beliefs'][number] | undefined;
+  belief: (value: string) => Held | undefined;
+  society: PlanContext['societyRefs'];
 };
+
+const RESOURCE_LIST = RESOURCES as readonly string[];
 
 /** Resolves the args of one step to stored values and a fallback label, or says why it is invalid. */
 function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]; label: string } | string {
@@ -143,6 +158,10 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
     return clampInt(value, lo, hi);
   };
   const amount = (resource: string, value: string): number | null => clampInt(value, 1, resource === 'credits' ? MAX_CREDITS : MAX_GOODS);
+  const withPerson = (label: string): { args: string[]; label: string } | string => {
+    const who = l.living(args[0]);
+    return who ? { args: [who.id], label: label + ' ' + who.name } : 'unknown or dead person';
+  };
   switch (type) {
     case 'go':
     case 'flee':
@@ -155,10 +174,12 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
     case 'work':
     case 'sleep':
     case 'rest':
-    case 'wait': {
+    case 'wait':
+    case 'grow':
+    case 'strike': {
       const n = ticks(args[0]);
       if (n === null) return 'bad tick count';
-      return { args: [String(n)], label: { work: 'Work a shift', sleep: 'Sleep', rest: 'Rest', wait: 'Wait' }[type] };
+      return { args: [String(n)], label: { work: 'Work a shift', sleep: 'Sleep', rest: 'Rest', wait: 'Wait', grow: 'Tend the grow rack', strike: 'Down tools in protest' }[type] };
     }
     case 'eat':
     case 'drink':
@@ -226,7 +247,133 @@ function encodeArgs(type: StepType, args: string[], l: Lookup): { args: string[]
       if (!who || who.alive) return 'can only mourn the dead';
       return { args: [who.id], label: 'Mourn ' + who.name };
     }
+    case 'scavenge':
+    case 'sabotage': {
+      const loc = args[0].trim();
+      if (!isLocation(loc)) return 'unknown location ' + loc.slice(0, 30);
+      if (type === 'scavenge' && !LOCATIONS[loc].exposed) return 'scavenge needs a surface site';
+      return { args: [loc], label: (type === 'scavenge' ? 'Scavenge at ' : 'Sabotage ') + place(loc) };
+    }
+    case 'beg': {
+      const who = l.living(args[0]);
+      const resource = args[1].trim();
+      if (!who) return 'unknown or dead person';
+      if (!(BEG_RESOURCES as readonly string[]).includes(resource)) return 'can only beg for food, water or credits';
+      return { args: [who.id, resource], label: 'Ask ' + who.name + ' for ' + resource };
+    }
+    case 'borrow':
+    case 'hide': {
+      const who = type === 'borrow' ? l.living(args[0]) : undefined;
+      if (type === 'borrow' && !who) return 'unknown or dead person';
+      const [resource, quantity] = type === 'borrow' ? [args[1].trim(), args[2]] : [args[0].trim(), args[1]];
+      if (!RESOURCE_LIST.includes(resource)) return 'unknown resource';
+      const n = amount(resource, quantity);
+      if (n === null) return 'bad quantity';
+      return who
+        ? { args: [who.id, resource, String(n)], label: 'Borrow ' + n + ' ' + resource + ' from ' + who.name }
+        : { args: [resource, String(n)], label: 'Hide ' + n + ' ' + resource };
+    }
+    case 'barter': {
+      const who = l.living(args[0]);
+      if (!who) return 'unknown or dead person';
+      const [give, want] = [args[1].trim(), args[3].trim()];
+      if (!RESOURCE_LIST.includes(give) || !RESOURCE_LIST.includes(want)) return 'unknown resource';
+      if (give === want) return 'a swap needs two different goods';
+      const [gn, wn] = [amount(give, args[2]), amount(want, args[4])];
+      if (gn === null || wn === null) return 'bad quantity';
+      return { args: [who.id, give, String(gn), want, String(wn)], label: 'Offer ' + who.name + ' ' + gn + ' ' + give + ' for ' + wn + ' ' + want };
+    }
+    case 'bribe': {
+      const who = l.living(args[0]);
+      if (!who) return 'unknown or dead person';
+      const n = amount('credits', args[1]);
+      const favor = args[2].trim();
+      if (n === null) return 'bad quantity';
+      if (!(BRIBE_FAVORS as readonly string[]).includes(favor)) return 'unknown favor';
+      return { args: [who.id, String(n), favor], label: 'Slip ' + who.name + ' ' + n + ' credits' };
+    }
+    case 'blackmail': {
+      const who = l.living(args[0]);
+      const held = l.belief(args[1]);
+      if (!who) return 'unknown or dead person';
+      if (!held || held.own || held.subjectId !== who.id) return 'no held belief about them';
+      return { args: [who.id, held.key], label: 'Lean on ' + who.name };
+    }
+    case 'lie': {
+      const who = l.living(args[0]);
+      const subject = l.person(args[1]);
+      const kind = args[2].trim();
+      if (!who) return 'unknown or dead person';
+      if (!subject || subject.id === who.id) return 'unknown subject';
+      if (!(LIE_KINDS as readonly string[]).includes(kind)) return 'unknown lie';
+      return { args: [who.id, subject.id, kind], label: 'Tell ' + who.name + ' a story about ' + subject.name };
+    }
+    case 'confide': {
+      const who = l.living(args[0]);
+      if (!who) return 'unknown or dead person';
+      if (!args[1]) return { args: [who.id], label: 'Confide in ' + who.name };
+      const held = l.belief(args[1]);
+      if (!held) return 'no such belief or secret';
+      return { args: [who.id, held.key], label: 'Confide in ' + who.name };
+    }
+    case 'confess': {
+      const held = l.belief(args[0]);
+      if (!held) return 'nothing held to confess';
+      return { args: [held.key], label: held.own ? 'Come clean' : 'Confess' };
+    }
+    case 'repay':
+      return withPerson('Pay back');
+    case 'court':
+      return withPerson('Court');
+    case 'comfort':
+      return withPerson('Comfort');
+    case 'threaten':
+      return withPerson('Threaten');
+    case 'reconcile':
+      return withPerson('Make peace with');
+    case 'eavesdrop':
+      return withPerson('Listen in on');
+    case 'smuggle': {
+      const resource = args[0].trim();
+      if (!(TRADED_RESOURCES as readonly string[]).includes(resource)) return 'not a traded resource';
+      const n = amount(resource, args[1]);
+      if (n === null) return 'bad quantity';
+      return { args: [resource, String(n)], label: 'Run ' + n + ' ' + resource + ' past the pad crews' };
+    }
+    case 'rally': {
+      const topic = args[0].trim();
+      if (!(topic in RALLY_TOPICS)) return 'unknown rally topic';
+      return { args: [topic], label: 'Rally the plaza' };
+    }
+    default:
+      return validateSocietyArgs(type, args, { living: l.living, ...l.society });
   }
+}
+
+/** Checks a dialogue job's output: 4 to 8 spoken lines, an outcome and a summary. */
+export function validateDialogue(raw: unknown): { ok: true; lines: { speaker: string; text: string }[]; outcome: string; summary?: string } | { ok: false; reason: string } {
+  const out = asRecord(raw);
+  const lines: { speaker: string; text: string }[] = [];
+  for (const item of Array.isArray(out?.lines) ? out.lines : []) {
+    const rec = asRecord(item);
+    const text = cleanText(rec?.text, MAX_DIALOGUE_LINE_CHARS);
+    if (text && (rec?.speaker === 'A' || rec?.speaker === 'B') && lines.length < 8) lines.push({ speaker: rec.speaker, text });
+  }
+  if (lines.length < 3 || !lines.some((l) => l.speaker === 'A') || !lines.some((l) => l.speaker === 'B')) return { ok: false, reason: 'no conversation' };
+  const outcome = typeof out?.outcome === 'string' && DIALOGUE_OUTCOMES.includes(out.outcome) ? out.outcome : 'none';
+  return { ok: true, lines, outcome, summary: cleanText(out?.summary, 220) };
+}
+
+/** Checks a thought job's output. */
+export function validateThought(raw: unknown): { ok: true; text: string; mood?: string } | { ok: false; reason: string } {
+  const out = asRecord(raw);
+  const text = cleanText(out?.thought, MAX_THOUGHT_CHARS);
+  return text ? { ok: true, text, mood: cleanText(out?.mood, 24)?.toLowerCase() } : { ok: false, reason: 'no thought' };
+}
+
+/** Checks the answer to a player's question. */
+export function validateAnswer(raw: unknown): string | undefined {
+  return cleanText(asRecord(raw)?.answer, MAX_ANSWER_CHARS);
 }
 
 /** Checks a speech job's output. */

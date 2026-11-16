@@ -66,6 +66,8 @@ export type AgentLite = {
   needs: Needs;
   /** World version at which this record last changed. */
   updatedAtVersion: number;
+  /** Set when this colonist is a player's avatar: the player's display name. */
+  ownerName?: string;
 };
 
 export type GoalKind =
@@ -86,7 +88,8 @@ export type GoalPublic = {
   kind: GoalKind;
   description: string;
   priority: number; // 0..1
-  source: 'needs' | 'personality' | 'event' | 'llm' | 'divine';
+  /** 'owner' is a directive from the player whose avatar this is. */
+  source: 'needs' | 'personality' | 'event' | 'llm' | 'divine' | 'owner';
   status: 'active' | 'blocked' | 'satisfied' | 'abandoned';
   targetAgentId?: Id;
   targetAgentName?: string;
@@ -173,6 +176,8 @@ export type AgentDetail = AgentLite & {
   lastThought?: ThoughtPublic;
   /** Set when the agent is dead. */
   death?: { tick: Tick; cause: string };
+  /** Set when this colonist is a player's avatar: who they are modelled on, in general terms. */
+  persona?: AvatarPersona;
 };
 
 export type EffectType = 'drought' | 'storm';
@@ -286,3 +291,99 @@ export type InterventionResult =
       code: 'invalid' | 'unauthorized' | 'not_found' | 'rate_limited' | 'cap_reached' | 'dead_target';
       message: string;
     };
+
+// ---------- Avatars: a colonist modelled on the player ----------
+
+/**
+ * Where a piece of "about me" material came from. Every source is digested on the device before it
+ * is sent: Gmail arrives as a summary of senders, subjects and labels (never message bodies), and
+ * ai_memory is what the player's own assistant (ChatGPT, Claude, Gemini) says it knows about them.
+ * The backend strips email addresses, phone numbers and links again before storing anything.
+ */
+export type PersonaSourceKind = 'gmail' | 'ai_memory' | 'about_me';
+
+export type PersonaSourceInput = {
+  kind: PersonaSourceKind;
+  /** Short label for the list, e.g. "Gmail, last 90 days" or "ChatGPT memory". 1..60 chars. */
+  label: string;
+  /** The digested text. 20..8000 chars. */
+  text: string;
+};
+
+export type PersonaSourcePublic = {
+  id: Id;
+  kind: PersonaSourceKind;
+  label: string;
+  /** Length of the stored, scrubbed text. */
+  chars: number;
+  /** First 160 characters of the stored text, so the player can see what was kept. */
+  preview: string;
+  addedAt: number;
+};
+
+/** How an avatar thinks and talks, used by the LLM when it plans or speaks for them. */
+export type AvatarPersona = {
+  /** One line, third person: who this person is. Up to 160 chars. */
+  summary: string;
+  /** Up to 6 short interests, e.g. "climbing", "startups". */
+  interests: string[];
+  /** How they talk. Up to 140 chars. */
+  speechStyle: string;
+  /** Up to 4 things they tend to do, e.g. "Organises the group dinner". */
+  habits: string[];
+};
+
+/** The character built from the player's sources. The player can edit it before spawning. */
+export type AvatarProfile = AvatarPersona & {
+  name: string; // 2..40
+  spriteId: SpriteId;
+  ageBand: 'young' | 'adult' | 'elder';
+  occupation: string; // OccupationDef.id
+  homeLocationId: 'habitat_a' | 'habitat_b';
+  traits: Traits;
+  values: Values;
+  backstory: string; // up to 280
+  goals: { kind: GoalKind; description: string }[]; // up to 2
+};
+
+export type AvatarDirective = { text: string; tick: Tick; worldId: Id };
+
+export type AvatarPublic = {
+  sources: PersonaSourcePublic[];
+  profile?: AvatarProfile;
+  /** 'llm' when a model built the profile, 'rules' for the offline fallback, 'player' after edits. */
+  profileSource?: 'llm' | 'rules' | 'player';
+  /** The player's avatar in their current world, alive or dead, if they have spawned one there. */
+  agentId?: Id;
+  /** Newest first, up to 5. */
+  directives: AvatarDirective[];
+};
+
+/** Answer of the avatar mutations and actions. */
+export type AvatarResult = { ok: true; agentId?: Id; profile?: AvatarProfile; profileSource?: AvatarPublic['profileSource'] } | { ok: false; message: string };
+
+// ---------- Multiplayer: friends join one world ----------
+
+export type PlayerPublic = {
+  /** Opaque player id (never the session token). */
+  id: Id;
+  name: string;
+  isHost: boolean;
+  isYou: boolean;
+  /** Heartbeat seen in the last minute. */
+  online: boolean;
+  avatarAgentId?: Id;
+  avatarName?: string;
+};
+
+export type MultiplayerPublic = {
+  worldId: Id;
+  /** The world's join code, once the host has opened it. Visible to every player in the world. */
+  inviteCode?: string;
+  isHost: boolean;
+  /** Host first, then by join time. */
+  players: PlayerPublic[];
+  maxPlayers: number;
+};
+
+export type MultiplayerResult = { ok: true; worldId?: Id; inviteCode?: string } | { ok: false; message: string };

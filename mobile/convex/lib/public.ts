@@ -37,6 +37,7 @@ export function toAgentLite(a: Doc<'agents'>): AgentLite {
       social: Math.round(a.needs.social),
     },
     updatedAtVersion: a.updatedAtVersion,
+    ...(a.ownerName ? { ownerName: a.ownerName } : {}),
   };
 }
 

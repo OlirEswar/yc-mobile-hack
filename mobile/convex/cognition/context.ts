@@ -22,6 +22,18 @@ export type PersonRef = {
   /** How the agent knows them, e.g. "friend, trusts a lot". */
   tie?: string;
   householdId?: Id<'households'>;
+  /** Set when this person is another player's avatar: that player's name. */
+  player?: string;
+};
+
+/** Who a player's avatar is modelled on, and what their player last asked of them. */
+export type AvatarContext = {
+  owner: string;
+  summary: string;
+  interests: string[];
+  speechStyle: string;
+  habits: string[];
+  directive?: string;
 };
 
 export type BeliefRef = {
@@ -66,6 +78,7 @@ export type PlanContext = {
   trigger: string;
   detail?: string;
   people: PersonRef[];
+  avatar?: AvatarContext;
 };
 
 export type SpeechContext = {
@@ -84,6 +97,7 @@ export type SpeechContext = {
   aboutPartner: string[];
   trigger: string;
   detail?: string;
+  avatar?: AvatarContext;
 };
 
 export type JobContext = PlanContext | SpeechContext;
@@ -92,6 +106,8 @@ const MAX_BELIEFS = 8;
 const MAX_TIES = 8;
 const MAX_MEMORIES = 8;
 const MAX_PRESENT = 10;
+/** A player's directive stays in the avatar's prompt for two sim days. */
+const AVATAR_DIRECTIVE_TICKS = 288;
 
 const TRAIT_WORDS: Record<(typeof TRAIT_KEYS)[number], [low: string, high: string]> = {
   ambition: ['unambitious', 'ambitious'],
@@ -218,11 +234,21 @@ export async function loadJobContext(
       usualPlace: doc.workLocationId ?? doc.homeLocationId,
       tie: extra.tie,
       householdId: doc.householdId,
+      ...(doc.ownerName ? { player: doc.ownerName } : {}),
     };
     people.push(person);
     byId.set(id, person);
     return person;
   };
+
+  const avatar: AvatarContext | undefined =
+    agent.ownerName && mind.persona
+      ? {
+          owner: agent.ownerName,
+          ...mind.persona,
+          ...(mind.directive && world.tick - mind.directive.tick <= AVATAR_DIRECTIVE_TICKS ? { directive: mind.directive.text } : {}),
+        }
+      : undefined;
 
   if (job.kind === 'speech') {
     const partner = await addPerson(agent.interactingWithId, { present: true });
@@ -250,6 +276,7 @@ export async function loadJobContext(
         aboutPartner: beliefDocs.filter((b) => b.subjectAgentId === partner.id).slice(0, 3).map((b) => b.text + ' (confidence ' + b.confidence.toFixed(1) + ')'),
         trigger: job.trigger,
         detail: job.detail,
+        avatar,
       },
     };
   }
@@ -329,6 +356,7 @@ export async function loadJobContext(
       trigger: job.trigger,
       detail: job.detail,
       people,
+      avatar,
     },
   };
 }

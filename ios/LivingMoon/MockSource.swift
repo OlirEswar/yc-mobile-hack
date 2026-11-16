@@ -45,6 +45,19 @@ final class MockSource: WorldSource {
     private var detailWatchers: [Id: [UUID: (AgentDetail?) -> Void]] = [:]
     private weak var sink: SourceSink?
 
+    private struct StoredSource { var info: PersonaSourcePublic; var text: String }
+    private var personaSources: [StoredSource] = []
+    private var profile: AvatarProfile?
+    private var profileSource: String?
+    private var avatarId: Id?
+    private var directives: [AvatarDirective] = []
+    /// The avatar's latest directive steers its routine for a few hours.
+    private var directed: (to: LocationId, text: String, until: Double)?
+    private var playerName: String?
+    /// As the backend: the chosen name, else the character's first name.
+    private var displayName: String { playerName ?? profile?.first ?? "Player" }
+    private var inviteCode: String?
+
     init() { seed() }
 
     // MARK: Helpers
@@ -215,6 +228,10 @@ final class MockSource: WorldSource {
             agents[id]!.lite.activity = "fleeing"
             agents[id]!.lite.activityLabel = "Fleeing the storm for the Commons Plaza"
             return
+        }
+        if id == avatarId, let d = directed, tick < d.until {
+            if a.lite.locationId != d.to { return walk(id, to: d.to, why: "because their player asked") }
+            return socialise(id)
         }
         let night = h >= 22 || h < 6
         let target: LocationId
@@ -496,6 +513,7 @@ final class MockSource: WorldSource {
         self.sink = sink
         schedule()
         notify()
+        publishPlayer()
     }
     func heartbeat() async {}
     func setFocus(_ agentId: Id?) async {}
@@ -546,6 +564,204 @@ final class MockSource: WorldSource {
     }
     func checkoutURL() async throws -> URL {
         throw SourceError.unsupported("Checkout needs the live backend. Switch the data source in the menu.")
+    }
+
+    // MARK: Avatar
+
+    private func publishPlayer() {
+        let avatar = avatarId.flatMap { agents[$0]?.lite }
+        let hasAnything = !personaSources.isEmpty || profile != nil || avatarId != nil
+        sink?.received(avatar: hasAnything ? AvatarPublic(sources: personaSources.map(\.info), profile: profile, profileSource: profileSource, agentId: avatarId, directives: directives) : nil)
+        let me = PlayerPublic(id: "me", name: displayName, isHost: true, isYou: true, online: true, avatarAgentId: avatar?.id, avatarName: avatar?.name)
+        sink?.received(multiplayer: MultiplayerPublic(worldId: "mock-world", inviteCode: inviteCode, isHost: true, players: [me], maxPlayers: 6))
+    }
+
+    private func avatarFail(_ message: String) -> AvatarResult { AvatarResult(ok: false, message: message) }
+
+    func addSource(_ source: PersonaSourceInput) async throws -> AvatarResult {
+        let label = source.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = String(Scrub.text(source.text).prefix(8000))
+        guard (1...60).contains(label.count) else { return avatarFail("The label must be 1 to 60 characters.") }
+        guard text.count >= 20 else { return avatarFail("That is too short to learn from. Write at least 20 characters.") }
+        guard personaSources.count < 6 else { return avatarFail("You can keep up to 6 sources. Remove one first.") }
+        let info = PersonaSourcePublic(id: newId("src"), kind: source.kind, label: label, chars: Double(text.count), preview: String(text.prefix(160)), addedAt: Date().timeIntervalSince1970 * 1000)
+        personaSources.append(StoredSource(info: info, text: text))
+        publishPlayer()
+        return AvatarResult(ok: true)
+    }
+
+    func removeSource(_ sourceId: Id) async throws -> AvatarResult {
+        personaSources.removeAll { $0.info.id == sourceId }
+        publishPlayer()
+        return AvatarResult(ok: true)
+    }
+
+    func synthesize(name: String?) async throws -> AvatarResult {
+        guard !personaSources.isEmpty else { return avatarFail("Add something about yourself first.") }
+        try await Task.sleep(for: .milliseconds(600))
+        let built = Self.ruleProfile(from: personaSources.map(\.text).joined(separator: "\n"), name: name)
+        profile = built
+        profileSource = "rules"
+        publishPlayer()
+        return AvatarResult(ok: true, profile: built, profileSource: "rules")
+    }
+
+    func saveProfile(_ next: AvatarProfile) async throws -> AvatarResult {
+        let name = next.name.trimmingCharacters(in: .whitespaces)
+        guard (2...40).contains(name.count) else { return avatarFail("The name must be 2 to 40 characters.") }
+        guard next.backstory.count <= 280 else { return avatarFail("The backstory must be 280 characters or fewer.") }
+        guard next.goals.count <= 2 else { return avatarFail("Up to 2 goals.") }
+        var saved = next
+        saved.name = name
+        profile = saved
+        profileSource = "player"
+        publishPlayer()
+        return AvatarResult(ok: true, profile: saved, profileSource: "player")
+    }
+
+    func spawnAvatar() async throws -> AvatarResult {
+        guard let p = profile else { return avatarFail("Build your character first.") }
+        if let id = avatarId, agents[id]?.lite.alive == true { return avatarFail("\(p.first) is already in the colony.") }
+        let made = applyNow(.createCharacter(NewCharacter(name: p.name, spriteId: p.spriteId, ageBand: p.ageBand, occupation: p.occupation, home: p.homeLocationId, traits: p.traits, values: p.values, backstory: p.backstory, credits: 60, food: 6, goal: "")))
+        guard made.ok, let id = made.createdAgentId else { return avatarFail(made.message ?? "The shuttle could not land.") }
+        agents[id]!.lite.ownerName = displayName
+        agents[id]!.detail.persona = p.persona
+        let goals = p.goals.map { GoalPublic(id: newId("g"), kind: $0.kind, description: $0.description, priority: 0.7, source: "personality", status: "active", createdAtTick: tick) }
+        agents[id]!.detail.goals.insert(contentsOf: goals, at: 0)
+        avatarId = id
+        directives = []
+        directed = nil
+        notify()
+        publishPlayer()
+        return AvatarResult(ok: true, agentId: id)
+    }
+
+    private static let directiveTargets: [(String, LocationId)] = [
+        ("medbay|medic|doctor|clinic|sick|heal", .medbay), ("market|trade|buy|sell|exchange|shop", .market), ("eat|food|canteen|drink|bar|lunch|dinner", .canteen),
+        ("farm|hydroponic|grow|plant", .hydroponics), ("depot|supply|supplies|store", .depot), ("workshop|fabricat|print|parts", .workshop),
+        ("ice|water|well|drill", .ice_wells), ("quarry|regolith|dig", .quarry), ("solar|panel|power", .solar_farm), ("observatory|telescope|research|stars", .observatory),
+        ("shuttle|landing|pad|dock", .landing_pad), ("council|plaza|commons|meeting", .plaza),
+    ]
+
+    func direct(_ text: String) async throws -> AvatarResult {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (3...140).contains(text.count) else { return avatarFail("Say it in 3 to 140 characters.") }
+        guard let id = avatarId, let a = agents[id], a.lite.alive else { return avatarFail("Your character is not alive in this colony.") }
+        let lower = text.lowercased()
+        let work = a.detail.workLocationId ?? .plaza
+        let target: LocationId = Self.directiveTargets.first { lower.range(of: $0.0, options: .regularExpression) != nil }?.1
+            ?? (lower.contains("work") ? work : lower.range(of: "sleep|rest|home|bed", options: .regularExpression) != nil ? a.detail.homeLocationId : .plaza)
+        version += 1
+        agents[id]!.detail.goals.insert(GoalPublic(id: newId("g"), kind: "custom", description: text, priority: 0.9, source: "owner", status: "active", createdAtTick: tick), at: 0)
+        agents[id]!.detail.lastThought = ThoughtPublic(tick: tick, trigger: "their player asked", intent: "Do what I was asked: \"\(text)\"", source: "rules")
+        directed = (target, text, tick + 3 * Clock.ticksPerHour)
+        if a.lite.locationId == target && a.lite.move == nil {
+            socialise(id)
+        } else {
+            walk(id, to: target, why: "because their player asked")
+        }
+        emit(.intervention, "directive", actor: id, at: target, "\(a.lite.name)'s player asked: \"\(text)\"", salience: 0.5, visibility: "private", banner: false)
+        directives = Array(([AvatarDirective(text: text, tick: tick, worldId: "mock-world")] + directives).prefix(5))
+        notify()
+        publishPlayer()
+        return AvatarResult(ok: true, agentId: id)
+    }
+
+    func forgetAvatar() async throws -> AvatarResult {
+        personaSources = []
+        profile = nil
+        profileSource = nil
+        if let id = avatarId { agents[id]?.lite.ownerName = nil; agents[id]?.detail.persona = nil; touch(id) }
+        avatarId = nil
+        directives = []
+        directed = nil
+        notify()
+        publishPlayer()
+        return AvatarResult(ok: true)
+    }
+
+    // MARK: Multiplayer
+
+    private static let offlineOnly = "Multiplayer needs the live backend. Switch the data source in the menu."
+
+    func setPlayerName(_ name: String) async throws -> MultiplayerResult {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard (2...24).contains(name.count) else { return MultiplayerResult(ok: false, message: "Your name must be 2 to 24 characters.") }
+        playerName = name
+        if let id = avatarId { agents[id]?.lite.ownerName = name; touch(id) }
+        notify()
+        publishPlayer()
+        return MultiplayerResult(ok: true)
+    }
+
+    func invite() async throws -> MultiplayerResult {
+        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        let code = inviteCode ?? String((0..<6).map { _ in alphabet.randomElement()! })
+        inviteCode = code
+        publishPlayer()
+        return MultiplayerResult(ok: true, worldId: "mock-world", inviteCode: code)
+    }
+
+    func join(code: String) async throws -> MultiplayerResult { MultiplayerResult(ok: false, message: Self.offlineOnly) }
+    func leave() async throws -> MultiplayerResult { MultiplayerResult(ok: false, message: Self.offlineOnly) }
+
+    // MARK: Offline character rules
+
+    private static func hits(_ text: String, _ pattern: String) -> Int {
+        (try? NSRegularExpression(pattern: "\\b(" + pattern + ")", options: [.caseInsensitive]))?.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) ?? 0
+    }
+
+    private static let occupationWords: [(String, String)] = [
+        ("fabricator", "code|coding|software|engineer|developer|hardware|build|robot"), ("medic", "doctor|nurse|health|medic|hospital|patient"),
+        ("researcher", "research|science|scientist|phd|lab|data|study|studies"), ("trader", "sales|market|startup|founder|business|finance|invest|deal"),
+        ("cook", "cook|chef|restaurant|bake|baking|recipe"), ("hydroponicist", "garden|plants|farm|botany"), ("councilor", "policy|government|politic|manage|manager|lead"),
+        ("security", "security|police|military|guard"), ("solar_tech", "solar|energy|climate|electric"), ("quartermaster", "logistics|operations|supply chain|inventory"),
+    ]
+    private static let traitWords: [String: String] = [
+        "ambition": "ambitio|goal|startup|founder|lead|win|career|growth|driven", "empathy": "help|care|kind|volunteer|listen|support|mentor",
+        "caution": "careful|plan|safe|risk|detail|organi[sz]", "curiosity": "curious|learn|read|explor|research|science|travel|new",
+        "sociability": "friends|party|people|social|community|team|talk|events|host", "stubbornness": "stubborn|determined|persist|opinion|principle|insist",
+    ]
+    private static let valueWords: [String: String] = [
+        "wealth": "money|invest|finance|rich|salary|business|profit", "family": "family|kids|children|partner|parents|home|wife|husband",
+        "status": "recognition|award|status|career|famous|leader|promotion", "harmony": "peace|calm|community|together|balance|kindness",
+        "freedom": "freedom|travel|independen|adventure|explore|remote",
+    ]
+    private static let interestWords = ["climbing", "running", "cooking", "music", "reading", "travel", "startups", "design", "photography", "gaming", "hiking", "coffee", "chess", "film", "art", "writing", "yoga", "cycling", "football", "basketball", "tennis", "soccer", "investing", "ai", "science", "history", "gardening", "fashion", "poetry", "space", "books", "surfing", "swimming", "podcasts"]
+
+    static func ruleProfile(from text: String, name: String?) -> AvatarProfile {
+        let occId = occupationWords.map { ($0.0, hits(text, $0.1)) }.filter { $0.1 > 0 }.max { $0.1 < $1.1 }?.0 ?? "resident"
+        let traits = Dictionary(uniqueKeysWithValues: TRAIT_KEYS.map { key in (key, min(0.95, 0.45 + Double(hits(text, traitWords[key] ?? "")) * 0.08)) })
+        let values = Dictionary(uniqueKeysWithValues: VALUE_KEYS.map { key in (key, min(0.95, 0.4 + Double(hits(text, valueWords[key] ?? "")) * 0.1)) })
+        var interests = interestWords.filter { hits(text, $0 + "\\b") > 0 }.prefix(6).map { $0 }
+        if interests.isEmpty { interests = ["good conversation", "the colony"] }
+        let given = name?.trimmingCharacters(in: .whitespaces) ?? ""
+        let topValue = values.max { $0.value < $1.value }?.key ?? "harmony"
+        let topTrait = traits.max { $0.value < $1.value }?.key ?? "curiosity"
+        let label = occupation(occId).label.lowercased()
+        let speech = (traits["sociability"] ?? 0.5) > 0.6 ? "Warm and chatty, quick with a joke and a question." : (traits["caution"] ?? 0.5) > 0.6 ? "Measured and precise; thinks before answering." : "Direct and friendly, gets to the point."
+        let habitFor: [String: String] = ["ambition": "Volunteers for the hardest shift", "empathy": "Checks on neighbours who look tired", "caution": "Keeps a spare ration in the locker", "curiosity": "Asks newcomers where they came from", "sociability": "Saves seats at the canteen for friends", "stubbornness": "Finishes what they start, whatever it takes"]
+        let habits = traits.sorted { $0.value > $1.value }.prefix(2).compactMap { habitFor[$0.key] }
+        let goalFor: [String: AvatarGoal] = [
+            "wealth": AvatarGoal(kind: "earn_wealth", description: "Save 300 credits for a private bunk"), "family": AvatarGoal(kind: "improve_relationship", description: "Build a household that looks out for each other"),
+            "status": AvatarGoal(kind: "gain_influence", description: "Win a seat on the council"), "harmony": AvatarGoal(kind: "improve_relationship", description: "Make real friends in the colony"),
+            "freedom": AvatarGoal(kind: "custom", description: "Map the far side of the crater"),
+        ]
+        return AvatarProfile(
+            name: given.count >= 2 ? given : "You",
+            spriteId: occupation(occId).archetype + "_0",
+            ageBand: "adult",
+            occupation: occId,
+            homeLocationId: .habitat_b,
+            traits: traits,
+            values: values,
+            backstory: "Came up on the latest shuttle as a \(label), bringing a love of \(interests[0]) and a habit of putting \(topValue) first.",
+            goals: [goalFor[topValue]].compactMap { $0 },
+            summary: String("A \(topTrait == "sociability" ? "sociable" : topTrait == "curiosity" ? "curious" : topTrait == "empathy" ? "caring" : topTrait == "caution" ? "careful" : topTrait == "ambition" ? "driven" : "determined") \(label) who loves \(interests.prefix(2).joined(separator: " and ")).".prefix(160)),
+            interests: interests,
+            speechStyle: speech,
+            habits: habits
+        )
     }
     func stop() {
         timer?.invalidate()

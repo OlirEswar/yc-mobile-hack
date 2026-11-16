@@ -43,6 +43,7 @@ struct RootView: View {
                     Tab("Colony", systemImage: "moon.fill", value: .colony) { ColonyView() }
                     Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
                     Tab("Chronicle", systemImage: "book.fill", value: .chronicle) { ChronicleView() }
+                    Tab("You", systemImage: "person.crop.circle.badge.plus", value: .you) { YouView() }
                 }
                 .tabViewBottomAccessory { TickerView() }
                 // One inspector, one power sheet and one follow cover serve every tab.

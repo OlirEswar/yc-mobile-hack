@@ -308,7 +308,8 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
     causeEventId: job.eventId,
     now: job.lane !== 'normal',
   });
-  mind.llmCooldownUntilTick = tx.tick + tx.world.config.llm.cooldownTicks;
+  // A player's avatar thinks for itself three times as often: it is who the player watches.
+  mind.llmCooldownUntilTick = tx.tick + Math.round(tx.world.config.llm.cooldownTicks / (agent.ownerSessionId ? 3 : 1));
   touchMind(tx, mind);
   // A plan that starts later would say its line at the wrong moment.
   if (plan.speech && job.lane !== 'normal') {

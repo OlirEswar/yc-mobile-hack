@@ -226,6 +226,11 @@ struct MapView: View {
                 let ring = CGRect(x: p.x - 16, y: p.y - 6, width: 32, height: 12)
                 map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.35)))
                 map.stroke(Path(ellipseIn: ring), with: .color(.amber), lineWidth: 2)
+            } else if a.ownerName != nil {
+                let ring = CGRect(x: p.x - 13, y: p.y - 5, width: 26, height: 10)
+                let mine = game.isMine(a.id)
+                map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(mine ? 0.35 : 0.12)))
+                map.stroke(Path(ellipseIn: ring), with: .color(.amber), style: StrokeStyle(lineWidth: 1.5, dash: mine ? [] : [3, 2]))
             }
             if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? 0, frame: pos.heading == nil ? 0 : frame) {
                 map.draw(sprite, in: CGRect(x: p.x - Art.feet.x, y: p.y - Art.feet.y, width: Art.frameSize.width, height: Art.frameSize.height))
@@ -259,6 +264,18 @@ struct MapView: View {
             labels.draw(Text(loc.name.uppercased()).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundStyle(damaged.contains(loc.rawValue) ? .red : .white.opacity(0.8)), at: p, anchor: .center)
         }
 
+        for (a, pos) in placed {
+            guard let owner = a.ownerName else { continue }
+            let mine = game.isMine(a.id)
+            let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y - 38) * cam.k)
+            let tag = ctx.resolve(Text(mine ? "You" : owner).font(.system(size: 10, weight: .bold)).foregroundStyle(mine ? Color.black : .amber))
+            let s = tag.measure(in: CGSize(width: 120, height: 20))
+            let pill = CGRect(x: p.x - s.width / 2 - 6, y: p.y - s.height - 4, width: s.width + 12, height: s.height + 4)
+            ctx.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(mine ? .amber : .black.opacity(0.7)))
+            if !mine { ctx.stroke(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(.amber), lineWidth: 1) }
+            ctx.draw(tag, in: pill.insetBy(dx: 6, dy: 2))
+        }
+
         let index = Dictionary(placed.map { ($0.0.id, $0.1.point) }, uniquingKeysWith: { a, _ in a })
         var known: Set<Id> = []
         if let lens, let me = index[lens.id] {
@@ -272,7 +289,8 @@ struct MapView: View {
         var taken: [CGPoint] = []
         for (a, pos) in ranked {
             if lens != nil && a.id != lens?.id && !known.contains(a.id) { continue }
-            let head = cam.screen(CGPoint(x: pos.point.x, y: pos.point.y - Art.feet.y))
+            var head = cam.screen(CGPoint(x: pos.point.x, y: pos.point.y - Art.feet.y))
+            if a.ownerName != nil { head.y -= 5 * cam.k + 18 }
             guard bounds.contains(head) else { continue }
             let age = reacting[a.id]
             let isMarked = a.id == marked

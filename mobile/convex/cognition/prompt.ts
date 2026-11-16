@@ -78,12 +78,14 @@ Rules:
 - They know only what is listed. Never invent people, places, goods or facts. Use only the given refs (p1, b1, s1) and ids.
 - Steps run in order. Steps with a person (talk, give, help, steal, beg, borrow, repay, barter, bribe, blackmail, lie, confide, court, comfort, threaten, reconcile, eavesdrop) need that person in the same place: people marked HERE are present now; to meet anyone else, first go where they usually are.
 - Buying costs the listed price per unit; check they can afford it. The depot ration (ration step at the Supply Depot) is free. smuggle happens at the Landing Pad.
-- 2 to 6 steps, concrete and plausible. Do not repeat what they are already doing for no reason, and do not fall back on the same plan twice in a row.
+- This is a whole person living a life, not a worker on a rota. Nobody tells them when to work, eat or sleep: they decide. They get bored, lonely, curious, petty, tender, restless. They skip a shift to sit with a sick friend, linger over a meal, pick a fight, go looking for someone they cannot stop thinking about, wander off to be alone, stay up too late. Give their day a shape only this person would give it, and let yesterday's feelings carry into today (see their recent thoughts and memories).
+- Prefer doing things with and to other people over doing things alone: most of what matters in the colony happens between two people.
+- 4 to 8 steps that cover the next two to four hours, concrete and plausible. Do not repeat what they are already doing for no reason, and do not fall back on the same plan twice in a row.
 - intent: one sentence, third person, present tense, with their first name and the real motive, e.g. "Ines slips into the depot after the shift, because Tomas's fever is worse and the ration will not cover his water."
 - label per step: a short imperative phrase with real names and places, e.g. "Ask Joao for a loan", "Walk to the Supply Depot".
 - goal: only when this moment gives them a new or sharper purpose, otherwise null. targetAgentId is a person ref or null.
 - speech: one short line they say aloud right now, in their voice (under 90 characters, natural, no quotes), or null.
-- thought: when asked for, 2 to 4 flowing sentences of inner monologue in the first person and present tense, in their voice, dramatic and emotional, with what is at stake for them, continuing their recent thoughts without restating them; never notes or fragments; otherwise null. Speak of people, places and feelings, never numbers or stats.
+- thought: always filled, never null. 2 to 4 flowing sentences when the player is following them, otherwise 1 or 2; inner monologue in the first person and present tense, in their voice, dramatic and emotional, with what is at stake for them, continuing their recent thoughts without restating them; never notes or fragments. Speak of people, places and feelings, never numbers or stats.
 Reply with JSON only: {"intent": string, "goal": {"kind", "description", "priority" 0..1, "targetAgentId"} or null, "steps": [{"type", "args": [string], "label"}], "speech": string or null, "thought": string or null}.`;
 
 const SYSTEM_SPEECH = `You write one line of dialogue for a colonist of Shackleton Colony, a cramped Moon base where water is scarce. The line must fit their voice, personality, mood and what they think of the person they are talking to, and must sound like real speech: plain, specific, under 90 characters, no quotes, no stage directions, no emojis. Never invent facts beyond what is given. Reply with JSON {"line": "..."}.`;
@@ -344,9 +346,9 @@ export function planRequest(c: PlanContext): ChatRequest {
     'Why you are deciding now: ' + c.trigger + (c.detail ? '. ' + c.detail : '') + '.',
     c.followed
       ? 'The player is following ' + first + ' closely: make the choice worth watching, true to their want, fear and secret. Fill thought with a fresh line that does not echo the recent ones.'
-      : 'thought: null.',
+      : 'Fill thought with 1 or 2 sentences of what is going through ' + first + "'s head right now, in their own voice, carrying on from their recent thoughts.",
   ];
-  return { system: SYSTEM_PLAN, user: lines.join('\n'), maxTokens: 700, schema: PLAN_SCHEMA };
+  return { system: SYSTEM_PLAN, user: lines.join('\n'), maxTokens: 900, schema: PLAN_SCHEMA, temperature: 1 };
 }
 
 /** The full request for a speech job. */

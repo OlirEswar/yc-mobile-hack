@@ -588,7 +588,7 @@ export async function planContext(
       society: await societyLines(ctx, agent, mind),
       societyRefs: await societyLookup(ctx, agent, mind),
       storylines: await storylinesOf(ctx, world._id, agent._id, 3),
-      thoughts: opts.followed ? await recentThoughts(ctx, agent._id, 3) : [],
+      thoughts: await recentThoughts(ctx, agent._id, opts.followed ? 4 : 3),
       avatar: avatarOf(world, agent, mind),
   };
 }

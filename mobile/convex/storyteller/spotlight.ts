@@ -7,6 +7,7 @@
 import type { Doc } from '../_generated/dataModel';
 import { admits, rollDay } from '../cognition/budget';
 import { providerConfig } from '../cognition/provider';
+import { DEFAULT_LLM_CONFIG } from '../lib/constants';
 import { STEP_SPECS, agentsAt, decodeStep, encodeStep, enqueueCognition, interrupt, loadAgent, loadMind, tiesOf, touchMind } from '../engine/core';
 import type { AgentDoc, MindDoc, Tx } from '../engine/core';
 import { cool, cooling, debtsTo } from '../engine/ledger';
@@ -104,8 +105,8 @@ async function hasPendingJob(tx: Tx, a: AgentDoc): Promise<boolean> {
 /** True when a focus-lane call can be made now: a key, the LLM on, and budget left. */
 function llmReady(tx: Tx): boolean {
   const llm = tx.world.llm;
-  rollDay(llm, tx.world.config.llm, tx.tick);
-  return providerConfig() !== null && llm.enabled && !((llm.disabledUntil ?? 0) > Date.now()) && admits(llm, tx.world.config.llm, 'thought', 'focus');
+  rollDay(llm, DEFAULT_LLM_CONFIG, tx.tick);
+  return providerConfig() !== null && llm.enabled && !((llm.disabledUntil ?? 0) > Date.now()) && admits(llm, DEFAULT_LLM_CONFIG, 'thought', 'focus');
 }
 
 const sleepsOnly = (steps: string[]): boolean => steps.every((s) => ['go', 'sleep'].includes(decodeStep(s)?.type ?? ''));

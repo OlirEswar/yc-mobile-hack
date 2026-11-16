@@ -9,7 +9,7 @@ import { dialogueTick, startDialogue } from '../storyteller/dialogue';
 import { AGENT_STEPS_PER_TICK, LEVY_FREE, LEVY_RATE } from '../lib/constants';
 import { round2 } from '../lib/rng';
 import { locName, scarcityCause } from './conditions';
-import { adoptAgent, dayOf, enqueueCognition, killAgent, loadMind, touch } from './core';
+import { NEXT_TRIGGER, adoptAgent, dayOf, enqueueCognition, killAgent, loadMind, touch } from './core';
 import type { AgentDoc, EventId, Tx } from './core';
 import { FAILED, addressesNeed, finishStep, startStep } from './executor';
 import { applyNeeds, deathCause } from './needs';
@@ -87,12 +87,25 @@ async function stepAgent(tx: Tx, a: AgentDoc): Promise<void> {
       a.curStartTick = tx.tick;
       a.busyUntilTick = tx.tick + Math.max(ticks, await startDialogue(tx, a, next.split('|')[0]));
       touch(tx, a);
+      if (a.q.length === 0) await thinkAhead(tx, a, next, ticks);
       return;
     }
     if (ticks === FAILED) break;
   }
   a.busyUntilTick = tx.tick + 1;
   touch(tx, a);
+}
+
+/**
+ * On the last step of a plan the model wrote, asks it what comes next, so one chosen stretch of life
+ * runs into the next with no lapse into habit. Long last steps (a night's sleep) decide on waking.
+ */
+async function thinkAhead(tx: Tx, a: AgentDoc, step: string, ticks: number): Promise<void> {
+  if (ticks > 8 || step.startsWith('sleep|')) return;
+  const mind = await loadMind(tx, a);
+  if (mind?.plan?.source !== 'llm') return;
+  const lane = tx.world.focusAgentId === a._id ? 'focus' : tx.world.orbitIds?.includes(a._id) ? 'orbit' : 'normal';
+  await enqueueCognition(tx, a, { kind: 'plan', trigger: NEXT_TRIGGER + ' for them, once they finish "' + mind.plan.intent.replace(/\.$/, '') + '"', priority: lane === 'normal' ? 0.45 : 0.85, lane });
 }
 
 /** The label the plan gave this step, when the step is the plan's next one. */

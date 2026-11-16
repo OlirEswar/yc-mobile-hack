@@ -874,6 +874,9 @@ export type CognitionRequest = {
  * Asks for LLM reasoning about an agent. Never blocks: the agent keeps acting on rule-based plans
  * and the result, if it arrives and still applies, replaces them. Returns false when not queued.
  */
+/** Trigger prefix of a plan asked for while the last step of the current one is still running. */
+export const NEXT_TRIGGER = 'what comes next';
+
 export async function enqueueCognition(tx: Tx, a: AgentDoc, request: CognitionRequest): Promise<boolean> {
   const llm = tx.world.llm;
   if (!llm.enabled || !a.alive || !a.mindId) return false;
@@ -881,7 +884,7 @@ export async function enqueueCognition(tx: Tx, a: AgentDoc, request: CognitionRe
   const mind = await loadMind(tx, a);
   if (!mind) return false;
   if (request.kind === 'plan' && request.lane === 'normal' && mind.llmCooldownUntilTick > tx.tick) return false;
-  if (request.kind === 'plan' && request.lane === 'orbit' && tx.tick - (mind.lastLlmPlanTick ?? -Infinity) < (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks)) return false;
+  if (request.kind === 'plan' && request.lane === 'orbit' && tx.tick - (mind.lastLlmPlanTick ?? -Infinity) < (DEFAULT_LLM_CONFIG.orbitCooldownTicks)) return false;
   const pending = await tx.ctx.db
     .query('cognitionJobs')
     .withIndex('by_agent_status', (q) => q.eq('agentId', a._id).eq('status', 'queued'))

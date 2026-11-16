@@ -11,6 +11,7 @@ import { hash32 } from '../lib/rng';
 import { adjustRelationship, emitEvent, encodeStep, heldBeliefs, interrupt, learnBelief, loadAgent, loadMind, tieTo, touch } from '../engine/core';
 import type { AgentDoc, Tx } from '../engine/core';
 import { debtsTo } from '../engine/ledger';
+import { providerConfig } from '../cognition/provider';
 
 export const DIALOGUE_STEPS = new Set(['talk', 'confide', 'court', 'comfort', 'threaten', 'intimidate', 'accuse', 'barter', 'bribe', 'blackmail', 'beg', 'borrow', 'repay', 'reconcile', 'recruit', 'extort', 'kiss', 'lie', 'help', 'give', 'gamble', 'carouse']);
 export const OUTCOMES = ['warmer', 'colder', 'promise', 'secret', 'fight', 'refusal', 'none'] as const;
@@ -21,7 +22,7 @@ const first = (name: string): string => name.split(' ')[0];
 const pick = <T,>(items: T[], salt: number): T => items[(salt >>> 0) % items.length];
 
 export async function liveDialogues(tx: Tx): Promise<Doc<'dialogues'>[]> {
-  return await tx.ctx.db.query('dialogues').withIndex('by_world_live', (q) => q.eq('worldId', tx.world._id).eq('live', true)).take(12);
+  return await tx.ctx.db.query('dialogues').withIndex('by_world_live', (q) => q.eq('worldId', tx.world._id).eq('live', true)).take(80);
 }
 
 export async function inDialogue(tx: Tx, id: Id<'agents'>): Promise<boolean> {
@@ -98,6 +99,15 @@ async function ruleLines(tx: Tx, a: AgentDoc, b: AgentDoc, kind: string): Promis
   };
 }
 
+/** Ticks a conversation waits for the model's words before falling back on the rules version. */
+const HOLD_TICKS = 3;
+
+/** True when the model is able to write conversations right now. */
+function modelWrites(tx: Tx): boolean {
+  const llm = tx.world.llm;
+  return providerConfig() !== null && llm.enabled && !((llm.disabledUntil ?? 0) > Date.now());
+}
+
 /** Starts a conversation for an interaction step that touches the followed colonist or their orbit. Returns its length in ticks, or 0. */
 export async function startDialogue(tx: Tx, a: AgentDoc, kind: string): Promise<number> {
   if (!DIALOGUE_STEPS.has(kind) || !a.interactingWithId) return 0;
@@ -105,18 +115,22 @@ export async function startDialogue(tx: Tx, a: AgentDoc, kind: string): Promise<
   const orbit = tx.world.orbitIds ?? [];
   const b = await loadAgent(tx, a.interactingWithId);
   if (!b?.alive || b.move || b.activity === 'sleeping' || b.locationId !== a.locationId) return 0;
-  const watched = a._id === focus || b._id === focus || (orbit.includes(a._id) && orbit.includes(b._id));
-  if (!watched) return 0;
+  // The followed colonist's circle always talks in full; everyone else does whenever the model can write it.
+  const close = a._id === focus || b._id === focus || (orbit.includes(a._id) && orbit.includes(b._id));
+  const watched = close || orbit.includes(a._id) || orbit.includes(b._id);
+  if (!close && !modelWrites(tx)) return 0;
   const live = await liveDialogues(tx);
   if (live.some((d) => [d.aId, d.bId].some((id) => id === a._id || id === b._id))) return 0;
   const { lines, outcome } = await ruleLines(tx, a, b, kind);
-  const id = await tx.ctx.db.insert('dialogues', { worldId: tx.world._id, live: true, aId: a._id, bId: b._id, aName: a.name, bName: b.name, kind, lines, shown: 1, startTick: tx.tick, source: 'rules', outcome, applied: false });
-  a.speech = lines[0].text;
+  // While the model can answer, nobody says a canned line: they hold a beat until the real words arrive.
+  const thinking = modelWrites(tx);
+  const id = await tx.ctx.db.insert('dialogues', { worldId: tx.world._id, live: true, aId: a._id, bId: b._id, aName: a.name, bName: b.name, kind, lines, shown: thinking ? 0 : 1, startTick: tx.tick, source: 'rules', outcome, applied: false });
+  a.speech = thinking ? undefined : lines[0].text;
   b.speech = undefined;
   b.interactingWithId = a._id;
   b.activity = 'talking';
   b.activityLabel = 'Talking with ' + a.name;
-  const end = tx.tick + lines.length + 1;
+  const end = tx.tick + lines.length + 1 + (thinking ? HOLD_TICKS : 0);
   if (b.cur && !b.cur.startsWith('talk|')) b.q = [b.cur, ...b.q].slice(0, 24);
   b.cur = encodeStep('talk', a._id);
   b.curStartTick = tx.tick;
@@ -126,11 +140,11 @@ export async function startDialogue(tx: Tx, a: AgentDoc, kind: string): Promise<
   const llm = tx.world.llm;
   const mind = await loadMind(tx, a);
   if (llm.enabled && mind && !((llm.disabledUntil ?? 0) > Date.now())) {
-    await tx.ctx.db.insert('cognitionJobs', { worldId: tx.world._id, agentId: a._id, kind: 'dialogue', trigger: kind, detail: id, priority: 0.92, status: 'queued', lane: a._id === focus || b._id === focus ? 'focus' : 'orbit', enqueuedTick: tx.tick, mindVersion: mind.stateVersion, attempts: 0 });
+    await tx.ctx.db.insert('cognitionJobs', { worldId: tx.world._id, agentId: a._id, kind: 'dialogue', trigger: kind, detail: id, priority: 0.92, status: 'queued', lane: a._id === focus || b._id === focus ? 'focus' : watched ? 'orbit' : 'normal', enqueuedTick: tx.tick, mindVersion: mind.stateVersion, attempts: 0 });
     llm.queued += 1;
     await tx.ctx.scheduler.runAfter(0, internal.cognition.drain, { worldId: tx.world._id });
   }
-  return lines.length + 1;
+  return lines.length + 1 + (thinking ? HOLD_TICKS : 0);
 }
 
 async function applyOutcome(tx: Tx, d: Doc<'dialogues'>, a: AgentDoc, b: AgentDoc): Promise<void> {
@@ -174,6 +188,7 @@ export async function dialogueTick(tx: Tx): Promise<void> {
       await tx.ctx.db.patch(d._id, { live: false, applied: true });
       continue;
     }
+    if (d.source === 'rules' && d.shown === 0 && tx.tick - d.startTick < HOLD_TICKS && modelWrites(tx)) continue;
     const line = d.lines[d.shown];
     const speaker = line.speakerId === a._id ? a : b;
     const listener = speaker === a ? b : a;

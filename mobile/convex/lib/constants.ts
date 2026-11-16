@@ -36,24 +36,25 @@ export const INITIAL_TREASURY = 12_000;
  * LLM_DAILY_USD_CAP caps each world's spend per real day.
  */
 export const DEFAULT_LLM_CONFIG = {
-  budgetPerDay: 520,
-  maxConcurrent: 8,
-  /** 4 simulated hours between normal LLM plans for one agent. Focus and crisis plans ignore it. */
-  cooldownTicks: 24,
-  focusReserve: 160,
+  // Living minds: the model decides for everyone, all the time. These are ceilings, not targets.
+  budgetPerDay: 4000,
+  maxConcurrent: 12,
+  /** Half a simulated hour between normal LLM plans for one agent. Focus and crisis plans ignore it. */
+  cooldownTicks: 3,
+  focusReserve: 200,
   /** Held for the people around the followed colonist, who may plan again after orbitCooldownTicks. */
-  orbitReserve: 140,
-  orbitCooldownTicks: 9,
-  crisisReserve: 60,
-  speechPerDay: 160,
+  orbitReserve: 300,
+  orbitCooldownTicks: 2,
+  crisisReserve: 200,
+  speechPerDay: 1500,
 };
 
 /** gpt-6-luna list prices in dollars per token (standard tier); other models are costed the same. */
 export const LLM_PRICE = { input: 0.1 / 1_000_000, output: 0.5 / 1_000_000 };
 /** A world's LLM spend per real (UTC) day stops here; the env var LLM_DAILY_USD_CAP overrides it. */
-export const DEFAULT_DAILY_USD_CAP = 15;
+export const DEFAULT_DAILY_USD_CAP = 60;
 /** Share of ordinary colonists' fresh non-routine decisions that also go to the LLM, budget allowing. */
-export const NORMAL_LLM_SHARE = 0.35;
+export const NORMAL_LLM_SHARE = 1;
 
 /** Bounds for the create-character power. */
 export const MAX_STARTING: Record<string, number> = { food: 20, water: 20, parts: 20, medicine: 10, credits: 300 };

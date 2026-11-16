@@ -12,7 +12,7 @@ import { internalAction, internalMutation, internalQuery } from './_generated/se
 import type { ActionCtx, MutationCtx } from './_generated/server';
 import { TICKS_PER_DAY } from '../shared/colony';
 import { DEFAULT_LLM_CONFIG } from './lib/constants';
-import { beginTx, commitTx, loadAgent, loadMind, setPlan, touch, touchMind } from './engine/core';
+import { NEXT_TRIGGER, beginTx, commitTx, loadAgent, loadMind, setPlan, touch, touchMind } from './engine/core';
 import type { AgentDoc, MindDoc, Tx } from './engine/core';
 import { LANE_RANK, admits, charge, recordSpend, rollDay } from './cognition/budget';
 import { loadJobContext } from './cognition/context';
@@ -36,9 +36,9 @@ const THOUGHT_STALE_TICKS = 3;
 const RUNNING_TIMEOUT_MS = 90_000;
 const QUEUE_SCAN = 60;
 /** Consecutive failed calls before the LLM pauses, and the pause, doubling per further failure. */
-export const FAILS_BEFORE_BACKOFF = 3;
-const BACKOFF_MS = 60_000;
-const MAX_BACKOFF_MS = 15 * 60_000;
+export const FAILS_BEFORE_BACKOFF = 10;
+const BACKOFF_MS = 8_000;
+const MAX_BACKOFF_MS = 60_000;
 /** LLM goals lapse after two sim days unless restated. */
 const GOAL_TTL_TICKS = 2 * TICKS_PER_DAY;
 const MAX_GOALS = 8;
@@ -96,7 +96,7 @@ export const claim = internalMutation({
     if (!world) return { jobIds: [], again: false };
     const tx = beginTx(ctx, world);
     const llm = tx.world.llm;
-    const config = tx.world.config.llm;
+    const config = DEFAULT_LLM_CONFIG;
     const before = JSON.stringify(llm);
     const now = Date.now();
     rollDay(llm, config, tx.tick);
@@ -342,18 +342,19 @@ async function commitPlan(tx: Tx, job: Doc<'cognitionJobs'>, plan: ValidPlan): P
     labels: plan.labels,
     goalId,
     causeEventId: job.eventId,
-    now: job.lane !== 'normal',
+    // The model's plan takes over at once; a plan asked for ahead of time follows the step in progress.
+    now: !job.trigger.startsWith(NEXT_TRIGGER),
   });
   // A player's avatar thinks for itself three times as often: it is who the player watches.
   mind.llmCooldownUntilTick =
     tx.tick +
     (job.lane === 'orbit'
-      ? (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks)
-      : Math.round(tx.world.config.llm.cooldownTicks / (agent.ownerSessionId ? 3 : 1)));
+      ? (DEFAULT_LLM_CONFIG.orbitCooldownTicks)
+      : Math.round(DEFAULT_LLM_CONFIG.cooldownTicks / (agent.ownerSessionId ? 3 : 1)));
   mind.lastLlmPlanTick = tx.tick;
   touchMind(tx, mind);
   // A plan that starts later would say its line at the wrong moment.
-  if (plan.speech && job.lane !== 'normal') {
+  if (plan.speech && !job.trigger.startsWith(NEXT_TRIGGER)) {
     agent.speech = plan.speech;
     touch(tx, agent);
   }
@@ -430,7 +431,7 @@ export const debugJob = internalMutation({
     const world = agent ? await ctx.db.get(agent.worldId) : null;
     if (!agent || !mind || !world) throw new Error('agent not found');
     const tx = beginTx(ctx, world);
-    rollDay(tx.world.llm, tx.world.config.llm, tx.tick);
+    rollDay(tx.world.llm, DEFAULT_LLM_CONFIG, tx.tick);
     charge(tx.world.llm, 'plan', 'focus');
     tx.world.llm.running += 1;
     const jobId = await ctx.db.insert('cognitionJobs', {

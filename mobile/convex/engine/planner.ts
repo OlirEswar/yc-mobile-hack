@@ -120,18 +120,21 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   touchMind(tx, mind);
   if (chosen.llm) await enqueueCognition(tx, a, chosen.llm);
   const why = chosen.trigger ?? chosen.intent;
-  if (tx.world.focusAgentId === a._id && (!chosen.routine || p < 6)) {
+  const idle = chosen.steps.every((s) => s.startsWith('sleep|') || s.startsWith('go|'));
+  const habit = 'a free moment; habit alone would have them "' + why.replace(/\.$/, '') + '", but they decide for themselves';
+  if (tx.world.focusAgentId === a._id && !idle) {
     await enqueueCognition(tx, a, {
       kind: 'plan',
-      trigger: p < 6 ? 'followed by the player: starting a new day' : 'followed by the player: ' + chosen.intent,
+      trigger: p < 6 ? 'starting a new day' : habit,
       priority: 0.9,
       lane: 'focus',
     });
-  } else if (tx.world.orbitIds?.includes(a._id) && chosen.steps.some((s) => !s.startsWith('sleep|') && !s.startsWith('go|'))) {
+  } else if (tx.world.orbitIds?.includes(a._id) && !idle) {
     // Close to the followed colonist: the player is watching them react, so they think it through.
-    await enqueueCognition(tx, a, { kind: 'plan', trigger: 'near the person the player follows; habit says: ' + why, priority: 0.8, lane: 'orbit' });
-  } else if (!chosen.routine && !chosen.llm && rand(tx.world.seed, tx.tick, a.seq, 'llm-share') < NORMAL_LLM_SHARE) {
-    await enqueueCognition(tx, a, { kind: 'plan', trigger: why, priority: 0.4, lane: 'normal', eventId: chosen.causeEventId });
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: habit, priority: 0.8, lane: 'orbit' });
+  } else if (!chosen.llm && !idle && rand(tx.world.seed, tx.tick, a.seq, 'llm-share') < NORMAL_LLM_SHARE) {
+    // Everyone thinks for themselves: the rules plan above only carries them until the model answers.
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: chosen.routine ? habit : why, priority: chosen.routine ? 0.35 : 0.5, lane: 'normal', eventId: chosen.causeEventId });
   }
 }
 

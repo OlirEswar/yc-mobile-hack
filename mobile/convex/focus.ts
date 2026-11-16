@@ -19,7 +19,7 @@ import { askRequest } from './cognition/prompt';
 import { chat, providerConfig } from './cognition/provider';
 import { parseJson, validateAnswer } from './cognition/validate';
 import { asAgentId, asWorldId, authorizeWorld, getSession } from './lib/auth';
-import { RATE_LIMITS } from './lib/constants';
+import { DEFAULT_LLM_CONFIG, RATE_LIMITS } from './lib/constants';
 import { round2 } from './lib/rng';
 import { POWERS } from './powers';
 import { isFailure } from './powers/common';
@@ -228,8 +228,8 @@ export const applyPlant = internalMutation({
     const agent = await loadAgent(tx, args.agentId);
     if (!agent || !agent.alive) return { ok: false, message: 'Their thoughts went quiet before the idea could land.' };
     const reading: Reading = args.reading;
-    rollDay(tx.world.llm, tx.world.config.llm, tx.tick);
-    const thinks = providerConfig() !== null && tx.world.llm.enabled && !((tx.world.llm.disabledUntil ?? 0) > now) && admits(tx.world.llm, tx.world.config.llm, 'thought', 'focus', now);
+    rollDay(tx.world.llm, DEFAULT_LLM_CONFIG, tx.tick);
+    const thinks = providerConfig() !== null && tx.world.llm.enabled && !((tx.world.llm.disabledUntil ?? 0) > now) && admits(tx.world.llm, DEFAULT_LLM_CONFIG, 'thought', 'focus', now);
     const accepted = thinks || takesItUp(agent, reading);
     const outcome = await POWERS.whisper(tx, {
       agentId: agent._id,

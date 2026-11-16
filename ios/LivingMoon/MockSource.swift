@@ -58,6 +58,8 @@ final class MockSource: WorldSource {
     private var focusWatchers: [Id: [UUID: (FocusState?) -> Void]] = [:]
     private var conversationWatchers: [Id: [UUID: ([AskTurn]) -> Void]] = [:]
     private weak var sink: SourceSink?
+    private var mockSkip: TimeskipPublic?
+    private var skipWatchers: [UUID: (TimeskipPublic?) -> Void] = [:]
 
     init() { seed() }
 
@@ -827,6 +829,95 @@ final class MockSource: WorldSource {
                 Notable(agentId: key("marit"), name: "Marit Lindqvist", known: "the founder's daughter who runs the council"),
                 Notable(agentId: key("asha"), name: "Asha Tanaka", known: "the medic who stayed when the shuttles stopped"),
             ])
+    }
+
+    // MARK: Timeskip (faked: a few seconds of progress, then a short chronicle)
+
+    func startTimeskip(span: TimeskipSpan) async throws -> TimeskipStartResult {
+        if let running = mockSkip, running.status == "running" { return TimeskipStartResult(ok: true, timeskipId: running.id, code: nil, message: nil) }
+        let days: Double = switch span {
+        case .week: 7
+        case .month: 30
+        case .half_year: 182
+        case .year: 365
+        case .five_years: 1825
+        case .decade: 3650
+        }
+        let id = "mock-skip-\(nextId)"
+        nextId += 1
+        let start = tick
+        let end = tick + days * Clock.ticksPerDay
+        let wasSpeed = speed
+        speed = 0
+        schedule()
+        mockSkip = TimeskipPublic(id: id, span: span.rawValue, status: "running", startTick: start, endTick: end, tick: start, chapter: 0, chapters: 8, progress: 0, progressLabel: "The days begin to blur…", latestBeat: nil, summary: nil, error: nil)
+        publishSkip()
+        let cast = order.prefix(6).compactMap { agents[$0]?.lite }
+        let lines = [
+            "\(cast.first?.name ?? "Someone") and \(cast.dropFirst().first?.name ?? "a neighbour") stopped speaking after an argument at the canteen.",
+            "A shuttle brought two strangers and a crate of seed stock.",
+            "\(cast.dropFirst(2).first?.name ?? "A medic") worked three nights straight when the fever came to Ring B.",
+            "The council cut the ration, and the queues grew long and quiet.",
+            "\(cast.dropFirst(3).first?.name ?? "A hauler") married under the plaza lamps.",
+            "Someone painted the Long Dark Memorial with the names of the eleven.",
+            "The depot filled again after the best harvest anyone remembered.",
+            "The chronicler sets it all down…",
+        ]
+        Task { [weak self] in
+            for step in 1...8 {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard let self, var skip = self.mockSkip, skip.id == id else { return }
+                skip.chapter = Double(step)
+                skip.progress = Double(step) / 8.5
+                skip.tick = start + (end - start) * Double(step) / 8
+                skip.latestBeat = lines[step - 1]
+                skip.progressLabel = lines[step - 1]
+                if step == 8 { skip.status = "summarizing" }
+                self.mockSkip = skip
+                self.publishSkip()
+            }
+            try? await Task.sleep(for: .milliseconds(900))
+            guard let self, var skip = self.mockSkip, skip.id == id else { return }
+            let people = cast.map { TimeskipPerson(agentId: $0.id, name: $0.name, spriteId: $0.spriteId, alive: $0.alive, text: "\($0.name.split(separator: " ").first ?? "") came through the years changed, but not broken.", role: "key") }
+            skip.status = "done"
+            skip.progress = 1
+            skip.tick = end
+            skip.progressLabel = "The years have passed."
+            skip.summary = TimeskipSummary(
+                title: "\(span.title) in Shackleton",
+                narrative: [
+                    "\(span.title) passed over Shackleton. Children were born under the domes, and the colony buried its old ones beyond the airlock.",
+                    lines.prefix(4).joined(separator: " "),
+                    lines.dropFirst(4).prefix(3).joined(separator: " "),
+                    "Now the clock runs again, and not every quarrel was settled.",
+                ],
+                beats: lines.prefix(7).enumerated().map { i, text in TimeskipBeat(tick: start + (end - start) * Double(i) / 7, period: "Part \(i + 1)", text: text, agentIds: [], kind: "event", eventId: nil) },
+                followed: nil,
+                people: Array(people.prefix(4)),
+                newPeople: Array(people.dropFirst(4)),
+                tensions: ["The argument at the canteen is not over.", "The ration is still cut."],
+                storylineIds: [],
+                source: "rules")
+            self.mockSkip = skip
+            self.tick = end
+            self.speed = wasSpeed
+            self.version += 1
+            self.schedule()
+            self.notify()
+            self.publishSkip()
+        }
+        return TimeskipStartResult(ok: true, timeskipId: id, code: nil, message: nil)
+    }
+
+    func watchTimeskip(_ timeskipId: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void {
+        let key = UUID()
+        skipWatchers[key] = onValue
+        onValue(mockSkip.flatMap { timeskipId == nil || $0.id == timeskipId ? $0 : nil })
+        return { [weak self] in self?.skipWatchers[key] = nil }
+    }
+
+    private func publishSkip() {
+        for w in skipWatchers.values { w(mockSkip) }
     }
 
     func checkoutURL() async throws -> URL {

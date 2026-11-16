@@ -8,8 +8,9 @@ import { asAgentId, asWorldId, authorizeWorld } from './lib/auth';
 import { DEFAULT_SEED, NOTABLE_SALIENCE, SKIP_MAX_TICKS, SKIP_STEP_BUDGET } from './lib/constants';
 import { toWorldPublic } from './lib/public';
 import { seedWorld } from './seed/insert';
+import { startTimeskip } from './timeskip';
 import { SPEEDS } from '../shared/colony';
-import type { WorldPublic } from '../shared/types';
+import type { TimeskipStartResult, WorldPublic } from '../shared/types';
 
 /** Reactive. Changes every tick, so it also serves as the clock. */
 export const get = query({
@@ -67,6 +68,19 @@ export const skipToNotable = mutation({
     });
     await commitTx(tx);
     return { advancedTicks: result.ticks, eventId: result.stoppedAt };
+  },
+});
+
+/**
+ * Skips the world ahead by a span (a week to ten years) through the macro simulation in
+ * convex/timeskip.ts, pausing the clock until the chronicle is written. Idempotent while one runs.
+ */
+export const timeskip = mutation({
+  args: { sessionToken: v.string(), worldId: v.string(), span: v.string() },
+  handler: async (ctx, args): Promise<TimeskipStartResult> => {
+    const auth = await authorizeWorld(ctx, args.sessionToken, args.worldId);
+    if (!auth) return { ok: false, code: 'unauthorized', message: 'Session expired.' };
+    return await startTimeskip(ctx, auth.world, auth.session, args.span);
   },
 });
 

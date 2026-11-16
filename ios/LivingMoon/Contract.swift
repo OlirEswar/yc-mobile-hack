@@ -574,3 +574,100 @@ struct InterventionResult {
     var affectedAgentIds: [Id] = []
     var createdAgentId: Id?
 }
+
+// MARK: - Timeskip (convex/timeskip.ts)
+
+/// How far the player can skip ahead. Raw values match TimeskipSpan in mobile/shared/types.ts.
+enum TimeskipSpan: String, Codable, CaseIterable, Identifiable {
+    case week, month, half_year, year, five_years, decade
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .week: "One week"
+        case .month: "One month"
+        case .half_year: "Six months"
+        case .year: "One year"
+        case .five_years: "Five years"
+        case .decade: "Ten years"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .week: "A few quarrels, a secret or two, nothing settled."
+        case .month: "Romances start, debts come due, someone changes jobs."
+        case .half_year: "Weddings, a death, a new organization rises."
+        case .year: "Children are born, leaders are tested, feuds harden."
+        case .five_years: "A generation turns. Some faces will be gone."
+        case .decade: "Children grow up. The colony you know becomes a memory."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .week: "calendar"
+        case .month: "moonphase.waxing.crescent"
+        case .half_year: "moonphase.full.moon"
+        case .year: "sun.max"
+        case .five_years: "hourglass"
+        case .decade: "infinity"
+        }
+    }
+}
+
+struct TimeskipBeat: Codable, Hashable {
+    var tick: Double
+    var period: String
+    var text: String
+    var agentIds: [Id]
+    var kind: String
+    var eventId: Id?
+}
+
+struct TimeskipPerson: Codable, Hashable, Identifiable {
+    var agentId: Id
+    var name: String
+    var spriteId: String
+    var alive: Bool
+    var text: String
+    /// followed, key, risen, fallen, newcomer, born or gone.
+    var role: String
+    var id: Id { agentId }
+}
+
+struct TimeskipSummary: Codable, Hashable {
+    var title: String
+    var narrative: [String]
+    var beats: [TimeskipBeat]
+    var followed: TimeskipPerson?
+    var people: [TimeskipPerson]
+    var newPeople: [TimeskipPerson]
+    var tensions: [String]
+    var storylineIds: [Id]
+    var source: String
+}
+
+struct TimeskipPublic: Codable, Hashable, Identifiable {
+    var id: Id
+    var span: String
+    /// running, summarizing, done or failed.
+    var status: String
+    var startTick: Double
+    var endTick: Double
+    var tick: Double
+    var chapter: Double
+    var chapters: Double
+    var progress: Double
+    var progressLabel: String
+    var latestBeat: String?
+    var summary: TimeskipSummary?
+    var error: String?
+}
+
+struct TimeskipStartResult: Codable {
+    var ok: Bool
+    var timeskipId: Id?
+    var code: String?
+    var message: String?
+}

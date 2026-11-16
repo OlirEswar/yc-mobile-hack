@@ -15,6 +15,9 @@ import type {
   StoryIntro,
   StorylinePublic,
   Id,
+  TimeskipPublic,
+  TimeskipSpan,
+  TimeskipStartResult,
   InterventionCommand,
   InterventionResult,
   SyncUpdates,
@@ -54,6 +57,14 @@ export type ApiContract = {
     args: { sessionToken: string; worldId: Id; agentId?: Id };
     returns: { advancedTicks: number; eventId?: Id };
   };
+  /**
+   * mutation. Skips the world ahead by a week up to ten years. The world pauses while a chain of
+   * coarse macro steps (and LLM chapter decisions) plays the years out, then resumes at its old
+   * speed. Idempotent: while a skip runs, it returns that skip. Follow progress with timeskip:get.
+   */
+  'world:timeskip': { args: { sessionToken: string; worldId: Id; span: TimeskipSpan }; returns: TimeskipStartResult };
+  /** query. Reactive. A skip's progress and, once done, its chronicle. Without timeskipId, the world's latest skip. */
+  'timeskip:get': { args: { worldId: Id; timeskipId?: Id }; returns: TimeskipPublic | null };
   /** mutation. Deletes the world and seeds a fresh one. For demos and tests. */
   'world:reset': { args: { sessionToken: string }; returns: { worldId: Id } };
 

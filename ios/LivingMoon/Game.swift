@@ -92,6 +92,8 @@ final class Game: SourceSink {
     /// Who the next power targets: the colonist selected when the power was opened.
     var powerTarget: Id?
     var showPatron = false
+    /// The timeskip sheet: choose a span, watch the years pass, read the chronicle.
+    var showTimeskip = false
     var chronicleEventID: Id?
     var toast: Toast?
     var backendNote: String?
@@ -324,6 +326,21 @@ final class Game: SourceSink {
     }
 
     func society() async -> SocietyOverview? { await source?.society() }
+
+    /// Starts a timeskip. Returns the skip id, or a message for the sheet.
+    func startTimeskip(_ span: TimeskipSpan) async -> (id: Id?, message: String?) {
+        guard let source else { return (nil, "Not connected.") }
+        do {
+            let r = try await source.startTimeskip(span: span)
+            return r.ok ? (r.timeskipId, nil) : (nil, r.message ?? "The years would not turn.")
+        } catch {
+            return (nil, unsupported(error, "skip ahead"))
+        }
+    }
+
+    func watchTimeskip(_ id: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void {
+        source?.watchTimeskip(id, onValue) ?? {}
+    }
 
     /// True while the backend fast-forwards through the followed colonist's routine.
     var warping: Bool { followingID != nil && world?.focusWarp == true }

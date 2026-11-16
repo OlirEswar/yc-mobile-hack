@@ -415,6 +415,76 @@ export type SyncUpdates = {
   events: WorldEventPublic[];
 };
 
+// ---------- Timeskip ----------
+
+/** How far the player can skip ahead (convex/timeskip). */
+export type TimeskipSpan = 'week' | 'month' | 'half_year' | 'year' | 'five_years' | 'decade';
+
+/** One headline of the skipped years, with the people in it. */
+export type TimeskipBeat = {
+  tick: Tick;
+  /** "Year 2", "Month 5", "Week 3" or "Sol 12". */
+  period: string;
+  text: string;
+  agentIds: Id[];
+  kind: string;
+  eventId?: Id;
+};
+
+/** A person as the chronicle remembers them: one or two sentences in a story voice. */
+export type TimeskipPerson = {
+  agentId: Id;
+  name: string;
+  spriteId: SpriteId;
+  alive: boolean;
+  text: string;
+  /** followed, key, risen, fallen, newcomer, born or gone. */
+  role: string;
+};
+
+/** The chronicle of a finished skip: read like an epilogue, never a report. */
+export type TimeskipSummary = {
+  title: string;
+  /** Three to six paragraphs. */
+  narrative: string[];
+  /** Headline beats, oldest first, a few per period. */
+  beats: TimeskipBeat[];
+  /** Where the followed colonist is now. */
+  followed?: TimeskipPerson;
+  /** Key characters and anyone who rose or fell, alive or dead. */
+  people: TimeskipPerson[];
+  /** Newcomers and the colony-born to watch. */
+  newPeople: TimeskipPerson[];
+  /** What the world resumes with, one sentence each. */
+  tensions: string[];
+  /** Storylines seeded from the end state. */
+  storylineIds: Id[];
+  source: 'llm' | 'rules';
+};
+
+export type TimeskipPublic = {
+  id: Id;
+  span: TimeskipSpan;
+  status: 'running' | 'summarizing' | 'done' | 'failed';
+  startTick: Tick;
+  endTick: Tick;
+  /** World tick reached so far. */
+  tick: Tick;
+  chapter: number;
+  chapters: number;
+  /** 0..1. */
+  progress: number;
+  /** Story-voice progress line, e.g. "Year 2 of 5: the Union and the council…". */
+  progressLabel: string;
+  latestBeat?: string;
+  summary?: TimeskipSummary;
+  error?: string;
+};
+
+export type TimeskipStartResult =
+  | { ok: true; timeskipId: Id }
+  | { ok: false; code: 'unauthorized' | 'invalid' | 'rate_limited' | 'busy'; message: string };
+
 // ---------- God powers ----------
 
 export type PowerType = 'drought' | 'storm' | 'grant' | 'kill' | 'whisper' | 'rumor' | 'create_character';

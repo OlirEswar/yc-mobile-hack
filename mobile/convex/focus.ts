@@ -11,7 +11,8 @@ import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { action, internalMutation, internalQuery, query } from './_generated/server';
 import type { QueryCtx } from './_generated/server';
-import { beginTx, commitTx, dayOf, loadAgent, loadMind, replan } from './engine/core';
+import { beginTx, commitTx, dayOf, enqueueCognition, loadAgent, loadMind, replan } from './engine/core';
+import { COMMAND_TRIGGER } from './cognition/prompt';
 import { admits, dailyCapUsd, recordSpend, rollDay, spentToday } from './cognition/budget';
 import { loadAskContext } from './cognition/context';
 import type { AskContext } from './cognition/context';
@@ -243,6 +244,14 @@ export const applyPlant = internalMutation({
     replan(tx, agent, { now: true });
     await writeThought(tx, agent._id, reading.surfaced, 'planted');
     const mind = (await loadMind(tx, agent))!;
+    // The player takes the wheel: whatever they typed becomes the colonist's very next plan.
+    const order = COMMAND_TRIGGER + ': "' + args.text + '"';
+    const waiting = await ctx.db
+      .query('cognitionJobs')
+      .withIndex('by_agent_status', (q) => q.eq('agentId', agent._id).eq('status', 'queued'))
+      .first();
+    if (waiting && waiting.kind === 'plan') await ctx.db.patch(waiting._id, { trigger: order, detail: undefined, lane: 'focus', priority: 1, mindVersion: mind.stateVersion });
+    else await enqueueCognition(tx, agent, { kind: 'plan', trigger: order, priority: 1, lane: 'focus', eventId: tx.eventIds[0] });
     if (thinks) {
       await queueThought(tx, agent, mind, {
         trigger: 'this thought just surfaced in their head out of nowhere: "' + reading.surfaced + '"',

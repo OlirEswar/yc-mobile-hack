@@ -339,8 +339,8 @@ struct MindPane: View {
         if let other = storylines.first?.participantIds.first(where: { $0 != colonist.id }).flatMap({ game.colonist($0) }) {
             list.append("Tonight is the night to confront \(other.first)")
         }
-        list += ["You deserve more than this", "Someone is lying to the whole colony"]
-        return Array(list.prefix(4))
+        list = ["Skip work and go find someone to confront", "Steal water from the depot tonight"] + list + ["Confess your secret to someone you trust"]
+        return Array(list.prefix(5))
     }
 
     var body: some View {
@@ -390,7 +390,7 @@ struct MindPane: View {
                 .scrollIndicators(.hidden)
             }
             HStack(spacing: 8) {
-                TextField("Plant a thought in \(colonist.first)'s head…", text: $idea)
+                TextField("Make \(colonist.first) do something…", text: $idea)
                     .submitLabel(.send)
                     .onSubmit { plant(idea) }
                     .padding(.horizontal, 14).padding(.vertical, 9)

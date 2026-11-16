@@ -487,6 +487,8 @@ export function eligibleEvents(tx: Tx, meta: Meta, flags: Record<string, boolean
 
 /** Fires a sudden event when one is due. Runs hourly; schedules the next one half a day to a day later. */
 export async function randomEventsHourly(tx: Tx, meta: Meta): Promise<EventId | null> {
+  // Something happens every two to five hours; a world scheduled under the old, slower rhythm is pulled in.
+  if (meta.nextEventTick - tx.tick > 30) meta.nextEventTick = tx.tick + 6;
   if (tx.tick < meta.nextEventTick) return null;
   const flags = { pets: meta.pets.length > 0, pregnancy: meta.pregnancies.length > 0, children: meta.children.length > 0 };
   const pool = eligibleEvents(tx, meta, flags);
@@ -498,7 +500,7 @@ export async function randomEventsHourly(tx: Tx, meta: Meta): Promise<EventId | 
     fired = await RUNS[def.key](tx, meta);
     if (fired) meta.recent = [...meta.recent, { key: def.key, tick: tx.tick }].slice(-12);
   }
-  meta.nextEventTick = tx.tick + randInt(R(tx, 'next'), 72, 144);
+  meta.nextEventTick = tx.tick + randInt(R(tx, 'next'), 12, 30);
   await saveMeta(tx);
   return fired;
 }

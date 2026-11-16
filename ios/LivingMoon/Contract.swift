@@ -15,7 +15,7 @@ enum Clock {
     static let ticksPerDay = 144.0
     static let startHour = 6.0
     /// Real seconds per tick at 1x speed.
-    static let secondsPerTick = 3.333
+    static let secondsPerTick = 4.0
     static let speeds: [Double] = [0, 1, 4, 8]
 
     static func parts(_ tick: Double) -> (sol: Int, hour: Int, minute: Int) {

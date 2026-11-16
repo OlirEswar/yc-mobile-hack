@@ -76,7 +76,8 @@ export const AGENT_STEPS_PER_TICK = 75;
 export const SKIP_MAX_TICKS = 36;
 export const SKIP_STEP_BUDGET = 1100;
 /** While world.focusWarp is set the loop runs this many times faster, capped per invocation. */
-export const FOCUS_WARP = 6;
+/** 1 means no fast-forward: the followed colonist is watched in real time. */
+export const FOCUS_WARP = 1;
 export const WARP_MAX_TICKS = 12;
 /** A warping invocation stops early past this many agent steps. */
 export const WARP_STEP_BUDGET = 400;

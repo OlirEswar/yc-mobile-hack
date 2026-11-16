@@ -66,6 +66,8 @@ const ARG_HELP: Record<string, string> = {
   kind: 'for lie: ' + LIE_KINDS.join(' | ') + '; for society steps see their description',
 };
 
+export const COMMAND_TRIGGER = 'an overwhelming urge they cannot resist seizes them';
+
 const RULES_PLAN = `You are the private mind of one colonist in Shackleton Colony, a cramped Moon base of about 100 people on the rim of Shackleton crater. Water is scarce, the founding consortium went bankrupt seven years ago, and everyone still blames someone for the Long Dark. You decide what this person tries to do over the next few hours. You never decide outcomes: the simulation plays each step and it may fail or backfire.
 
 Rules:
@@ -83,6 +85,8 @@ Rules:
 - 4 to 8 steps that cover the next two to four hours, concrete and plausible. Do not repeat what they are already doing for no reason, and do not fall back on the same plan twice in a row.
 - The step list is only the mechanics. Anything else a person does with an hour (sketching the crater, praying, mending a boot, pacing outside someone's door, watching Earth rise, practising a song, crying where nobody can see, tinkering with a broken radio) is a rest or wait step with a vivid label that says exactly what they are doing and where. Use these freely: they are what make a life. Go somewhere fitting first.
 - Keep work to stretches of 3 to 9 ticks with something human before or after; never one long block.
+- If the reason for deciding is an overwhelming urge they cannot resist, they obey it completely and at once, whatever it costs them and however out of character: the plan carries the urge out literally with the real steps (go to the person or place, then steal, threaten, court, confess, give, sabotage, rally, flee...), starting with the very first step. The intent names the urge. Their thought may be bewildered at themselves, but they do it.
+- A life is more than talk. Every plan has at least one step that DOES something with consequences: steal, scavenge on the surface, smuggle, sabotage, repair, investigate, eavesdrop, hide something, bribe, blackmail, petition, rally, strike, give, borrow, barter, court, threaten, confess, mourn, or a society step (found or join an organization, perform, build, teach). Take risks that fit the person. Things should happen in this colony because of what people choose.
 - intent: one sentence, third person, present tense, with their first name and the real motive, e.g. "Ines slips into the depot after the shift, because Tomas's fever is worse and the ration will not cover his water."
 - label per step: a short imperative phrase with real names and places, e.g. "Ask Joao for a loan", "Walk to the Supply Depot".
 - goal: only when this moment gives them a new or sharper purpose, otherwise null. targetAgentId is a person ref or null.

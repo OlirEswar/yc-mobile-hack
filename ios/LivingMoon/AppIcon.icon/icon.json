@@ -1,0 +1,128 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.22000,0.30000,0.66000,1.00000",
+          "display-p3:0.05000,0.07000,0.20000,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.09000,0.10000,0.16000,1.00000",
+          "display-p3:0.02000,0.02000,0.05000,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Orbit",
+      "layers": [
+        {
+          "name": "Spark",
+          "image-name": "spark.svg",
+          "glass": true
+        },
+        {
+          "name": "Orbit",
+          "image-name": "orbit.svg",
+          "glass": true
+        }
+      ],
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.35
+      }
+    },
+    {
+      "name": "Moon",
+      "layers": [
+        {
+          "name": "Colony Lights",
+          "image-name": "colony-lights.svg",
+          "glass": false,
+          "blend-mode": "plus-lighter"
+        },
+        {
+          "name": "Night Side",
+          "image-name": "night-side.svg",
+          "glass": false,
+          "opacity": 0.9,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.03000,0.03000,0.07000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Craters",
+          "image-name": "craters.svg",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.70000,0.68000,0.64000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Maria",
+          "image-name": "maria.svg",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.66000,0.64000,0.60000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Moon",
+          "image-name": "moon.svg",
+          "glass": true,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.80000,0.78000,0.74000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.1
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

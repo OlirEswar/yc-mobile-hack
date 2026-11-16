@@ -8,12 +8,15 @@ import { INK, RAMPS, fade, tone } from './lib/palette.mjs';
 import { rgba } from './lib/image.mjs';
 import { SPRITE_ARCHETYPES, SPRITE_VARIANTS } from './lib/layout.mjs';
 
-export const FRAME_W = 32;
-export const FRAME_H = 40;
+/** Frames are designed on a 32x40 world-pixel grid and finished at 2x (ART_SCALE). */
+const BASE_W = 32;
+const BASE_H = 40;
+export const FRAME_W = BASE_W * 2;
+export const FRAME_H = BASE_H * 2;
 export const FRAMES = 4;
-/** The point between the feet, which sits on the colonist's world position. */
-export const FEET = { x: 16, y: 37 };
-export const PORTRAIT = 64;
+/** The point between the feet in atlas pixels, which sits on the colonist's world position. */
+export const FEET = { x: 32, y: 74 };
+export const PORTRAIT = 128;
 
 const ramp3 = (...h) => h.map((c) => rgba(c));
 const SKINS = [
@@ -605,13 +608,25 @@ function costumeSide(img, s, pal, dy) {
 /** One finished frame: drawn, outlined and given a ground shadow. */
 function frameImage(archetype, v, dir, frame) {
   const s = specFor(archetype, v);
-  const img = new Img(FRAME_W, FRAME_H);
-  drawFrame(img, s, dir === 2 ? 1 : dir, frame);
-  img.outline((x, y, inner) => mix(inner, INK, 0.8));
+  const img = hiRes(s, dir === 2 ? 1 : dir, frame);
   const out = new Img(FRAME_W, FRAME_H);
-  out.ellipse(FEET.x, FEET.y - 1, 8, 2, fade(INK, 90));
+  softShadow(out, FEET.x, FEET.y - 1, 15, 4);
   out.blit(img, 0, 0, dir === 2);
   return out;
+}
+
+/** A frame drawn on the 32x40 grid, scaled up with Scale2x and outlined at full resolution. */
+function hiRes(s, dir, frame) {
+  const img = new Img(BASE_W, BASE_H);
+  drawFrame(img, s, dir, frame);
+  const hi = img.upscale2x();
+  hi.outline((x, y, inner) => mix(inner, INK, 0.85), true);
+  return hi;
+}
+
+/** A soft contact shadow: an ellipse whose alpha falls off towards the rim in a few clean steps. */
+function softShadow(img, cx, cy, rx, ry) {
+  img.ellipse(cx, cy, rx, ry, (i, j, d) => fade(INK, d < 0.35 ? 110 : d < 0.7 ? 80 : 45));
 }
 
 /** The full atlas: one row per sprite in SPRITE_ARCHETYPES x variant order. */
@@ -634,26 +649,24 @@ const BACKDROP = { farmer: 'green', miner: 'orange', engineer: 'yellow', medic: 
 /** Head and shoulders at 2x from the standing front frame, on a tinted backdrop with a frame. */
 export function paintPortrait(archetype, v) {
   const s = specFor(archetype, v);
-  const body = new Img(FRAME_W, FRAME_H);
-  drawFrame(body, s, 0, 0);
-  body.outline((x, y, inner) => mix(inner, INK, 0.8));
+  const body = hiRes(s, 0, 0);
   const p = new Img(PORTRAIT, PORTRAIT);
   const ramp = BACKDROP[archetype];
   const top = ramp === 'metal' ? 3 : 2;
   for (let y = 0; y < PORTRAIT; y++)
     for (let x = 0; x < PORTRAIT; x++) {
-      const t = y / PORTRAIT + ((x * 7 + y * 3) % 4) / 40;
+      const t = y / PORTRAIT + (((x >> 1) * 7 + (y >> 1) * 3) % 4) / 40;
       p.put(x, y, t < 0.45 ? tone(ramp, top) : t < 0.8 ? tone(ramp, top - 1) : tone(ramp, Math.max(0, top - 2)));
     }
-  for (let k = 0; k < 40; k++) p.put((k * 37) % PORTRAIT, (k * 17) % 30, fade(tone('ice', 4), 70));
-  const crop = body.crop(4, 0, 24, 31);
-  p.blit(crop.scaled(2), 8, 4);
-  for (let x = 0; x < PORTRAIT; x++) for (let y = 0; y < 2; y++) {
+  for (let k = 0; k < 40; k++) p.put((k * 37) % PORTRAIT, (k * 17) % 60, fade(tone('ice', 4), 70));
+  const crop = body.crop(8, 0, 48, 62);
+  p.blit(crop.scaled(2), 16, 8);
+  for (let x = 0; x < PORTRAIT; x++) for (let y = 0; y < 3; y++) {
     p.put(x, y, INK);
     p.put(x, PORTRAIT - 1 - y, INK);
     p.put(y, x, INK);
     p.put(PORTRAIT - 1 - y, x, INK);
   }
-  p.frame(2, 2, PORTRAIT - 4, PORTRAIT - 4, tone(ramp, Math.min(top + 2, 5)));
+  p.frame(3, 3, PORTRAIT - 6, PORTRAIT - 6, tone(ramp, Math.min(top + 2, 5)));
   return p;
 }

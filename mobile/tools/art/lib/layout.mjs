@@ -7,6 +7,9 @@ import { LOCATIONS, LOCATION_IDS, RESOURCES, ROUTES, SPRITE_ARCHETYPES, SPRITE_V
 
 export { LOCATION_LAYOUT, MAP_HEIGHT, MAP_WIDTH, LOCATIONS, LOCATION_IDS, RESOURCES, ROUTES, SPRITE_ARCHETYPES, SPRITE_VARIANTS };
 
+/** Art pixels per world pixel. Generators draw in world pixels; the PNGs are written at this density. */
+export const ART_SCALE = 2;
+
 /** Rows of transparent space above a walled building's north wall, for masts and signs. */
 export const HEADROOM = 16;
 /** Thickness of a wall seen from above. */

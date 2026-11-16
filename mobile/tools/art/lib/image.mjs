@@ -156,6 +156,50 @@ export class Img {
     return out;
   }
 
+  /**
+   * Scale2x (EPX) upscale: every pixel becomes a 2x2 block whose corners take a neighbour's colour
+   * where two neighbours agree, so stair-stepped diagonals and curves come out smoother while the
+   * palette stays exactly the same.
+   */
+  upscale2x() {
+    const { w, h, data } = this;
+    const out = new Img(w * 2, h * 2);
+    const key = (x, y) => {
+      x = Math.max(0, Math.min(w - 1, x));
+      y = Math.max(0, Math.min(h - 1, y));
+      const i = (y * w + x) * 4;
+      return data[i + 3] === 0 ? 0 : ((data[i] << 24) | (data[i + 1] << 16) | (data[i + 2] << 8) | data[i + 3]) >>> 0;
+    };
+    const copy = (sx, sy, dx, dy) => {
+      sx = Math.max(0, Math.min(w - 1, sx));
+      sy = Math.max(0, Math.min(h - 1, sy));
+      const s = (sy * w + sx) * 4;
+      const d = (dy * out.w + dx) * 4;
+      out.data[d] = data[s];
+      out.data[d + 1] = data[s + 1];
+      out.data[d + 2] = data[s + 2];
+      out.data[d + 3] = data[s + 3];
+    };
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const A = key(x, y - 1);
+        const B = key(x + 1, y);
+        const C = key(x - 1, y);
+        const D = key(x, y + 1);
+        const ox = x * 2;
+        const oy = y * 2;
+        if (C === A && C !== D && A !== B) copy(x, y - 1, ox, oy);
+        else copy(x, y, ox, oy);
+        if (A === B && A !== C && B !== D) copy(x + 1, y, ox + 1, oy);
+        else copy(x, y, ox + 1, oy);
+        if (D === C && D !== B && C !== A) copy(x - 1, y, ox, oy + 1);
+        else copy(x, y, ox, oy + 1);
+        if (B === D && B !== A && D !== C) copy(x, y + 1, ox + 1, oy + 1);
+        else copy(x, y, ox + 1, oy + 1);
+      }
+    return out;
+  }
+
   crop(x, y, w, h) {
     const out = new Img(w, h);
     out.blitRect(this, x, y, w, h, 0, 0);

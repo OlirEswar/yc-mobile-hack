@@ -19,7 +19,7 @@ const swiftOut = join(repo, 'ios/LivingMoon/ArtLayout.swift');
 
 // manifest.ts calls require('./x.png') for each image; record the relative path instead.
 globalThis.require = (path) => path;
-const { MANIFEST } = await import(pathToFileURL(join(gameDir, 'manifest.ts')).href);
+const { MANIFEST, ART_SCALE = 1 } = await import(pathToFileURL(join(gameDir, 'manifest.ts')).href);
 const { LOCATION_LAYOUT, ROUTE_WAYPOINTS, MAP_WIDTH, MAP_HEIGHT } = await import(pathToFileURL(join(repo, 'mobile/shared/mapLayout.ts')).href);
 
 const copied = new Set();
@@ -43,7 +43,7 @@ const locations = Object.entries(LOCATION_LAYOUT).map(
 const waypoints = Object.entries(ROUTE_WAYPOINTS).map(([key, pts]) => `"${key}": [${pts.map(point).join(', ')}]`);
 const buildings = Object.entries(MANIFEST.buildings).map(
   ([id, b]) =>
-    `.${id}: BuildingArt(origin: CGPoint(x: ${n(b.x)}, y: ${n(b.y)}), size: CGSize(width: ${b.base.width}, height: ${b.base.height}), base: ${str(asset(b.base))}, overlay: ${str(b.overlay && asset(b.overlay))}, damaged: ${str(b.damaged && asset(b.damaged))})`,
+    `.${id}: BuildingArt(origin: CGPoint(x: ${n(b.x)}, y: ${n(b.y)}), size: CGSize(width: ${n(b.base.width / ART_SCALE)}, height: ${n(b.base.height / ART_SCALE)}), base: ${str(asset(b.base))}, overlay: ${str(b.overlay && asset(b.overlay))}, damaged: ${str(b.damaged && asset(b.damaged))})`,
 );
 const chars = MANIFEST.characters;
 const rows = Object.entries(chars.rows).map(([sprite, row]) => `"${sprite}": ${row}`);
@@ -81,6 +81,8 @@ struct BuildingArt {
 
 enum MapLayout {
     static let size = CGSize(width: ${MAP_WIDTH}, height: ${MAP_HEIGHT})
+    /// Art pixels per world pixel in the ground, building, character and fx images.
+    static let artScale: CGFloat = ${ART_SCALE}
     static let ground = "${asset(MANIFEST.map.ground)}"
 
     static let locations: [LocationId: LocationLayout] = ${dict(locations)}
@@ -95,9 +97,10 @@ enum MapLayout {
 /// directions down, left, right, up. Frame 0 of each direction is the standing pose.
 enum CharacterArt {
     static let atlas = "${asset(chars.atlas)}"
-    static let frame = CGSize(width: ${chars.frameWidth}, height: ${chars.frameHeight})
-    /// The point between the feet inside a frame; it sits on the colonist's world position.
-    static let feet = CGPoint(x: ${chars.feet.x}, y: ${chars.feet.y})
+    /// One frame in world px; in the atlas it is artScale times larger.
+    static let frame = CGSize(width: ${n(chars.frameWidth / ART_SCALE)}, height: ${n(chars.frameHeight / ART_SCALE)})
+    /// The point between the feet inside a frame, in world px; it sits on the colonist's world position.
+    static let feet = CGPoint(x: ${n(chars.feet.x / ART_SCALE)}, y: ${n(chars.feet.y / ART_SCALE)})
     static let framesPerDirection = ${chars.framesPerDirection}
     static let rows: [String: Int] = ${dict(rows)}
 }
@@ -114,6 +117,8 @@ enum IconArt {
 `;
 
 writeFileSync(swiftOut, swift);
-const stale = readdirSync(artDir).filter((f) => f.endsWith('.png') && !copied.has(f));
+// Hand-made UI art that lives in Art/ but not in the manifest.
+const KEEP = new Set(['onboarding_moon.png']);
+const stale = readdirSync(artDir).filter((f) => f.endsWith('.png') && !copied.has(f) && !KEEP.has(f));
 for (const f of stale) rmSync(join(artDir, f));
 console.log(`ArtLayout.swift written; ${copied.size} images copied, ${stale.length} stale removed.`);

@@ -8,7 +8,7 @@
 import { Img } from './lib/image.mjs';
 import { RAMPS, tone } from './lib/palette.mjs';
 import { bayer, fbm, hash2, rng } from './lib/noise.mjs';
-import { BUILDING_KIND, LOCATION_IDS, LOCATION_LAYOUT, MAP_HEIGHT as H, MAP_WIDTH as W, ROUTE_LINES, buildingAt, insideBuilding } from './lib/layout.mjs';
+import { ART_SCALE as S, BUILDING_KIND, LOCATION_IDS, LOCATION_LAYOUT, MAP_HEIGHT as H, MAP_WIDTH as W, ROUTE_LINES, buildingAt, insideBuilding } from './lib/layout.mjs';
 
 /** Unit vector along the ground towards the sun, and the sun's elevation slope for shadows. */
 const SUN = { x: -0.8, y: -0.6 };
@@ -189,7 +189,7 @@ export function paintGround() {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       height[i] = fbm(x, y, 320, 4, 11) * 12 + 10 * Math.exp(-(((y - 150) / 170) ** 2)) * (1 - x / (W * 1.6));
-      albedo[i] = fbm(x, y, 360, 4, 31) * 2.6 + fbm(x, y, 22, 2, 37) * 1.1 + fbm(x, y, 6, 1, 39) * 0.6;
+      albedo[i] = fbm(x, y, 360, 4, 31) * 2.2 + fbm(x, y, 22, 2, 37) * 0.6 + fbm(x, y, 6, 1, 39) * 0.2;
     }
 
   // the permanently shadowed crater, part of the base relief the builders graded around
@@ -210,12 +210,12 @@ export function paintGround() {
 
   // craters outside the core, many small and few large; big ones are older and softer
   const craters = [];
-  while (craters.length < 460) {
+  while (craters.length < 210) {
     const rad = 2.5 + 85 * r() ** 4.2;
     const x = r() * W;
     const y = r() * H;
     const age = 0.45 + r() * 0.55;
-    const fr = rad < 30 && r() < 0.28;
+    const fr = rad < 30 && r() < 0.14;
     const xi = Math.min(W - 1, Math.max(0, Math.round(x)));
     const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
     if (grade[yi * W + xi] > (rad > 12 ? 0.02 : 0.6)) continue;
@@ -236,13 +236,13 @@ export function paintGround() {
         height[i] += craterProfile(t, depth, rim, flat);
         if (c.fresh && t > 0.9 && t < 2.4) {
           const ray = hash2(Math.round(Math.atan2(y - c.y, x - c.x) * 9), 0, Math.round(c.x)) * 0.8 + 0.4;
-          fresh[i] = Math.max(fresh[i], (1 - (t - 0.9) / 1.5) * ray * 1.3);
+          fresh[i] = Math.max(fresh[i], (1 - (t - 0.9) / 1.5) * ray * 0.8);
         }
       }
   }
 
   // boulders: small sharp bumps that throw long shadows
-  for (let n = 0; n < 1400; n++) {
+  for (let n = 0; n < 520; n++) {
     const x = r() * W;
     const y = r() * H;
     const rad = 1.2 + r() ** 2.5 * 6;
@@ -293,62 +293,101 @@ export function paintGround() {
     for (let j = -1; j <= 0; j++)
       for (let i = -1; i <= 0; i++) struct[(p.y + j) * W + p.x + i] = Math.max(struct[(p.y + j) * W + p.x + i], 9);
 
-  // lighting
-  const occ = new Float32Array(W * H);
+  // ambient occlusion: the ground darkens where it meets building walls and tube sides
+  const walls = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) walls[i] = struct[i] > 0 ? 1 : 0;
+  const near = blur(walls, 5);
+  const ao = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) ao[i] = walls[i] ? 0 : near[i];
+
+  // lighting, evaluated at ART_SCALE pixels per world pixel from the bilinearly sampled fields
+  const W2 = W * S;
+  const H2 = H * S;
+  const up = (src) => {
+    const out = new Float32Array(W2 * H2);
+    for (let y = 0; y < H2; y++) {
+      const fy = Math.max(0, Math.min(H - 1, (y + 0.5) / S - 0.5));
+      const y0 = Math.floor(fy);
+      const y1 = Math.min(H - 1, y0 + 1);
+      const ty = fy - y0;
+      for (let x = 0; x < W2; x++) {
+        const fx = Math.max(0, Math.min(W - 1, (x + 0.5) / S - 0.5));
+        const x0 = Math.floor(fx);
+        const x1 = Math.min(W - 1, x0 + 1);
+        const tx = fx - x0;
+        const a = src[y0 * W + x0] + (src[y0 * W + x1] - src[y0 * W + x0]) * tx;
+        const b = src[y1 * W + x0] + (src[y1 * W + x1] - src[y1 * W + x0]) * tx;
+        out[y * W2 + x] = a + (b - a) * ty;
+      }
+    }
+    return out;
+  };
+  const height2 = up(height);
+  const albedo2 = up(albedo);
+  const fresh2 = up(fresh);
+  const ao2 = up(ao);
+  const occ = up(struct);
   let maxOcc = -Infinity;
-  for (let i = 0; i < W * H; i++) {
-    occ[i] = height[i] + struct[i];
+  for (let i = 0; i < W2 * H2; i++) {
+    occ[i] += height2[i];
     if (occ[i] > maxOcc) maxOcc = occ[i];
   }
-  const img = new Img(W, H);
+  const slope = SUN_SLOPE / S;
+  const img = new Img(W2, H2);
   const reg = RAMPS.regolith;
   const cold = RAMPS.cold;
   const ice = RAMPS.ice;
   const dc = DARK_CRATER;
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      const i = y * W + x;
-      const hx = (height[y * W + Math.min(W - 1, x + 1)] - height[y * W + Math.max(0, x - 1)]) / 2;
-      const hy = (height[Math.min(H - 1, y + 1) * W + x] - height[Math.max(0, y - 1) * W + x]) / 2;
+  for (let y = 0; y < H2; y++)
+    for (let x = 0; x < W2; x++) {
+      const i = y * W2 + x;
+      const wx = (x + 0.5) / S;
+      const wy = (y + 0.5) / S;
+      const hx = ((height2[y * W2 + Math.min(W2 - 1, x + 1)] - height2[y * W2 + Math.max(0, x - 1)]) / 2) * S;
+      const hy = ((height2[Math.min(H2 - 1, y + 1) * W2 + x] - height2[Math.max(0, y - 1) * W2 + x]) / 2) * S;
       const nl = Math.hypot(hx, hy, 1);
       const shade = (-hx * LIGHT[0] - hy * LIGHT[1] + LIGHT[2]) / nl - LIGHT[2];
       // ray-march towards the sun
       const o = occ[i];
-      const tMax = Math.min(420, (maxOcc - o) / SUN_SLOPE);
+      const tMax = Math.min(420 * S, (maxOcc - o) / slope);
       let lit = true;
-      for (let t = 2; t < tMax; t += t < 40 ? 1 : 2) {
+      for (let t = 2; t < tMax; t += t < 40 * S ? 1 : 2) {
         const sx = Math.round(x + SUN.x * t);
         const sy = Math.round(y + SUN.y * t);
-        if (sx < 0 || sy < 0 || sx >= W || sy >= H) break;
-        if (occ[sy * W + sx] > o + t * SUN_SLOPE) {
+        if (sx < 0 || sy < 0 || sx >= W2 || sy >= H2) break;
+        if (occ[sy * W2 + sx] > o + t * slope) {
           lit = false;
           break;
         }
       }
-      const edge = Math.min(x, y, W - 1 - x, H - 1 - y);
+      const edge = Math.min(wx, wy, W - wx, H - wy);
       const vignette = 1.6 * (1 - smoothstep(0, 90, edge));
-      const td = Math.hypot((x - dc.x) / dc.rx, (y - dc.y) / dc.ry);
+      const td = Math.hypot((wx - dc.x) / dc.rx, (wy - dc.y) / dc.ry);
       const inDark = td < 0.86 || (td < 1 && !lit);
       const dither = bayer(x, y) - 0.5;
+      const occl = ao2[i] * 2.2;
       let c;
       if (inDark) {
         // permanently shadowed: cold floor with frost patches and ice glints
-        const frost = fbm(x, y, 70, 3, 53) + (1 - td) * 0.35;
-        const v = 2.7 + shade * 4 + albedo[i] * 0.4 + frost * 2.6 - vignette * 0.6;
-        c = cold[Math.max(0, Math.min(cold.length - 1, Math.floor(v + 0.5 + dither * 0.9)))];
-        if (frost > 0.3 && hash2(x, y, 61) < 0.0015) c = ice[3];
+        const frost = fbm(wx, wy, 70, 3, 53) + (1 - td) * 0.35;
+        const v = 2.7 + shade * 4 + albedo2[i] * 0.4 + frost * 2.6 - vignette * 0.6 - occl * 0.5;
+        c = cold[Math.max(0, Math.min(cold.length - 1, Math.floor(v + 0.5 + dither * 0.6)))];
+        if (frost > 0.3 && hash2(x, y, 61) < 0.0006) c = ice[3];
       } else if (lit) {
-        const v = 6.2 + shade * 7 + albedo[i] + fresh[i] - vignette;
-        c = reg[Math.max(1, Math.min(reg.length - 1, Math.floor(v + 0.5 + dither * 0.85)))];
+        const v = 6.1 + shade * 6 + albedo2[i] + fresh2[i] - vignette - occl;
+        c = reg[Math.max(1, Math.min(reg.length - 1, Math.floor(v + 0.5 + dither * 0.6)))];
       } else {
-        const v = 3.6 + shade * 3 + albedo[i] * 0.5 + fresh[i] * 0.4 - vignette * 0.7;
-        c = cold[Math.max(0, Math.min(cold.length - 1, Math.floor(v + 0.5 + dither * 0.85)))];
+        const v = 3.6 + shade * 3 + albedo2[i] * 0.5 + fresh2[i] * 0.4 - vignette * 0.7 - occl * 0.6;
+        c = cold[Math.max(0, Math.min(cold.length - 1, Math.floor(v + 0.5 + dither * 0.6)))];
       }
       img.put(x, y, c);
     }
 
-  paintTubes(img);
-  for (const p of posts) paintPost(img, p.x, p.y);
+  // tubes and beacons are painted in world pixels and scaled up on top
+  const top = new Img(W, H);
+  paintTubes(top);
+  for (const p of posts) paintPost(top, p.x, p.y);
+  img.blit(top.upscale2x(), 0, 0);
   return img;
 }
 

@@ -131,6 +131,16 @@ describe('timeskip', () => {
     expect(Math.min(...later.map((a) => a.health))).toBeGreaterThan(10);
   }, 600_000);
 
+  test('five years ends in a chronicle the world resumes from', async () => {
+    const r = await skipAhead('device-timeskip-five', 'five_years');
+    const s = r.pub!.summary!;
+    console.log('worst five-year chapter:', r.cost);
+    console.log('\n# ' + s.title + '\n\n' + s.narrative.join('\n\n') + '\n\n' + [s.followed, ...s.people, ...s.newPeople].filter(Boolean).map((p) => '- ' + p!.name + ': ' + p!.text).join('\n') + '\n\nTensions: ' + s.tensions.join(' | '));
+    expect(r.cost.writes).toBeLessThan(4000);
+    expect(s.narrative.length).toBeGreaterThanOrEqual(3);
+    expect(r.after.world.timeskip).toBeUndefined();
+  }, 600_000);
+
   test('ten years: births, deaths, grown children, changed orgs and storylines, no extinction', async () => {
     const r = await skipAhead('device-timeskip-decade', 'decade');
     const s = r.pub!.summary!;

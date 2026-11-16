@@ -7,13 +7,19 @@ enum Art {
     private static var cache: [String: UIImage] = [:]
     private static var frames: [String: Image] = [:]
 
-    static func ui(_ name: String) -> UIImage? {
-        if let hit = cache[name] { return hit }
+    static func ui(_ name: String, scale: CGFloat = 1) -> UIImage? {
+        let key = scale == 1 ? name : "\(name)@\(scale)"
+        if let hit = cache[key] { return hit }
         let url = Bundle.main.url(forResource: name, withExtension: "png") ?? Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Art")
-        let image = url.flatMap { UIImage(contentsOfFile: $0.path) }
-        cache[name] = image
+        var image = url.flatMap { UIImage(contentsOfFile: $0.path) }
+        if scale != 1, let cg = image?.cgImage { image = UIImage(cgImage: cg, scale: scale, orientation: .up) }
+        cache[key] = image
         return image
     }
+
+    /// Map art (ground, buildings, characters, fx) is drawn at MapLayout.artScale pixels per world px,
+    /// so its size comes back in world px.
+    static func map(_ name: String) -> UIImage? { ui(name, scale: MapLayout.artScale) }
 
     static func image(_ name: String) -> Image? {
         ui(name).map { Image(uiImage: $0).interpolation(.none) }
@@ -26,7 +32,8 @@ enum Art {
         let key = "\(spriteId)/\(direction)/\(frame)"
         if let hit = frames[key] { return hit }
         guard let row = CharacterArt.rows[spriteId], let atlas = ui(CharacterArt.atlas)?.cgImage else { return nil }
-        let size = CharacterArt.frame
+        let s = MapLayout.artScale
+        let size = CGSize(width: CharacterArt.frame.width * s, height: CharacterArt.frame.height * s)
         let col = direction * CharacterArt.framesPerDirection + frame
         let rect = CGRect(x: CGFloat(col) * size.width, y: CGFloat(row) * size.height, width: size.width, height: size.height)
         guard let cropped = atlas.cropping(to: rect) else { return nil }
@@ -72,6 +79,46 @@ enum Placement {
         if paths.count > 2000 { paths.removeAll() }
         paths[key] = pts
         return pts
+    }
+
+    /// Every living colonist's position, with standing colonists who share a spot nudged apart into a tidy
+    /// row so sprites never pile on top of each other. Each stays inside the stand area it was placed in.
+    static func placements(_ agents: [AgentLite], at tick: Double) -> [(AgentLite, (point: CGPoint, heading: Int?))] {
+        var placed = agents.filter(\.alive).map { ($0, position(of: $0, at: tick)) }
+        let standing = placed.indices.filter { placed[$0].1.heading == nil }
+        let areas: [Int: CGRect] = Dictionary(uniqueKeysWithValues: standing.compactMap { i -> (Int, CGRect)? in
+            let p = placed[i].1.point
+            return MapLayout.locations[placed[i].0.locationId]?.standAreas.first { $0.insetBy(dx: -1, dy: -1).contains(p) }.map { (i, $0) }
+        })
+        let gapX: CGFloat = 14, gapY: CGFloat = 10
+        for _ in 0..<10 {
+            var moved = false
+            for (n, i) in standing.enumerated() {
+                for j in standing[(n + 1)...] where placed[j].0.locationId == placed[i].0.locationId {
+                    let a = placed[i].1.point, b = placed[j].1.point
+                    let dx = b.x - a.x, dy = b.y - a.y
+                    let ox = gapX - abs(dx), oy = gapY - abs(dy)
+                    guard ox > 0, oy > 0 else { continue }
+                    moved = true
+                    let tieLeft: CGFloat = placed[i].0.id < placed[j].0.id ? 1 : -1
+                    var push = CGVector(dx: 0, dy: 0)
+                    if ox / gapX <= oy / gapY || (areas[i]?.height ?? 0) < gapY * 2 {
+                        push.dx = (dx == 0 ? tieLeft : (dx > 0 ? 1 : -1)) * (ox / 2 + 0.5)
+                    } else {
+                        push.dy = (dy == 0 ? tieLeft : (dy > 0 ? 1 : -1)) * (oy / 2 + 0.5)
+                    }
+                    placed[i].1.point = clamp(CGPoint(x: a.x - push.dx, y: a.y - push.dy), to: areas[i])
+                    placed[j].1.point = clamp(CGPoint(x: b.x + push.dx, y: b.y + push.dy), to: areas[j])
+                }
+            }
+            if !moved { break }
+        }
+        return placed
+    }
+
+    private static func clamp(_ p: CGPoint, to area: CGRect?) -> CGPoint {
+        guard let r = area else { return p }
+        return CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
     }
 
     /// Position and the direction of travel (0 down, 1 left, 2 right, 3 up), or nil when standing.
@@ -186,11 +233,8 @@ struct MapView: View {
     private func tap(_ p: CGPoint, cam: Camera, tick: Double) {
         let world = CGPoint(x: (p.x - cam.origin.x) / cam.k, y: (p.y - cam.origin.y) / cam.k)
         let reach = 24 / cam.k
-        let nearest = game.agents.filter(\.alive)
-            .map { a -> (AgentLite, CGFloat) in
-                let q = Placement.position(of: a, at: tick).point
-                return (a, hypot(q.x - world.x, q.y - 18 - world.y))
-            }
+        let nearest = Placement.placements(game.agents, at: tick)
+            .map { e -> (AgentLite, CGFloat) in (e.0, hypot(e.1.point.x - world.x, e.1.point.y - 18 - world.y)) }
             .min { $0.1 < $1.1 }
         if let focus {
             if let (a, d) = nearest, d < reach, a.id != focus { game.follow(a.id) }
@@ -207,7 +251,7 @@ struct MapView: View {
     // MARK: Drawing
 
     private func tile(_ name: String?, over rect: CGRect, in map: GraphicsContext, opacity: Double) {
-        guard let name, let img = Art.ui(name) else { return }
+        guard let name, let img = Art.map(name) else { return }
         var layer = map
         layer.clip(to: Path(rect))
         layer.opacity = opacity
@@ -239,7 +283,7 @@ struct MapView: View {
         }
 
         for a in game.agents where !a.alive {
-            guard let grave = Art.ui(IconArt.grave) else { break }
+            guard let grave = Art.map(IconArt.grave) else { break }
             let p = Placement.stand(a.id, at: a.locationId)
             map.draw(Image(uiImage: grave).interpolation(.none), in: CGRect(x: p.x - grave.size.width / 2, y: p.y - grave.size.height + 2, width: grave.size.width, height: grave.size.height))
         }
@@ -247,20 +291,20 @@ struct MapView: View {
         let seconds = date.timeIntervalSinceReferenceDate
         let frame = Int(seconds * 8) % CharacterArt.framesPerDirection
         let marked = focus ?? game.selectedID
-        let placed = game.agents.filter(\.alive).map { ($0, Placement.position(of: $0, at: tick)) }
+        let placed = Placement.placements(game.agents, at: tick)
             .sorted { ($0.0.id == marked ? 1 : 0, $0.1.point.y) < ($1.0.id == marked ? 1 : 0, $1.1.point.y) }
         let feet = CharacterArt.feet, fsize = CharacterArt.frame
         for (a, pos) in placed {
             let p = pos.point
             if a.id == marked {
-                let ring = CGRect(x: p.x - 15, y: p.y - 5, width: 30, height: 10)
-                map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.35)))
-                map.stroke(Path(ellipseIn: ring), with: .color(.amber), lineWidth: 1.5)
+                let ring = CGRect(x: p.x - 13, y: p.y - 4.5, width: 26, height: 9)
+                map.fill(Path(ellipseIn: ring), with: .color(.amber.opacity(0.22)))
+                map.stroke(Path(ellipseIn: ring), with: .color(.amber.opacity(0.9)), lineWidth: 1)
             }
             if let sprite = Art.sprite(a.spriteId, direction: pos.heading ?? 0, frame: pos.heading == nil ? 0 : frame) {
                 map.draw(sprite, in: CGRect(x: p.x - feet.x, y: p.y - feet.y, width: fsize.width, height: fsize.height))
             }
-            if a.id == marked, let pointer = Art.ui(IconArt.selection) {
+            if a.id == marked, let pointer = Art.map(IconArt.selection) {
                 let bob = CGFloat(sin(seconds * 4)) * 2
                 map.draw(Image(uiImage: pointer).interpolation(.none), in: CGRect(x: p.x - pointer.size.width / 2, y: p.y - feet.y - pointer.size.height - 2 + bob, width: pointer.size.width, height: pointer.size.height))
             }
@@ -291,17 +335,40 @@ struct MapView: View {
         }
 
         var labels = ctx
-        labels.addFilter(.shadow(color: .black.opacity(0.9), radius: 2))
+        labels.addFilter(.shadow(color: .black.opacity(0.7), radius: 1.5))
         for loc in LocationId.allCases {
             let l = MapLayout.locations[loc]!
-            let p = CGPoint(x: cam.origin.x + l.center.x * cam.k, y: cam.origin.y + l.footprint.minY * cam.k - 8)
-            labels.draw(Text(loc.name.uppercased()).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundStyle(damaged.contains(loc.rawValue) ? .red : .white.opacity(0.8)), at: p, anchor: .center)
+            let hurt = damaged.contains(loc.rawValue)
+            let p = CGPoint(x: cam.origin.x + l.center.x * cam.k, y: cam.origin.y + l.footprint.minY * cam.k - 6)
+            labels.draw(Text(loc.name.uppercased()).font(.system(size: 7, weight: .semibold, design: .rounded)).tracking(1.2).foregroundStyle(hurt ? Color.red.opacity(0.9) : Color.white.opacity(0.42)), at: p, anchor: .center)
         }
-        if focus != nil {
-            for (a, pos) in placed where a.id != focus {
-                let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y + 6) * cam.k)
-                labels.draw(Text(a.first).font(.system(size: 9, weight: .medium)).foregroundStyle(.white.opacity(0.75)), at: p, anchor: .top)
-            }
+
+        // Names only for the followed and selected colonists, plus the few nearest the camera's focus when zoomed in.
+        var named: [Id] = [focus, game.selectedID].compactMap { $0 }
+        if cam.k >= fit(size) * 2.2 {
+            let anchor = CGPoint(x: size.width / 2, y: focus == nil ? size.height / 2 : size.height * focusAnchor)
+            let eye = CGPoint(x: (anchor.x - cam.origin.x) / cam.k, y: (anchor.y - cam.origin.y) / cam.k)
+            let already = named
+            let nearby = placed.filter { !already.contains($0.0.id) }
+                .map { ($0.0.id, hypot($0.1.point.x - eye.x, $0.1.point.y - eye.y)) }
+                .filter { $0.1 < 110 }
+                .sorted { $0.1 < $1.1 }
+                .prefix(3)
+                .map { $0.0 }
+            named += nearby
+        }
+        var taken: [CGRect] = []
+        for id in named {
+            guard let (a, pos) = placed.first(where: { $0.0.id == id }) else { continue }
+            let isMarked = a.id == marked
+            let text = ctx.resolve(Text(a.first).font(.system(size: 8.5, weight: .semibold, design: .rounded)).foregroundStyle(isMarked ? Color.amber : Color.white.opacity(0.9)))
+            let s = text.measure(in: CGSize(width: 120, height: 20))
+            let p = CGPoint(x: cam.origin.x + pos.point.x * cam.k, y: cam.origin.y + (pos.point.y + 3) * cam.k)
+            let pill = CGRect(x: p.x - s.width / 2 - 5, y: p.y, width: s.width + 10, height: s.height + 3)
+            if taken.contains(where: { $0.intersects(pill) }) { continue }
+            taken.append(pill)
+            ctx.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(.black.opacity(0.55)))
+            ctx.draw(text, in: pill.insetBy(dx: 5, dy: 1.5))
         }
 
         let partner = game.colonist(marked)?.interactingWithId

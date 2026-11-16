@@ -16,8 +16,14 @@ at most 256 colours) and a decoder for the previews.
 
 ## Look
 
-Modern high-resolution pixel art in a top-down 3/4 view, rendered at 1 world px = 1 art px with
-nearest-neighbour scaling. Shackleton Colony sits near the lunar south pole, so the sun is always
+Modern high-resolution pixel art in a top-down 3/4 view. Generators design in world pixels, and
+every map image is written at `ART_SCALE` (2) art px per world px; renderers draw it at world size
+with nearest-neighbour scaling, so it is twice as sharp at the same on-screen size. The ground is lit
+and dithered natively at 2x from bilinearly sampled height and albedo fields; buildings, colonists
+and fx are drawn on the world grid and scaled up with Scale2x (`Img.upscale2x`), which smooths
+diagonals without adding colours. Colonists are then outlined at full resolution (a 1 art px line)
+and get their eyes, brows, nose, mouth and blush painted at 2x, with a stepped soft contact shadow.
+The manifest exports `ART_SCALE`; icons and portraits are UI art and are not scaled. Shackleton Colony sits near the lunar south pole, so the sun is always
 low: light comes from the upper left and shadows fall long towards the lower right.
 
 - **Ground** is a lit heightfield, not noise: rolling regolith, power-law craters with raised
@@ -75,15 +81,15 @@ Skin (six tones) and hair (seven colours) ramps live in `characters.mjs`.
 
 | Asset | Size | Notes |
 |---|---|---|
-| `ground.png` | 1280 x 1920 | MAP_WIDTH x MAP_HEIGHT, drawn at 0,0 |
-| `buildings/<id>_{base,overlay,damaged}.png` | the footprint in `shared/mapLayout.ts` | drawn at the footprint's top-left |
-| `characters.png` | 512 x 2400 | 32 x 40 frames; row = sprite in SPRITE_IDS order; column = direction (down, left, right, up) x 4 + frame; frame 0 stands; feet at (16, 37) |
-| `portraits/<spriteId>.png` | 64 x 64 | the standing front frame's head and shoulders at 2x on an archetype-tinted backdrop |
+| `ground.png` | 2560 x 3840 | MAP_WIDTH x MAP_HEIGHT at ART_SCALE, drawn at 0,0 |
+| `buildings/<id>_{base,overlay,damaged}.png` | the footprint in `shared/mapLayout.ts` at ART_SCALE | drawn at the footprint's top-left |
+| `characters.png` | 1024 x 4800 | 64 x 80 frames (32 x 40 world px); row = sprite in SPRITE_IDS order; column = direction (down, left, right, up) x 4 + frame; frame 0 stands; feet at (32, 74) |
+| `portraits/<spriteId>.png` | 128 x 128 | the standing front frame's head and shoulders at 2x on an archetype-tinted backdrop |
 | `icons/power_<type>.png` | 32 x 32 | one per PowerType |
 | `icons/res_<id>.png` | 24 x 24 | one per ResourceId |
-| `fx/grave.png` | 24 x 28 | mound at the bottom, sits on the colonist's last position |
-| `fx/selection.png` | 16 x 14 | down chevron above the selected colonist |
-| `fx/storm_overlay.png`, `fx/drought_overlay.png` | 128 x 128 | seamless tiles; storm streaks travel down-left to match the renderer's scroll |
+| `fx/grave.png` | 48 x 56 | mound at the bottom, sits on the colonist's last position |
+| `fx/selection.png` | 32 x 28 | down chevron above the selected colonist |
+| `fx/storm_overlay.png`, `fx/drought_overlay.png` | 256 x 256 | seamless tiles; storm streaks travel down-left to match the renderer's scroll |
 
 Walled buildings share one shell (`lib/layout.mjs`): 16 px of headroom above the north wall for
 masts and signs, 6 px wall tops, a 28 px north wall face, an 8 px south wall face, 4 px side

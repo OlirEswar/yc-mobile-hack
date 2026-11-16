@@ -8,12 +8,15 @@ import { INK, RAMPS, fade, tone } from './lib/palette.mjs';
 import { rgba } from './lib/image.mjs';
 import { SPRITE_ARCHETYPES, SPRITE_VARIANTS } from './lib/layout.mjs';
 
-export const FRAME_W = 32;
-export const FRAME_H = 40;
+/** Frames are designed on a 32x40 world-pixel grid and finished at 2x (ART_SCALE). */
+const BASE_W = 32;
+const BASE_H = 40;
+export const FRAME_W = BASE_W * 2;
+export const FRAME_H = BASE_H * 2;
 export const FRAMES = 4;
-/** The point between the feet, which sits on the colonist's world position. */
-export const FEET = { x: 16, y: 37 };
-export const PORTRAIT = 64;
+/** The point between the feet in atlas pixels, which sits on the colonist's world position. */
+export const FEET = { x: 32, y: 74 };
+export const PORTRAIT = 128;
 
 const ramp3 = (...h) => h.map((c) => rgba(c));
 const SKINS = [
@@ -427,10 +430,13 @@ function legLine(img, hx, hy, fx, fy, pal, dark) {
   img.put(fx - 4, fy - 1, pal.b);
 }
 
-function drawFrame(img, s, dir, frame) {
+function drawFrame(img, s, dir, frame, hi = false) {
   const pal = paletteOf(s);
   const dy = BODY_DY[frame];
   const view = dir === 0 ? 'front' : dir === 3 ? 'back' : 'side';
+  // At full resolution the face is painted after the upscale, so the head is stamped as bare skin.
+  const headPal = hi ? { ...pal, e: pal.K, w: pal.K, n: pal.K, c: pal.K } : pal;
+  if (hi) img.face = { view, dy, pal, s };
   const coat = s.extras.includes('coat');
   const coatPal = coat ? { ...pal, S: tone('metal', 8), s: tone('metal', 7), z: tone('metal', 5), a: s.accent } : pal;
   if (view !== 'side') {
@@ -459,7 +465,7 @@ function drawFrame(img, s, dir, frame) {
       }
     }
     costumeFront(img, s, pal, view, dy);
-    stamp(img, 9, 6 + dy, view === 'front' ? HEAD_FRONT : HEAD_BACK, pal);
+    stamp(img, 9, 6 + dy, view === 'front' ? HEAD_FRONT : HEAD_BACK, headPal);
     if (view === 'front' && s.extras.includes('glasses')) {
       img.rect(11, 11 + dy, 4, 3, tone('metal', 1));
       img.rect(17, 11 + dy, 4, 3, tone('metal', 1));
@@ -497,7 +503,7 @@ function drawFrame(img, s, dir, frame) {
   if (coat) for (let y = 29 + dy; y < 33 + dy; y++) for (let x = 12; x < 22; x++) img.put(x, y, x < 14 ? coatPal.S : x > 19 ? coatPal.z : coatPal.s);
   costumeSide(img, s, pal, dy);
   stamp(img, 14 + swing * 3, 20 + dy, ARM_SIDE, s.extras.includes('sleeves') ? { ...coatPal } : coatPal);
-  stamp(img, 10, 6 + dy, HEAD_SIDE, pal);
+  stamp(img, 10, 6 + dy, HEAD_SIDE, headPal);
   img.put(9, 14 + dy, pal.k);
   img.put(9, 13 + dy, pal.K);
   if (s.extras.includes('glasses')) {
@@ -605,13 +611,77 @@ function costumeSide(img, s, pal, dy) {
 /** One finished frame: drawn, outlined and given a ground shadow. */
 function frameImage(archetype, v, dir, frame) {
   const s = specFor(archetype, v);
-  const img = new Img(FRAME_W, FRAME_H);
-  drawFrame(img, s, dir === 2 ? 1 : dir, frame);
-  img.outline((x, y, inner) => mix(inner, INK, 0.8));
+  const img = hiRes(s, dir === 2 ? 1 : dir, frame);
   const out = new Img(FRAME_W, FRAME_H);
-  out.ellipse(FEET.x, FEET.y - 1, 8, 2, fade(INK, 90));
+  softShadow(out, FEET.x, FEET.y - 1, 15, 4);
   out.blit(img, 0, 0, dir === 2);
   return out;
+}
+
+/** A frame drawn on the 32x40 grid, scaled up with Scale2x and outlined at full resolution. */
+function hiRes(s, dir, frame) {
+  const img = new Img(BASE_W, BASE_H);
+  drawFrame(img, s, dir, frame, true);
+  const hi = img.upscale2x();
+  paintFace(hi, img.face);
+  hi.outline((x, y, inner) => mix(inner, INK, 0.85), true);
+  return hi;
+}
+
+/**
+ * Eyes with a catch-light, brows, nose shadow, mouth and a touch of blush, drawn at full
+ * resolution. Only bare skin is painted, so hair, glasses, visors and hats keep covering the face.
+ */
+function paintFace(img, face) {
+  if (!face || face.view === 'back') return;
+  const { view, pal, s } = face;
+  const y0 = 24 + face.dy * 2;
+  const same = (x, y, c) => {
+    const p = img.get(x, y);
+    return p[3] === 255 && p[0] === c[0] && p[1] === c[1] && p[2] === c[2];
+  };
+  const skin = (x, y, c) => {
+    if (same(x, y, pal.K) || same(x, y, pal.k)) img.put(x, y, c);
+  };
+  const eyeDark = tone('cold', 0);
+  const glint = tone('metal', 8);
+  const brow = s.hair[2];
+  const blush = fade(tone('red', 4), 70);
+  const eye = (x) => {
+    skin(x, y0, glint);
+    skin(x + 1, y0, eyeDark);
+    skin(x, y0 + 1, eyeDark);
+    skin(x + 1, y0 + 1, eyeDark);
+    skin(x, y0 + 2, eyeDark);
+    skin(x + 1, y0 + 2, mix(eyeDark, pal.q, 0.5));
+  };
+  const cheek = (x) => {
+    if (same(x, y0 + 5, pal.K)) img.set(x, y0 + 5, blush);
+    if (same(x + 1, y0 + 5, pal.K)) img.set(x + 1, y0 + 5, blush);
+  };
+  if (view === 'front') {
+    eye(25);
+    eye(37);
+    for (const x of [24, 25, 26, 37, 38, 39]) skin(x, y0 - 2, brow);
+    skin(32, y0 + 5, pal.k);
+    skin(31, y0 + 8, pal.q);
+    skin(32, y0 + 8, pal.q);
+    skin(30, y0 + 8, mix(pal.q, pal.K, 0.5));
+    skin(33, y0 + 8, mix(pal.q, pal.K, 0.5));
+    cheek(22);
+    cheek(40);
+  } else {
+    eye(22);
+    for (const x of [21, 22, 23]) skin(x, y0 - 2, brow);
+    skin(21, y0 + 8, pal.q);
+    skin(22, y0 + 8, mix(pal.q, pal.K, 0.5));
+    cheek(25);
+  }
+}
+
+/** A soft contact shadow: an ellipse whose alpha falls off towards the rim in a few clean steps. */
+function softShadow(img, cx, cy, rx, ry) {
+  img.ellipse(cx, cy, rx, ry, (i, j, d) => fade(INK, d < 0.35 ? 110 : d < 0.7 ? 80 : 45));
 }
 
 /** The full atlas: one row per sprite in SPRITE_ARCHETYPES x variant order. */
@@ -634,26 +704,24 @@ const BACKDROP = { farmer: 'green', miner: 'orange', engineer: 'yellow', medic: 
 /** Head and shoulders at 2x from the standing front frame, on a tinted backdrop with a frame. */
 export function paintPortrait(archetype, v) {
   const s = specFor(archetype, v);
-  const body = new Img(FRAME_W, FRAME_H);
-  drawFrame(body, s, 0, 0);
-  body.outline((x, y, inner) => mix(inner, INK, 0.8));
+  const body = hiRes(s, 0, 0);
   const p = new Img(PORTRAIT, PORTRAIT);
   const ramp = BACKDROP[archetype];
   const top = ramp === 'metal' ? 3 : 2;
   for (let y = 0; y < PORTRAIT; y++)
     for (let x = 0; x < PORTRAIT; x++) {
-      const t = y / PORTRAIT + ((x * 7 + y * 3) % 4) / 40;
+      const t = y / PORTRAIT + (((x >> 1) * 7 + (y >> 1) * 3) % 4) / 40;
       p.put(x, y, t < 0.45 ? tone(ramp, top) : t < 0.8 ? tone(ramp, top - 1) : tone(ramp, Math.max(0, top - 2)));
     }
-  for (let k = 0; k < 40; k++) p.put((k * 37) % PORTRAIT, (k * 17) % 30, fade(tone('ice', 4), 70));
-  const crop = body.crop(4, 0, 24, 31);
-  p.blit(crop.scaled(2), 8, 4);
-  for (let x = 0; x < PORTRAIT; x++) for (let y = 0; y < 2; y++) {
+  for (let k = 0; k < 40; k++) p.put((k * 37) % PORTRAIT, (k * 17) % 60, fade(tone('ice', 4), 70));
+  const crop = body.crop(8, 0, 48, 62);
+  p.blit(crop.scaled(2), 16, 8);
+  for (let x = 0; x < PORTRAIT; x++) for (let y = 0; y < 3; y++) {
     p.put(x, y, INK);
     p.put(x, PORTRAIT - 1 - y, INK);
     p.put(y, x, INK);
     p.put(PORTRAIT - 1 - y, x, INK);
   }
-  p.frame(2, 2, PORTRAIT - 4, PORTRAIT - 4, tone(ramp, Math.min(top + 2, 5)));
+  p.frame(3, 3, PORTRAIT - 6, PORTRAIT - 6, tone(ramp, Math.min(top + 2, 5)));
   return p;
 }

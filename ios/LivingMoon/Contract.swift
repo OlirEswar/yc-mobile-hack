@@ -128,7 +128,7 @@ extension MapLayout {
 // MARK: - People
 
 let SPRITE_ARCHETYPES = ["farmer", "miner", "engineer", "medic", "scientist", "merchant", "guard", "official", "worker", "civilian"]
-let SPRITE_VARIANTS = 6
+let SPRITE_VARIANTS = 16
 
 struct OccupationDef: Identifiable { let id: String; let label: String; let work: LocationId; let archetype: String }
 
@@ -205,6 +205,10 @@ struct AgentLite: Codable, Identifiable, Hashable {
     var health: Double
     var needs: Needs
     var updatedAtVersion: Double
+    /// The step they are carrying out right now, for the map's action animations.
+    var act: Act? = nil
+
+    struct Act: Codable, Hashable { var kind: String; var targetId: Id?; var startTick: Double }
 
     var first: String { String(name.split(separator: " ").first ?? "") }
 }
@@ -523,6 +527,8 @@ struct FocusState: Codable, Hashable {
     var hooks: [StoryHook]
     var storylines: [StorylinePublic]
     var warping: Bool
+    /// Who they are and what they are in the middle of, in a sentence or two.
+    var recap: String? = nil
 }
 
 struct AskTurn: Codable, Identifiable, Hashable { var id: Id; var tick: Double; var question: String; var answer: String }

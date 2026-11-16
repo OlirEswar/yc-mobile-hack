@@ -135,6 +135,16 @@ struct FollowView: View {
     private func panel(_ c: AgentLite) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             header(c)
+            if !c.alive {
+                fallen(c)
+            } else {
+            Text(focus?.recap ?? detail?.persona.map { "Wants: " + $0.want } ?? c.activityLabel)
+                .font(.footnote).foregroundStyle(.secondary).lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Label(c.activityLabel, systemImage: "figure.walk.motion")
+                .font(.caption.weight(.semibold)).foregroundStyle(Color.amber).lineLimit(1)
+                .contentTransition(.opacity)
+                .animation(.smooth, value: c.activityLabel)
             Picker("Pane", selection: $pane) {
                 Text("Now").tag(Pane.now)
                 Text("Mind").tag(Pane.mind)
@@ -154,7 +164,8 @@ struct FollowView: View {
                 case .story: StoryPane(detail: detail, storylines: focus?.storylines ?? game.storylines.filter { $0.participantIds.contains(c.id) })
                 }
             }
-            .frame(height: 236, alignment: .top)
+            .frame(height: 200, alignment: .top)
+            }
         }
         .padding(16)
         .glassEffect(.regular, in: .rect(cornerRadius: 30))
@@ -162,9 +173,37 @@ struct FollowView: View {
         .onTapGesture {}
     }
 
+    /// The followed colonist has died: stay with the scene and offer the people who carry it on.
+    private func fallen(_ c: AgentLite) -> some View {
+        let here = game.agents.filter { $0.alive && $0.move == nil && $0.locationId == c.locationId }.count
+        let ties = (detail?.relationships ?? []).filter(\.toAgentAlive).sorted { abs($0.affinity) > abs($1.affinity) }.prefix(3)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("\(c.first) is dead.").font(.headline).fontDesign(.serif)
+            Text(here == 0 ? "Nobody has found them yet." : "\(here) \(here == 1 ? "person is" : "people are") here. Watch what they do, or stay with someone who will carry this.")
+                .font(.footnote).foregroundStyle(.secondary)
+            ForEach(Array(ties), id: \.toAgentId) { tie in
+                Button { game.follow(tie.toAgentId) } label: {
+                    HStack(spacing: 10) {
+                        if let o = game.colonist(tie.toAgentId) { Avatar(spriteId: o.spriteId, size: 32) }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(tie.toAgentName).font(.subheadline.weight(.semibold))
+                            Text(tie.affinity >= 0 ? "Was close to \(c.first)" : "Was at odds with \(c.first)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.right.circle.fill").foregroundStyle(Color.amber)
+                    }
+                    .padding(8)
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+    }
+
     private func header(_ c: AgentLite) -> some View {
         HStack(spacing: 12) {
-            Button { profile = true } label: { Avatar(spriteId: c.spriteId, size: 48) }
+            Button { profile = true } label: { Avatar(spriteId: c.spriteId, alive: c.alive, size: 48) }
                 .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
                 Text(c.name).font(.title3).fontDesign(.serif)

@@ -11,11 +11,11 @@ import { INK, fade } from './lib/palette.mjs';
 import { rng } from './lib/noise.mjs';
 import { SPRITE_ARCHETYPES, SPRITE_VARIANTS } from './lib/layout.mjs';
 
-export const FRAME_W = 48;
-export const FRAME_H = 96;
+export const FRAME_W = 32;
+export const FRAME_H = 40;
 export const FRAMES = 4;
 /** The point between the feet in atlas pixels, which sits on the colonist's world position. */
-export const FEET = { x: 24, y: 90 };
+export const FEET = { x: 16, y: 37 };
 export const PORTRAIT = 128;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -70,7 +70,7 @@ const WHITE = rgba('#f4f1ea');
 
 // ---------- shaded primitives ----------
 
-const idxOf = (I) => (I < 0.16 ? 0 : I < 0.42 ? 1 : I < 0.74 ? 2 : I < 0.93 ? 3 : 4);
+const idxOf = (I) => (I < 0.1 ? 0 : I < 0.45 ? 1 : I < 0.97 ? 2 : 3);
 const lightAt = (u, v) => 0.6 - 0.42 * u - 0.1 * v + 0.28 * (Math.sqrt(Math.max(0, 1 - u * u)) - 0.75);
 
 /** Fills rows y0..y1 between edges(y) = [left, right], shaded as a cylinder lit from the upper left. */
@@ -140,14 +140,14 @@ const HAIR_AGED = ['#8f8e96', '#b9b8c0', '#e0dfe5'];
 const CLOTH = ['#4b5a6b', '#6d4c3a', '#3f5d45', '#8a7a5c', '#5a3f5e', '#2f3a4e', '#7b3b33', '#a65c2a', '#c9a14a', '#4f6f78', '#7d8086', '#d6d0c2', '#2c2c33', '#6e7d3a', '#9c4a62', '#3e7f8c', '#b8b2a4', '#56483e'];
 const STYLES = ['buzz', 'short', 'sidepart', 'pixie', 'undercut', 'mohawk', 'bob', 'long', 'longwavy', 'ponytail', 'braids', 'afro', 'curly', 'bun', 'topknot', 'dreads', 'bald'];
 const BUILDS = [
-  { H: 74, sw: 7.5, hw: 5.6, limb: 0.95 },
-  { H: 78, sw: 8.4, hw: 6.1, limb: 1 },
-  { H: 80, sw: 7.6, hw: 5.6, limb: 0.92 },
-  { H: 80, sw: 8.6, hw: 6.3, limb: 1 },
-  { H: 82, sw: 10, hw: 7.1, limb: 1.15 },
-  { H: 84, sw: 8.2, hw: 5.9, limb: 0.95 },
-  { H: 86, sw: 9.4, hw: 6.6, limb: 1.08 },
-  { H: 76, sw: 9.8, hw: 7.4, limb: 1.15 },
+  { H: 31, sw: 5, hw: 4, limb: 0.66 },
+  { H: 33, sw: 5.4, hw: 4.2, limb: 0.68 },
+  { H: 34, sw: 4.8, hw: 3.8, limb: 0.62 },
+  { H: 34, sw: 5.6, hw: 4.4, limb: 0.7 },
+  { H: 35, sw: 6.4, hw: 5, limb: 0.78 },
+  { H: 36, sw: 5.2, hw: 4, limb: 0.66 },
+  { H: 37, sw: 6, hw: 4.6, limb: 0.74 },
+  { H: 32, sw: 6.3, hw: 5.1, limb: 0.78 },
 ];
 
 const OUTFITS = {
@@ -213,7 +213,7 @@ function specFor(archetype, v) {
     if (used.has(sig) && attempt < 20) continue;
     used.add(sig);
     return {
-      archetype, age, ...build, sw: build.sw + 1.4, hw: build.hw + 0.9, limb: build.limb * 1.18, style, facial, outfit, acc, hood, helmet,
+      archetype, age, ...build, style, facial, outfit, acc, hood, helmet,
       harness: (outfit === 'coverall' || outfit === 'suit') && r() < 0.5,
       emblem: archetype === 'medic' ? 'cross' : archetype === 'guard' ? 'badge' : r() < 0.3 ? 'patch' : null,
       sleeves: outfit === 'tee' || outfit === 'overalls' || (outfit === 'apron' && r() < 0.5) ? 'short' : 'long',
@@ -345,14 +345,14 @@ function geometry(s, f) {
   const bob = [0, -1, 0, -1][f];
   const ground = FEET.y;
   const top = ground - s.H + bob;
-  const headH = Math.round(s.H / 5.8);
+  const headH = Math.round(s.H / 2.6);
   const ry = headH / 2;
-  const rx = ry * 0.82;
+  const rx = ry * 0.98;
   const headCy = top + ry;
   const chin = top + headH;
-  const shoulderY = chin + 3;
-  const hipY = ground - Math.round(s.H * 0.47) + bob;
-  const kneeY = Math.round((hipY + ground) / 2) + 1;
+  const shoulderY = chin;
+  const hipY = ground - Math.round(s.H * 0.3) + bob;
+  const kneeY = Math.round((hipY + ground) / 2);
   return { bob, ground, top, ry, rx, headCy, chin, shoulderY, hipY, kneeY, cx: 24 };
 }
 
@@ -375,29 +375,29 @@ function drawFigure(img, s, dir, f) {
   const back = view === 'back';
   // behind the body
   if (!back) {
-    if (has('polearm')) polearm(img, m, cx - 10, hipY + 8, cx + 11, shoulderY - 12);
-    if (has('tank')) for (const sx of [-4, 4]) limb(img, cx + sx, shoulderY - 4, cx + sx, hipY - 2, 2.6, 2.6, m.accent, { bias: -0.1 });
-    if (has('backpack')) band(img, shoulderY, hipY - 2, () => [cx - s.sw - 1.5, cx + s.sw + 1.5], m.leather, { bias: -0.25 });
-    if (s.outfit === 'cloak') band(img, shoulderY - 1, Math.min(ground - 4, kneeY + 14), (y, t) => [cx - s.sw - 2 - t * 4, cx + s.sw + 2 + t * 4], m.top, { bias: -0.3, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
+    if (has('polearm')) polearm(img, m, cx - 7, hipY + 5, cx + 8, shoulderY - 10);
+    if (has('tank')) for (const sx of [-3, 3]) limb(img, cx + sx, shoulderY - 3, cx + sx, hipY - 2, 1.8, 1.8, m.accent, { bias: -0.1 });
+    if (has('backpack')) band(img, shoulderY, hipY - 1, () => [cx - s.sw - 1, cx + s.sw + 1], m.leather, { bias: -0.25 });
+    if (s.outfit === 'cloak') band(img, shoulderY - 1, ground - 2, (y, t) => [cx - s.sw - 2 - t * 4, cx + s.sw + 2 + t * 4], m.top, { bias: -0.3, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
     drawHair(img, s, view, cx, G.headCy, G.rx, G.ry, 'back');
   }
-  if (s.hood === false && (s.outfit === 'hoodie')) band(img, shoulderY - 3, shoulderY + 2, () => [cx - 5, cx + 5], m.top, { bias: -0.15 });
+  if (s.hood === false && (s.outfit === 'hoodie')) band(img, shoulderY - 2, shoulderY + 1, () => [cx - 4, cx + 4], m.top, { bias: -0.15 });
 
   // legs and boots
   for (const sd of [-1, 1]) {
-    const lift = (f === 1 && sd === -1) || (f === 3 && sd === 1) ? 2 : 0;
+    const lift = (f === 1 && sd === -1) || (f === 3 && sd === 1) ? 1 : 0;
     const lx = cx + sd * s.hw * 0.5;
     const thigh = 3 * s.limb + bulk * 0.5;
     const calf = 2.3 * s.limb + bulk * 0.5;
-    const bootTop = ground - 9 - lift;
+    const bootTop = ground - 4 - lift;
     band(img, hipY - 1, bootTop + 1, (y) => {
       const t = clamp((y - hipY) / (ground - hipY), 0, 1);
       const r = thigh - (thigh - calf) * t;
       return [lx - r, lx + r];
     }, m.bottom, { fold: (x, y, u) => (y === kneeY && x % 2 === 0 ? -1 : u * sd > 0.5 && y > kneeY && y < kneeY + 4 ? -1 : 0) });
-    if (suit) blob(img, lx, kneeY, calf + 0.6, 2, m.metal);
+    if (suit) blob(img, lx, kneeY, calf + 0.3, 1, m.metal);
     band(img, bootTop, ground - lift, (y, t) => [lx - calf - 0.8 - t * 0.6, lx + calf + 0.8 + t * 0.6], m.boots, {
-      fold: (x, y) => (y < bootTop + 2 ? 1 : y >= ground - lift - 1 ? -2 : 0),
+      fold: (x, y) => (y < bootTop + 1 ? 1 : y >= ground - lift - 1 ? -1 : 0),
     });
   }
 
@@ -408,7 +408,7 @@ function drawFigure(img, s, dir, f) {
     });
   if (s.outfit === 'robe') band(img, ground - 4, ground - 2, (y) => [cx - s.hw - 4.6, cx + s.hw + 4.6], m.accent);
   if (s.outfit === 'labcoat' || s.outfit === 'longcoat') {
-    const end = kneeY + (s.outfit === 'longcoat' ? 10 : 4);
+    const end = kneeY + (s.outfit === 'longcoat' ? 3 : 1);
     band(img, hipY - 1, end, (y, t) => [cx - s.hw - 1.2 - t * 3, cx + s.hw + 1.2 + t * 3], m.top, {
       skip: (x, y, u, v) => !back && Math.abs(x + 0.5 - cx) < 1 + v * 1.8,
       fold: (x, y, u, v) => (Math.abs(x + 0.5 - cx) < 2.6 + v * 1.8 && !back ? -1 : (x - cx + 40) % 5 === 0 && v > 0.3 ? -1 : back && x === cx ? -1 : 0),
@@ -419,12 +419,12 @@ function drawFigure(img, s, dir, f) {
   const torsoMat = s.outfit === 'overalls' ? m.accent : s.outfit === 'apron' ? m.top : m.top;
   const half = (y) => {
     const t = (y - shoulderY) / (hipY + 2 - shoulderY);
-    let h = y < shoulderY + 2 ? s.sw - 2.2 + (y - shoulderY) : t < 0.45 ? s.sw : s.sw + (s.hw - 0.5 - s.sw) * ((t - 0.45) / 0.55);
+    let h = y < shoulderY + 1 ? s.sw - 1.2 : t < 0.4 ? s.sw : s.sw + (s.hw - 0.5 - s.sw) * ((t - 0.4) / 0.6);
     return h + bulk;
   };
-  band(img, G.chin - 1, shoulderY + 2, () => [cx - 2.2, cx + 2.2], m.skin, { bias: -0.25 });
+  band(img, G.chin - 1, shoulderY + 1, () => [cx - 1.6, cx + 1.6], m.skin, { bias: -0.25 });
   band(img, shoulderY, hipY + 2, (y) => [cx - half(y), cx + half(y)], torsoMat, {
-    fold: (x, y, u, v) => (v > 0.68 && Math.abs(u) < 0.5 && ((x - cx) + y + 40) % 7 === 0 ? -1 : v > 0.15 && v < 0.28 && Math.abs(u) > 0.6 && (x + y) % 4 === 0 ? -1 : 0),
+    fold: (x, y, u, v) => (v > 0.7 && Math.abs(u) < 0.5 && ((x - cx) + y + 40) % 5 === 0 ? -1 : 0),
   });
   if (!back) torsoDetails(img, s, G, half);
   else backDetails(img, s, G, half);
@@ -432,9 +432,9 @@ function drawFigure(img, s, dir, f) {
   // arms
   for (const sd of [-1, 1]) {
     const sx = cx + sd * (s.sw - 1.4 + bulk);
-    const sy = shoulderY + 2;
+    const sy = shoulderY + 1.5;
     const hx = cx + sd * (s.sw + 0.6 + bulk);
-    const hy = hipY + 3 - swing * sd * (back ? -1 : 1);
+    const hy = hipY + 1 - swing * sd * (back ? -1 : 1);
     const ex = (sx + hx) / 2;
     const ey = (sy + hy) / 2;
     const r0 = (s.outfit === 'robe' ? 2.4 : 2.4) * s.limb + bulk * 0.6;
@@ -442,8 +442,8 @@ function drawFigure(img, s, dir, f) {
     const prosthetic = has('prosthetic') && sd === 1;
     if (prosthetic) {
       limb(img, sx, sy, ex, ey, r0, r0 * 0.9, sleeve);
-      limb(img, ex, ey, hx, hy - 1, 1.5, 1.3, m.metal, { fold: (x, y, u, t) => (t < 0.15 ? -2 : 0) });
-      blob(img, hx, hy, 1.8, 1.8, m.metal, { shift: -1 });
+      limb(img, ex, ey, hx, hy - 1, 1, 0.9, m.metal, { fold: (x, y, u, t) => (t < 0.2 ? -1 : 0) });
+      blob(img, hx, hy, 1.3, 1.3, m.metal, { shift: -1 });
       continue;
     }
     if (s.sleeves === 'short') {
@@ -451,7 +451,7 @@ function drawFigure(img, s, dir, f) {
       limb(img, sx, sy, ex, ey, r0, r0 * 0.95, sleeve);
     } else limb(img, sx, sy, hx, hy - 1.5, r0, r1, sleeve, { fold: (x, y, u, t) => (t > 0.45 && t < 0.55 && x % 2 === 0 ? -1 : 0) });
     const glove = suit || s.outfit === 'armor' ? m.dark : m.skin;
-    blob(img, hx, hy, 1.9 * s.limb, 2 * s.limb, glove);
+    blob(img, hx, hy, 1.4, 1.4, glove);
   }
   if (!back) frontOverlays(img, s, G, half);
   if (back) backOverlays(img, s, G, half);
@@ -459,8 +459,8 @@ function drawFigure(img, s, dir, f) {
 }
 
 function polearm(img, m, x0, y0, x1, y1) {
-  limb(img, x0, y0, x1, y1, 0.9, 0.9, m.metal);
-  limb(img, x1 - 1, y1 + 2, x1 + 2, y1 - 3, 1.6, 0.8, m.accent, { bias: 0.2 });
+  limb(img, x0, y0, x1, y1, 0.6, 0.6, m.metal);
+  limb(img, x1 - 1, y1 + 1, x1 + 1, y1 - 2, 1.1, 0.6, m.accent, { bias: 0.2 });
 }
 
 function torsoDetails(img, s, G, half) {
@@ -472,70 +472,64 @@ function torsoDetails(img, s, G, half) {
   };
   if (o === 'tee' || o === 'scrubs') {
     for (let y = shoulderY; y < shoulderY + (o === 'scrubs' ? 4 : 2); y++) for (let x = cx - 2; x < cx + 2; x++) if (Math.abs(x + 0.5 - cx) < 2 - (y - shoulderY) * (o === 'scrubs' ? 0.5 : 0.2)) img.put(x, y, m.skin[2]);
-    if (o === 'scrubs') rect(img, cx + 2, shoulderY + 5, 3, 3, m.top[1]);
+    if (o === 'scrubs') rect(img, cx + 1, shoulderY + 3, 2, 2, m.top[1]);
   }
   if (o === 'hoodie') {
-    band(img, hipY - 6, hipY - 1, () => [cx - 4, cx + 4], m.top, { bias: -0.22 });
-    for (const x of [cx - 2, cx + 1]) for (let y = shoulderY + 1; y < shoulderY + 5; y++) img.put(x, y, m.accent[3]);
+    band(img, hipY - 3, hipY, () => [cx - 3, cx + 3], m.top, { bias: -0.3 });
+    for (const x of [cx - 2, cx + 1]) for (let y = shoulderY + 1; y < shoulderY + 3; y++) img.put(x, y, m.accent[3]);
   }
   if (o === 'jacket' || o === 'coverall' || o === 'suit') {
     midline(m.top, 4);
-    for (let y = shoulderY; y < shoulderY + 3; y++)
-      for (const sd of [-1, 1]) for (let k = 1; k <= 3 - (y - shoulderY); k++) img.put(cx + sd * k - (sd < 0 ? 1 : 0), y, m.top[3]);
+    for (let y = shoulderY; y < shoulderY + 2; y++)
+      for (const sd of [-1, 1]) for (let k = 1; k <= 2 - (y - shoulderY); k++) img.put(cx + sd * k - (sd < 0 ? 1 : 0), y, m.top[3]);
     if (o === 'jacket') rect(img, cx - 1, shoulderY, 2, 2, m.accent[2]);
   }
   if (o === 'coverall') {
-    rect(img, cx + 2, shoulderY + 4, 4, 3, m.top[1]);
-    rect(img, cx + 2, shoulderY + 4, 4, 1, m.top[3]);
+    rect(img, cx + 1, shoulderY + 2, 3, 2, m.top[1]);
+    rect(img, cx + 1, shoulderY + 2, 3, 1, m.top[3]);
   }
   if (o === 'coverall' || o === 'suit' || o === 'jacket' || o === 'armor') band(img, hipY - 1, hipY + 1, (y) => [cx - half(y), cx + half(y)], m.leather);
   if (s.harness) {
-    for (const sd of [-1, 1]) for (let y = shoulderY; y < hipY; y++) img.put(Math.round(cx + sd * (3.5 - (y - shoulderY) * 0.05)) - (sd < 0 ? 1 : 0), y, m.gold[y % 4 === 0 ? 3 : 2]);
-    for (let x = cx - 4; x < cx + 4; x++) img.put(x, shoulderY + 6, m.gold[1]);
-    rect(img, cx - 1, shoulderY + 6, 2, 2, m.metal[4]);
+    for (const sd of [-1, 1]) for (let y = shoulderY; y < hipY; y++) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), y, m.gold[2]);
+    for (let x = cx - 3; x < cx + 3; x++) img.put(x, shoulderY + 4, m.gold[1]);
+    rect(img, cx - 1, shoulderY + 4, 2, 1, m.metal[3]);
   }
   if (o === 'suit') {
-    rect(img, cx - 3, shoulderY + 4, 6, 4, m.metal[1]);
-    rect(img, cx - 3, shoulderY + 4, 6, 1, m.metal[3]);
-    img.put(cx - 2, shoulderY + 6, rgba('#e04848'));
-    img.put(cx, shoulderY + 6, rgba('#58d06a'));
-    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 4, cx + 4], m.metal);
-    for (const [px, py] of s.patches) {
-      rect(img, cx + px - 1, shoulderY + 9 + py % 6, 3, 3, s.m.top[3]);
-      img.put(cx + px - 1, shoulderY + 9 + py % 6, s.m.top[1]);
-    }
+    rect(img, cx - 2, shoulderY + 2, 4, 3, m.metal[1]);
+    img.put(cx - 1, shoulderY + 3, rgba('#e43b44'));
+    img.put(cx + 1, shoulderY + 3, rgba('#63c74d'));
+    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3.5, cx + 3.5], m.metal);
+    const [px, py] = s.patches[0];
+    rect(img, cx + (px % 3) - 1, hipY + 3 + (py % 3), 2, 2, s.m.top[3]);
   }
   if (o === 'overalls') {
-    band(img, shoulderY + 5, hipY + 2, () => [cx - s.hw + 0.5, cx + s.hw - 0.5], m.bottom);
-    for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 6; y++) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), y, m.bottom[1]);
-    for (const sd of [-1, 1]) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), shoulderY + 5, m.metal[4]);
-    rect(img, cx - 2, shoulderY + 7, 4, 3, m.bottom[1]);
+    band(img, shoulderY + 3, hipY + 2, () => [cx - s.hw + 0.5, cx + s.hw - 0.5], m.bottom);
+    for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 3; y++) img.put(cx + sd * 2 - (sd < 0 ? 1 : 0), y, m.bottom[1]);
+    for (const sd of [-1, 1]) img.put(cx + sd * 2 - (sd < 0 ? 1 : 0), shoulderY + 3, m.metal[3]);
+    rect(img, cx - 1, shoulderY + 5, 2, 2, m.bottom[1]);
   }
   if (o === 'armor') {
     band(img, shoulderY + 1, hipY - 1, (y) => [cx - half(y) + 0.8, cx + half(y) - 0.8], m.armor, {
-      fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : x === cx || x === cx - 1 ? -1 : 0),
+      fold: (x, y) => ((y - shoulderY) % 3 === 0 ? -1 : 0),
     });
   }
   if (o === 'labcoat' || o === 'longcoat') {
     band(img, shoulderY, hipY + 2, (y, t) => [cx - 1 - t * 0.6, cx + 1 + t * 0.6], m.accent, { bias: -0.1 });
-    if (o === 'labcoat') for (let y = shoulderY + 1; y < shoulderY + 9; y++) img.put(cx, y, m.dark[1]);
-    for (let y = shoulderY; y < shoulderY + 6; y++) for (const sd of [-1, 1]) img.put(cx + sd * (2 + Math.floor((y - shoulderY) / 3)) - (sd < 0 ? 1 : 0), y, m.top[4]);
+    if (o === 'labcoat') for (let y = shoulderY + 1; y < shoulderY + 5; y++) img.put(cx, y, m.dark[1]);
+    for (let y = shoulderY; y < shoulderY + 3; y++) for (const sd of [-1, 1]) img.put(cx + sd * (2 + Math.floor((y - shoulderY) / 2)) - (sd < 0 ? 1 : 0), y, m.top[3]);
     if (o === 'longcoat') band(img, hipY - 3, hipY - 1, (y) => [cx - half(y), cx + half(y)], m.leather);
   }
   if (o === 'robe') {
     for (let y = shoulderY; y < shoulderY + 4; y++) for (let x = cx - 2; x < cx + 2; x++) if (Math.abs(x + 0.5 - cx) < 2 - (y - shoulderY) * 0.5) img.put(x, y, m.skin[1]);
     band(img, hipY - 2, hipY, (y) => [cx - half(y), cx + half(y)], m.accent);
-    for (let y = hipY; y < hipY + 7; y++) img.put(cx + 2, y, m.accent[y % 2 ? 1 : 3]);
+    for (let y = hipY; y < hipY + 4; y++) img.put(cx + 2, y, m.accent[y % 2 ? 1 : 3]);
   }
   if (s.emblem === 'cross' && o !== 'armor') {
-    rect(img, cx - 5, shoulderY + 4, 3, 1, rgba('#d84848'));
-    rect(img, cx - 4, shoulderY + 3, 1, 3, rgba('#d84848'));
+    rect(img, cx - 4, shoulderY + 3, 3, 1, rgba('#e43b44'));
+    rect(img, cx - 3, shoulderY + 2, 1, 3, rgba('#e43b44'));
   }
-  if (s.emblem === 'badge') {
-    rect(img, cx - 5, shoulderY + 4, 2, 2, m.gold[3]);
-    img.put(cx - 5, shoulderY + 4, m.gold[4]);
-  }
-  if (s.emblem === 'patch' && o !== 'overalls') rect(img, cx - 5, shoulderY + 2, 2, 2, m.accent[3]);
+  if (s.emblem === 'badge') rect(img, cx - 4, shoulderY + 2, 2, 2, m.gold[3]);
+  if (s.emblem === 'patch' && o !== 'overalls') rect(img, cx - 4, shoulderY + 2, 2, 1, m.accent[3]);
 }
 
 function backDetails(img, s, G, half) {
@@ -544,16 +538,16 @@ function backDetails(img, s, G, half) {
   if (s.outfit === 'overalls') {
     band(img, hipY - 2, hipY + 2, () => [cx - s.hw + 0.5, cx + s.hw - 0.5], m.bottom);
     for (let y = shoulderY; y < hipY - 2; y++) {
-      const k = Math.round((y - shoulderY) * 0.25);
+      const k = Math.round((y - shoulderY) * 0.4);
       img.put(cx - 3 + k, y, m.bottom[1]);
       img.put(cx + 2 - k, y, m.bottom[1]);
     }
   }
-  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, (y) => [cx - half(y) + 0.8, cx + half(y) - 0.8], m.armor, { fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : 0) });
+  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, (y) => [cx - half(y) + 0.8, cx + half(y) - 0.8], m.armor, { fold: (x, y) => ((y - shoulderY) % 3 === 0 ? -1 : 0) });
   if (s.outfit === 'robe' || s.outfit === 'longcoat' || s.outfit === 'coverall') for (let y = shoulderY + 2; y < hipY; y++) img.put(cx, y, m.top[1]);
   if (s.emblem === 'cross') {
-    rect(img, cx - 3, shoulderY + 5, 6, 2, rgba('#d84848'));
-    rect(img, cx - 1, shoulderY + 3, 2, 6, rgba('#d84848'));
+    rect(img, cx - 2, shoulderY + 3, 4, 2, rgba('#e43b44'));
+    rect(img, cx - 1, shoulderY + 2, 2, 4, rgba('#e43b44'));
   }
 }
 
@@ -562,51 +556,37 @@ function frontOverlays(img, s, G, half) {
   const m = s.m;
   const has = (a) => s.acc.includes(a);
   if (s.outfit === 'apron') {
-    band(img, shoulderY + 4, kneeY + 2, (y, t) => [cx - s.hw + 0.2 - t, cx + s.hw - 0.2 + t], m.apron, { fold: (x, y, u, v) => (v > 0.5 && (x - cx) % 4 === 0 ? -1 : 0) });
-    for (const sd of [-1, 1]) for (let y = shoulderY - 1; y < shoulderY + 4; y++) img.put(cx + sd * 3 - (sd < 0 ? 1 : 0), y, m.apron[1]);
-    rect(img, cx - 3, hipY + 1, 6, 3, m.apron[1]);
+    band(img, shoulderY + 2, kneeY + 1, (y, t) => [cx - s.hw + 0.4 - t, cx + s.hw - 0.4 + t], m.apron);
+    for (const sd of [-1, 1]) for (let y = shoulderY - 1; y < shoulderY + 2; y++) img.put(cx + sd * 2 - (sd < 0 ? 1 : 0), y, m.apron[1]);
+    rect(img, cx - 2, hipY, 4, 2, m.apron[1]);
   }
   if (s.outfit === 'poncho') {
-    band(img, shoulderY - 1, hipY + 5, (y, t) => [cx - s.sw - t * 5, cx + s.sw + t * 5], m.top, {
-      skip: (x, y, u, v) => v > 0.94 && x % 2 === 0,
-      fold: (x, y, u, v) => {
-        const row = (y - shoulderY + 20) % 7;
-        if (row === 4 || row === 5) return 0;
-        return (x - cx + 40) % 6 === 0 && v > 0.3 ? -1 : 0;
-      },
-    });
-    for (let y = shoulderY - 1; y < hipY + 5; y++) {
-      const row = (y - shoulderY + 20) % 7;
-      if (row !== 4 && row !== 5) continue;
-      const t = (y - shoulderY + 1) / (hipY + 6 - shoulderY);
-      for (let x = Math.ceil(cx - s.sw - t * 5); x < cx + s.sw + t * 5; x++) if (img.alpha(x, y)) img.put(x, y, m.accent[row === 4 ? 3 : 2]);
+    band(img, shoulderY - 1, hipY + 3, (y, t) => [cx - s.sw - t * 3, cx + s.sw + t * 3], m.top, { skip: (x, y, u, v) => v > 0.9 && x % 2 === 0 });
+    for (let y = shoulderY - 1; y < hipY + 3; y++) {
+      if ((y - shoulderY + 20) % 4 !== 2) continue;
+      const t = (y - shoulderY + 1) / (hipY + 4 - shoulderY);
+      for (let x = Math.ceil(cx - s.sw - t * 3); x < cx + s.sw + t * 3; x++) if (img.alpha(x, y)) img.put(x, y, m.accent[2]);
     }
     band(img, shoulderY - 1, shoulderY + 1, () => [cx - 2.5, cx + 2.5], m.top, { bias: -0.4 });
   }
   if (s.outfit === 'cloak') {
-    band(img, shoulderY - 1, shoulderY + 7, (y, t) => [cx - s.sw - 1.5 - t, cx + s.sw + 1.5 + t], m.top, { fold: (x, y, u, v) => (v > 0.8 ? -1 : 0) });
+    band(img, shoulderY - 1, shoulderY + 4, (y, t) => [cx - s.sw - 1 - t, cx + s.sw + 1 + t], m.top, { fold: (x, y, u, v) => (v > 0.75 ? -1 : 0) });
     rect(img, cx - 1, shoulderY, 2, 2, m.gold[3]);
-    if (!s.hood) band(img, shoulderY - 2, shoulderY + 1, () => [cx - 5, cx + 5], m.top, { bias: -0.2 });
+    if (!s.hood) band(img, shoulderY - 2, shoulderY, () => [cx - 4, cx + 4], m.top, { bias: -0.2 });
   }
   if (has('toolbelt')) {
     band(img, hipY - 1, hipY + 1, (y) => [cx - half(y), cx + half(y)], m.leather);
-    for (const px of [-6, -3, 3]) {
-      rect(img, cx + px, hipY, 3, 4, m.leather[3]);
-      rect(img, cx + px, hipY, 3, 1, m.leather[4]);
-    }
-    for (let y = hipY; y < hipY + 6; y++) img.put(cx + 7, y, m.metal[y === hipY + 5 ? 4 : 3]);
+    for (const px of [-4, 2]) rect(img, cx + px, hipY, 2, 2, m.leather[3]);
+    for (let y = hipY; y < hipY + 3; y++) img.put(cx + s.hw + 1, y, m.metal[3]);
   }
   if (has('satchel')) {
-    for (let k = 0; k < 15; k++) {
-      img.put(Math.round(cx - s.sw + 2 + k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[1]);
-      img.put(Math.round(cx - s.sw + 3 + k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[2]);
-    }
-    band(img, hipY - 1, hipY + 5, () => [cx + s.hw - 1, cx + s.hw + 5], m.leather, { fold: (x, y, u, v) => (v < 0.3 ? 1 : 0) });
+    for (let k = 0; k < hipY - shoulderY; k++) img.put(Math.round(cx - s.sw + 2 + k * ((2 * s.sw - 3) / (hipY - shoulderY))), shoulderY + k, m.leather[1]);
+    band(img, hipY - 1, hipY + 3, () => [cx + s.hw - 1, cx + s.hw + 3], m.leather, { fold: (x, y, u, v) => (v < 0.3 ? 1 : 0) });
   }
-  if (has('backpack')) for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 9; y++) img.put(cx + sd * (s.sw - 3) - (sd < 0 ? 1 : 0), y, m.leather[1]);
+  if (has('backpack')) for (const sd of [-1, 1]) for (let y = shoulderY; y < shoulderY + 5; y++) img.put(cx + sd * (s.sw - 2) - (sd < 0 ? 1 : 0), y, m.leather[1]);
   if (has('scarf')) {
-    band(img, shoulderY - 2, shoulderY + 2, () => [cx - 4.5, cx + 4.5], m.accent, { fold: (x) => (x % 3 === 0 ? -1 : 0) });
-    band(img, shoulderY + 1, shoulderY + 10, () => [cx + 1.5, cx + 4.5], m.accent, { skip: (x, y, u, v) => v > 0.9 && x % 2 === 0, bias: -0.1 });
+    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3.5, cx + 3.5], m.accent);
+    band(img, shoulderY + 1, shoulderY + 5, () => [cx + 1, cx + 3], m.accent, { bias: -0.1 });
   }
 }
 
@@ -615,21 +595,20 @@ function backOverlays(img, s, G, half) {
   const m = s.m;
   const has = (a) => s.acc.includes(a);
   if (s.outfit === 'cloak' || s.outfit === 'poncho')
-    band(img, shoulderY - 1, s.outfit === 'cloak' ? Math.min(ground - 4, kneeY + 14) : hipY + 5, (y, t) => [cx - s.sw - 2 - t * 4, cx + s.sw + 2 + t * 4], m.top, {
-      fold: (x, y, u, v) => (s.outfit === 'poncho' && (y - shoulderY + 20) % 7 >= 4 && (y - shoulderY + 20) % 7 <= 5 ? 0 : (x - cx + 40) % 4 === 0 && v > 0.2 ? -1 : 0),
+    band(img, shoulderY - 1, s.outfit === 'cloak' ? ground - 2 : hipY + 3, (y, t) => [cx - s.sw - 1 - t * 3, cx + s.sw + 1 + t * 3], m.top, {
+      fold: (x, y, u, v) => (s.outfit === 'poncho' && (y - shoulderY + 20) % 4 === 2 ? 0 : (x - cx + 40) % 4 === 0 && v > 0.3 ? -1 : 0),
     });
   if (has('tank')) {
-    for (const sx of [-3.5, 3.5]) limb(img, cx + sx, shoulderY, cx + sx, hipY - 2, 2.7, 2.7, m.accent);
-    for (const sx of [-4, 3]) rect(img, cx + sx, shoulderY - 2, 2, 2, m.metal[3]);
+    for (const sx of [-2.2, 2.2]) limb(img, cx + sx, shoulderY, cx + sx, hipY - 1, 1.8, 1.8, m.accent);
+    for (const sx of [-3, 1]) rect(img, cx + sx, shoulderY - 1, 2, 1, m.metal[3]);
   }
   if (has('backpack')) {
     band(img, shoulderY + 1, hipY - 1, () => [cx - s.sw + 1, cx + s.sw - 1], m.leather, { fold: (x, y, u, v) => (v < 0.25 ? 1 : v > 0.55 && v < 0.6 ? -1 : 0) });
-    rect(img, cx - 2, shoulderY + 9, 4, 3, m.leather[1]);
-    for (const sd of [-1, 1]) for (let y = hipY - 4; y < hipY; y++) img.put(cx + sd * (s.sw - 3), y, m.metal[3]);
+    rect(img, cx - 2, shoulderY + 5, 4, 2, m.leather[1]);
   }
-  if (has('polearm')) polearm(img, m, cx + 10, hipY + 8, cx - 11, shoulderY - 12);
-  if (has('satchel')) for (let k = 0; k < 15; k++) img.put(Math.round(cx + s.sw - 2 - k * ((2 * s.sw - 2) / 15)), shoulderY + k, m.leather[1]);
-  if (has('scarf')) band(img, shoulderY - 2, shoulderY + 2, () => [cx - 4.5, cx + 4.5], m.accent);
+  if (has('polearm')) polearm(img, m, cx + 7, hipY + 5, cx - 8, shoulderY - 10);
+  if (has('satchel')) for (let k = 0; k < hipY - shoulderY; k++) img.put(Math.round(cx + s.sw - 2 - k * ((2 * s.sw - 3) / (hipY - shoulderY))), shoulderY + k, m.leather[1]);
+  if (has('scarf')) band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3.5, cx + 3.5], m.accent);
 }
 
 function drawHead(img, s, view, G) {
@@ -642,34 +621,35 @@ function drawHead(img, s, view, G) {
   if (!side) for (const sd of [-1, 1]) blob(img, cx + sd * (rx + 0.1), headCy + 0.6, 1.1, 1.5, m.skin, { bias: -0.15 });
   else blob(img, hx + 1, headCy + 0.6, 1.1, 1.5, m.skin, { bias: -0.15 });
   blob(img, hx, headCy, hrx, ry, m.skin, { skip: (dx, dy) => dy > 0.55 && Math.abs(dx) > 0.7 - (dy - 0.55) * 0.6 });
-  const eyeY = Math.round(headCy + 0.4);
+  const eyeY = Math.round(headCy + 1);
+  const blush = rgba('#f6757a');
   if (side) {
     const fx = Math.round(hx - hrx);
     img.put(fx - 1, eyeY + 1, m.skin[2]);
-    img.put(fx - 1, eyeY + 2, m.skin[1]);
-    if (!s.helmet || true) {
-      img.put(fx + 1, eyeY, EYE);
-      img.put(fx + 1, eyeY - 1, EYE);
-      img.put(fx + 2, eyeY, WHITE);
-      for (const x of [fx, fx + 1, fx + 2]) img.put(x, eyeY - 3, m.hair[0]);
-      img.put(fx, eyeY + 4, m.skin[0]);
-    }
+    img.put(fx + 2, eyeY - 1, WHITE);
+    img.put(fx + 2, eyeY, EYE);
+    img.put(fx + 1, eyeY - 1, EYE);
+    img.put(fx + 1, eyeY, EYE);
+    for (const x of [fx + 1, fx + 2]) img.put(x, eyeY - 2, m.hair[0]);
+    img.put(fx + 1, eyeY + 2, m.skin[0]);
+    if (s.age !== 'elder') img.put(fx + 3, eyeY + 1, blush);
     facialHair(img, s, 'side', hx, headCy, hrx, ry, eyeY);
   } else if (view === 'front') {
-    for (const ex of [cx - 3, cx + 2]) {
+    for (const ex of [cx - 4, cx + 2]) {
+      img.put(ex, eyeY - 1, WHITE);
+      img.put(ex + 1, eyeY - 1, EYE);
       img.put(ex, eyeY, EYE);
-      img.put(ex, eyeY - 1, EYE);
-      img.put(ex + (ex < cx ? -1 : 1), eyeY, WHITE);
-      for (const x of [ex - 1, ex, ex + 1]) img.put(x, eyeY - 3, m.hair[x === ex ? 0 : 1]);
+      img.put(ex + 1, eyeY, EYE);
+      for (const x of [ex, ex + 1]) img.put(x, eyeY - 2, m.hair[0]);
     }
-    img.put(cx, eyeY + 2, m.skin[1]);
-    img.put(cx - 1, eyeY + 4, m.skin[0]);
-    img.put(cx, eyeY + 4, m.skin[0]);
+    img.put(cx - 1, eyeY + 2, m.skin[0]);
+    img.put(cx, eyeY + 2, m.skin[0]);
     if (s.age === 'elder') {
-      img.put(cx - 4, eyeY + 1, m.skin[1]);
-      img.put(cx + 3, eyeY + 1, m.skin[1]);
-      img.put(cx - 2, eyeY + 3, m.skin[1]);
-      img.put(cx + 1, eyeY + 3, m.skin[1]);
+      img.put(cx - 5, eyeY, m.skin[1]);
+      img.put(cx + 4, eyeY, m.skin[1]);
+    } else {
+      img.put(cx - 5, eyeY + 1, blush);
+      img.put(cx + 4, eyeY + 1, blush);
     }
     facialHair(img, s, 'front', hx, headCy, hrx, ry, eyeY);
   }
@@ -685,9 +665,9 @@ function facialHair(img, s, view, hx, hy, rx, ry, eyeY) {
       const dx = (x + 0.5 - hx) / rx;
       const dy = (y + 0.5 - hy) / ry;
       if (dx * dx + dy * dy > 1.05 || !img.alpha(x, y)) continue;
-      const mouth = y === eyeY + 4 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 0.5 : hx)) < 1.2;
-      const lip = y === eyeY + 3 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 1 : hx)) < 2.2;
-      const jaw = dy > 0.3 && (view === 'front' || dx < 0.5);
+      const mouth = y === eyeY + 2 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 1.5 : hx)) < 1.2;
+      const lip = y === eyeY + 1 && Math.abs(x + 0.5 - (view === 'side' ? hx - rx + 1.5 : hx)) < 2.2;
+      const jaw = dy > 0.42 && (view === 'front' || dx < 0.5);
       let on = false;
       if (s.facial === 'beard') on = (jaw || (Math.abs(dx) > 0.75 && dy > -0.1)) && !mouth;
       else if (s.facial === 'mustache') on = lip;
@@ -707,38 +687,36 @@ function headgear(img, s, view, hx, hy, rx, ry, eyeY) {
   const front = view === 'front';
   const fx = Math.round(hx - rx);
   if (has('goggles')) {
-    const gy = s.helmet || has('visor') ? eyeY - 4 : eyeY;
+    const gy = s.helmet || has('visor') ? eyeY - 3 : eyeY;
     for (let x = Math.floor(hx - rx - 0.5); x <= Math.ceil(hx + rx - 0.5); x++) if (img.alpha(x, gy)) img.put(x, gy, m.dark[1]);
-    if (front) for (const ex of [Math.round(hx) - 4, Math.round(hx) + 1]) {
-      rect(img, ex, gy - 1, 3, 3, m.glass[2]);
-      img.put(ex, gy - 1, m.glass[4]);
-      rect(img, ex, gy + 1, 3, 1, m.glass[0]);
+    if (front) for (const ex of [Math.round(hx) - 5, Math.round(hx) + 1]) {
+      rect(img, ex, gy - 1, 4, 2, m.glass[2]);
+      img.put(ex, gy - 1, m.glass[3]);
     }
     if (side) {
-      rect(img, fx, gy - 1, 3, 3, m.glass[2]);
-      img.put(fx, gy - 1, m.glass[4]);
+      rect(img, fx, gy - 1, 3, 2, m.glass[2]);
+      img.put(fx, gy - 1, m.glass[3]);
     }
   }
   if (has('visor') && !s.helmet && view !== 'back') {
     const x0 = side ? fx - 1 : Math.round(hx - rx);
     const w = side ? 5 : Math.round(rx * 2);
-    rect(img, x0, eyeY - 2, w, 3, m.glass[2]);
-    rect(img, x0, eyeY - 2, w, 1, m.glass[4]);
-    rect(img, x0, eyeY, w, 1, m.glass[0]);
+    rect(img, x0, eyeY - 1, w, 2, m.glass[2]);
+    rect(img, x0, eyeY - 1, w, 1, m.glass[3]);
   }
   if (has('respirator') && view !== 'back') {
     if (front) {
-      band(img, eyeY + 2, eyeY + 6, () => [hx - 3.5, hx + 3.5], m.metal);
-      for (const sd of [-1, 1]) blob(img, hx + sd * 3.6, eyeY + 4.5, 1.6, 1.6, m.accent);
+      band(img, eyeY + 1, eyeY + 4, () => [hx - 3, hx + 3], m.metal);
+      for (const sd of [-1, 1]) blob(img, hx + sd * 3.2, eyeY + 2.5, 1.2, 1.2, m.accent);
     } else {
-      band(img, eyeY + 2, eyeY + 6, () => [fx - 2, fx + 3], m.metal);
-      blob(img, fx - 1.5, eyeY + 4.5, 1.6, 1.6, m.accent);
+      band(img, eyeY + 1, eyeY + 4, () => [fx - 1, fx + 3], m.metal);
+      blob(img, fx - 1, eyeY + 2.5, 1.2, 1.2, m.accent);
     }
   }
   if (has('headset')) {
     const ex = side ? hx + 1 : hx + rx + 0.2;
-    blob(img, ex, hy + 0.5, 1.6, 2, m.dark);
-    if (!side || true) for (let k = 0; k < 4; k++) img.put(Math.round(ex - 1 - k * (side ? 1.2 : 0.8)), Math.round(hy + 2 + k * 0.6), m.dark[2]);
+    blob(img, ex, hy + 0.5, 1.2, 1.5, m.dark);
+    for (let k = 0; k < 3; k++) img.put(Math.round(ex - 1 - k), Math.round(hy + 2 + k * 0.5), m.dark[2]);
   }
   if (has('bandana')) {
     for (let y = Math.round(hy - ry * 0.62); y < Math.round(hy - ry * 0.62) + 2; y++)
@@ -793,74 +771,74 @@ function headgear(img, s, view, hx, hy, rx, ry, eyeY) {
 function drawSide(img, s, G, swing, bulk, sleeve, has) {
   const { cx, ground, shoulderY, hipY, kneeY } = G;
   const m = s.m;
-  const depth = s.sw * 0.72 + bulk;
+  const depth = s.sw * 0.75 + bulk;
   const hipD = s.hw * 0.78 + bulk * 0.5;
-  const step = 5 * swing;
+  const step = 3 * swing;
   const thigh = 3 * s.limb + bulk * 0.5;
   const calf = 2.3 * s.limb + bulk * 0.5;
 
-  if (has('polearm')) polearm(img, m, cx - 8, hipY + 9, cx + 9, shoulderY - 12);
-  if (s.outfit === 'cloak') band(img, shoulderY - 1, Math.min(ground - 4, kneeY + 14), (y, t) => [cx - 1, cx + depth + 2 + t * 5], m.top, { bias: -0.2, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
+  if (has('polearm')) polearm(img, m, cx - 6, hipY + 5, cx + 7, shoulderY - 10);
+  if (s.outfit === 'cloak') band(img, shoulderY - 1, ground - 2, (y, t) => [cx - 1, cx + depth + 2 + t * 5], m.top, { bias: -0.2, fold: (x) => ((x - cx) % 4 === 0 ? -1 : 0) });
   drawHair(img, s, 'side', cx - 1, G.headCy, G.rx * 1.08, G.ry, 'back');
-  if (has('tank')) limb(img, cx + depth + 2, shoulderY, cx + depth + 2, hipY - 2, 2.7, 2.7, m.accent);
-  if (has('backpack')) band(img, shoulderY + 1, hipY - 1, () => [cx + depth - 2, cx + depth + 4], m.leather, { fold: (x, y, u, v) => (v < 0.2 ? 1 : 0) });
+  if (has('tank')) limb(img, cx + depth + 1, shoulderY, cx + depth + 1, hipY - 1, 1.8, 1.8, m.accent);
+  if (has('backpack')) band(img, shoulderY + 1, hipY, () => [cx + depth - 1, cx + depth + 3], m.leather, { fold: (x, y, u, v) => (v < 0.2 ? 1 : 0) });
 
   const leg = (fx, near, lift) => {
-    const ankleY = ground - 3 - lift;
-    limb(img, cx + 0.5, hipY, fx, ankleY - 3, thigh, calf, m.bottom, { bias: near ? 0 : -0.25, fold: (x, y, u, t) => (t > 0.48 && t < 0.56 && x % 2 === 0 ? -1 : 0) });
-    limb(img, fx, ankleY - 5, fx, ankleY + 1, calf + 0.7, calf + 0.9, m.boots, { bias: near ? 0 : -0.25, fold: (x, y) => (y < ankleY - 3 ? 1 : 0) });
-    blob(img, fx - 2.2, ankleY + 1.4, 2.8, 1.7, m.boots, { bias: near ? 0 : -0.25 });
-    for (let x = Math.floor(fx - 5); x <= fx + 2; x++) if (img.alpha(x, ankleY + 3)) img.put(x, ankleY + 3, m.boots[0]);
+    const ankleY = ground - 2 - lift;
+    limb(img, cx + 0.5, hipY, fx, ankleY - 1, thigh, calf, m.bottom, { bias: near ? 0 : -0.3 });
+    limb(img, fx, ankleY - 2, fx, ankleY, calf + 0.4, calf + 0.5, m.boots, { bias: near ? 0 : -0.3, fold: (x, y) => (y < ankleY - 1 ? 1 : 0) });
+    blob(img, fx - 1.2, ankleY + 0.6, 2.2, 1.2, m.boots, { bias: near ? 0 : -0.3 });
   };
   leg(cx + step, false, swing !== 0 ? 1 : 0);
   // far arm
   const armR0 = 2.3 * s.limb + bulk * 0.6;
   const armR1 = (s.outfit === 'robe' ? 3 : 1.9) * s.limb + bulk * 0.5;
-  limb(img, cx + 0.5, shoulderY + 2, cx - 4 * swing, hipY + 2, armR0, armR1, sleeve, { bias: -0.3 });
+  limb(img, cx + 0.5, shoulderY + 1.5, cx - 3 * swing, hipY + 1, armR0, armR1, sleeve, { bias: -0.35 });
   leg(cx - step, true, 0);
 
   if (s.outfit === 'robe') band(img, hipY - 2, ground - 2, (y, t) => [cx - hipD - 1 - t * 3, cx + hipD + 1 + t * 4], m.top, { fold: (x, y, u, v) => ((x - cx + 40) % 4 === 0 && v > 0.25 ? -1 : 0) });
   if (s.outfit === 'labcoat' || s.outfit === 'longcoat')
-    band(img, hipY - 1, kneeY + (s.outfit === 'longcoat' ? 10 : 4), (y, t) => [cx - hipD - 1 - t * 2 - Math.max(0, swing) * t * 2, cx + hipD + 1 + t * 3], m.top, { fold: (x, y, u, v) => ((x - cx + 40) % 5 === 0 && v > 0.3 ? -1 : 0) });
+    band(img, hipY - 1, kneeY + (s.outfit === 'longcoat' ? 3 : 1), (y, t) => [cx - hipD - 1 - t * 2 - Math.max(0, swing) * t * 2, cx + hipD + 1 + t * 3], m.top, { fold: (x, y, u, v) => ((x - cx + 40) % 5 === 0 && v > 0.3 ? -1 : 0) });
 
-  band(img, G.chin - 1, shoulderY + 2, () => [cx - 2.5, cx + 1.5], m.skin, { bias: -0.25 });
+  band(img, G.chin - 1, shoulderY + 1, () => [cx - 2, cx + 1.2], m.skin, { bias: -0.25 });
   const torsoMat = s.outfit === 'overalls' ? m.accent : m.top;
   band(img, shoulderY, hipY + 2, (y, t) => {
     const chest = t > 0.1 && t < 0.5 ? 1 : 0;
-    const d = y < shoulderY + 2 ? depth - 1.5 : depth;
+    const d = y < shoulderY + 1 ? depth - 1 : depth;
     return [cx - d - chest + (t > 0.6 ? (t - 0.6) * 3 : 0), cx + d - (t > 0.5 ? (t - 0.5) * 2 : 0)];
   }, torsoMat, { fold: (x, y, u, v) => (v > 0.55 && (x + y) % 5 === 0 ? -1 : 0) });
-  if (s.outfit === 'overalls') band(img, shoulderY + 5, hipY + 2, () => [cx - depth - 0.5, cx + depth - 1], m.bottom);
-  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, () => [cx - depth - 1, cx + depth - 0.5], m.armor, { fold: (x, y) => ((y - shoulderY) % 4 === 0 ? -1 : 0) });
-  if (s.outfit === 'apron') band(img, shoulderY + 4, kneeY + 2, (y, t) => [cx - depth - 1.5 - t, cx - depth + 1], m.apron);
+  if (s.outfit === 'overalls') band(img, shoulderY + 3, hipY + 2, () => [cx - depth - 0.5, cx + depth - 1], m.bottom);
+  if (s.outfit === 'armor') band(img, shoulderY + 1, hipY - 1, () => [cx - depth - 1, cx + depth - 0.5], m.armor, { fold: (x, y) => ((y - shoulderY) % 3 === 0 ? -1 : 0) });
+  if (s.outfit === 'apron') band(img, shoulderY + 2, kneeY + 1, (y, t) => [cx - depth - 1.5 - t, cx - depth + 1], m.apron);
   if (['coverall', 'suit', 'jacket', 'armor', 'longcoat'].includes(s.outfit) || has('toolbelt')) band(img, hipY - 1, hipY + 1, () => [cx - depth - 0.5, cx + depth], m.leather);
-  if (has('toolbelt')) rect(img, cx - 2, hipY, 3, 4, m.leather[3]);
-  if (has('satchel')) band(img, hipY - 1, hipY + 5, () => [cx + depth - 2, cx + depth + 3], m.leather);
+  if (has('toolbelt')) rect(img, cx - 2, hipY, 2, 2, m.leather[3]);
+  if (has('satchel')) band(img, hipY - 1, hipY + 3, () => [cx + depth - 1, cx + depth + 2], m.leather);
   if (s.emblem === 'cross') {
-    rect(img, cx - 1, shoulderY + 4, 3, 1, rgba('#d84848'));
-    rect(img, cx, shoulderY + 3, 1, 3, rgba('#d84848'));
+    rect(img, cx - 1, shoulderY + 3, 3, 1, rgba('#e43b44'));
+    rect(img, cx, shoulderY + 2, 1, 3, rgba('#e43b44'));
   }
 
   // near arm
   const prosthetic = has('prosthetic');
-  const hx = cx + 4 * swing;
-  const hy = hipY + 3;
+  const hx = cx + 3 * swing;
+  const hy = hipY + 1;
+  const sy = shoulderY + 1.5;
   if (prosthetic) {
-    limb(img, cx, shoulderY + 2, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, armR0, armR0 * 0.9, sleeve);
-    limb(img, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, hx, hy - 1, 1.5, 1.3, m.metal, { fold: (x, y, u, t) => (t < 0.15 ? -2 : 0) });
-    blob(img, hx, hy, 1.8, 1.8, m.metal, { shift: -1 });
+    limb(img, cx, sy, (cx + hx) / 2, (sy + hy) / 2, armR0, armR0 * 0.9, sleeve);
+    limb(img, (cx + hx) / 2, (sy + hy) / 2, hx, hy - 1, 1, 0.9, m.metal, { fold: (x, y, u, t) => (t < 0.2 ? -1 : 0) });
+    blob(img, hx, hy, 1.3, 1.3, m.metal, { shift: -1 });
   } else {
     if (s.sleeves === 'short') {
-      limb(img, cx, shoulderY + 2, hx, hy - 1, armR0 * 0.9, armR1 * 0.95, m.skin);
-      limb(img, cx, shoulderY + 2, (cx + hx) / 2, (shoulderY + 2 + hy) / 2, armR0, armR0 * 0.95, sleeve);
-    } else limb(img, cx, shoulderY + 2, hx, hy - 1.5, armR0, armR1, sleeve);
-    blob(img, hx, hy, 1.9 * s.limb, 2 * s.limb, s.outfit === 'suit' || s.outfit === 'armor' ? m.dark : m.skin);
+      limb(img, cx, sy, hx, hy - 1, armR0 * 0.9, armR1 * 0.95, m.skin);
+      limb(img, cx, sy, (cx + hx) / 2, (sy + hy) / 2, armR0, armR0 * 0.95, sleeve);
+    } else limb(img, cx, sy, hx, hy - 1, armR0, armR1, sleeve);
+    blob(img, hx, hy, 1.4, 1.4, s.outfit === 'suit' || s.outfit === 'armor' ? m.dark : m.skin);
   }
-  if (s.outfit === 'poncho') band(img, shoulderY - 1, hipY + 5, (y, t) => [cx - depth - 1 - t * 4, cx + depth + 1 + t * 4], m.top, { fold: (x, y) => ((y - shoulderY + 20) % 7 >= 4 && (y - shoulderY + 20) % 7 <= 5 ? 1 : 0), skip: (x, y, u, v) => v > 0.94 && x % 2 === 0 });
-  if (s.outfit === 'cloak') band(img, shoulderY - 1, shoulderY + 7, (y, t) => [cx - depth - 1 - t, cx + depth + 1.5 + t], m.top, { fold: (x, y, u, v) => (v > 0.8 ? -1 : 0) });
+  if (s.outfit === 'poncho') band(img, shoulderY - 1, hipY + 3, (y, t) => [cx - depth - 1 - t * 3, cx + depth + 1 + t * 3], m.top, { fold: (x, y) => ((y - shoulderY + 20) % 4 === 2 ? 1 : 0), skip: (x, y, u, v) => v > 0.9 && x % 2 === 0 });
+  if (s.outfit === 'cloak') band(img, shoulderY - 1, shoulderY + 4, (y, t) => [cx - depth - 1 - t, cx + depth + 1.5 + t], m.top, { fold: (x, y, u, v) => (v > 0.75 ? -1 : 0) });
   if (has('scarf')) {
-    band(img, shoulderY - 2, shoulderY + 2, () => [cx - 3.5, cx + 2.5], m.accent);
-    band(img, shoulderY + 1, shoulderY + 8, () => [cx + 1, cx + 4], m.accent, { bias: -0.2 });
+    band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3, cx + 2.5], m.accent);
+    band(img, shoulderY + 1, shoulderY + 5, () => [cx + 1, cx + 3.5], m.accent, { bias: -0.2 });
   }
   if (s.outfit === 'suit') band(img, shoulderY - 1, shoulderY + 1, () => [cx - 3.5, cx + 2.5], m.metal);
   drawHead(img, s, 'side', G);
@@ -876,7 +854,7 @@ function finish(img) {
   const src = new Img(w, h);
   src.data.set(img.data);
   for (let y = 0; y < h - 6; y++)
-    for (let x = 0; x < w; x++) if (src.alpha(x, y) && !src.alpha(x + 1, y)) img.put(x, y, mix(src.get(x, y), RIM, 0.2));
+    for (let x = 0; x < w; x++) void x;
   const base = new Img(w, h);
   base.data.set(img.data);
   for (let y = 0; y < h; y++)
@@ -896,7 +874,7 @@ function frameImage(s, dir, f) {
   drawFigure(fig, s, dir === 2 ? 1 : dir, f);
   finish(fig);
   const out = new Img(FRAME_W, FRAME_H);
-  out.ellipse(FEET.x, FEET.y - 1, 11, 3, (i, j, d) => fade(INK, d < 0.3 ? 100 : d < 0.65 ? 72 : 40));
+  out.ellipse(FEET.x, FEET.y - 1, 7, 2, fade(INK, 90));
   out.blit(fig, 0, 0, dir === 2);
   return out;
 }
@@ -911,8 +889,8 @@ function paintPortrait(s, front) {
       const t = y / PORTRAIT + (((x >> 2) * 7 + (y >> 2) * 3) % 4) / 50;
       p.put(x, y, bg[t < 0.4 ? 2 : t < 0.75 ? 1 : 0]);
     }
-  const top = FEET.y - s.H - 3;
-  p.blit(front.crop(8, Math.max(0, top - 2), 32, 32).scaled(4), 0, 4);
+  const top = Math.max(0, FEET.y - s.H - 2);
+  p.blit(front.crop(4, top, 24, 24).scaled(5), 4, 8);
   for (let i = 0; i < PORTRAIT; i++)
     for (let k = 0; k < 4; k++) {
       p.put(i, k, INK);

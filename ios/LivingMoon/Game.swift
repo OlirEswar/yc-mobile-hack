@@ -335,8 +335,8 @@ final class Game: SourceSink {
             shownTick += behind * (1 - exp(-dt / 0.35))
             return shownTick
         }
-        let target = tickRate * (1 + min(0.5, max(-0.5, (behind - lag) / lag * 0.6)))
-        shownRate += (target - shownRate) * (1 - exp(-dt / 0.8))
+        let target = tickRate * (1 + min(0.5, max(-0.5, (behind - lag) / lag * 0.3)))
+        shownRate += (target - shownRate) * (1 - exp(-dt / 1.5))
         shownTick = min(world.tick - 0.02 * min(1, behind), shownTick + dt * max(0, shownRate))
         return shownTick
     }

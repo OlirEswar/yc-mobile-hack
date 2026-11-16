@@ -14,8 +14,14 @@ model is configured.
 You can also put **yourself** into the colony. Import what your apps know about you, build a colonist
 from it, tell it what you want, and invite friends into the same world with their own avatars.
 
+## Demo
+
+[Watch the demo on YouTube](https://youtu.be/0KJyHVxcibY): the team and the live iPhone app, side by side.
+There's also a copy in the repo: [docs/demo.mp4](docs/demo.mp4).
+
 ## Contents
 
+- [Demo](#demo)
 - [What you can do](#what-you-can-do)
 - [How it works](#how-it-works)
 - [Repository layout](#repository-layout)

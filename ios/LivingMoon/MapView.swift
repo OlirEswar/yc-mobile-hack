@@ -576,8 +576,9 @@ struct MapView: View {
         let scale = min(1.25, max(0.85, Double(cam.k) / 0.9))
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
         // The marked colonist and anyone reacting claim their spot first; in a crowd the rest share one bubble per spot.
-        let ranked = placed.sorted { (($0.0.id == marked ? 2 : 0) + (reacting[$0.0.id] != nil ? 1 : 0)) > (($1.0.id == marked ? 2 : 0) + (reacting[$1.0.id] != nil ? 1 : 0)) }
-        var taken: [CGPoint] = []
+        let rank = { (id: Id) -> Int in (id == marked ? 2 : 0) + (reacting[id] != nil ? 1 : 0) }
+        let ranked = placed.sorted { rank($0.0.id) > rank($1.0.id) }
+        var heads: [CGPoint] = []
         for (a, pos) in ranked {
             if lens != nil && a.id != lens?.id && !known.contains(a.id) { continue }
             var head = cam.screen(CGPoint(x: pos.point.x, y: pos.point.y - feet.y))
@@ -586,8 +587,9 @@ struct MapView: View {
             let age = reacting[a.id]
             let isMarked = a.id == marked
             if cam.k < 0.5 && !isMarked && age == nil { continue }
-            if !isMarked && taken.contains(where: { abs($0.x - head.x) < 22 * scale && abs($0.y - head.y) < 22 * scale }) { continue }
-            taken.append(head)
+            let spread = 22 * CGFloat(scale)
+            if !isMarked && heads.contains(where: { abs($0.x - head.x) < spread && abs($0.y - head.y) < spread }) { continue }
+            heads.append(head)
             let bob = sin(t * 2.2 + Double(abs(a.id.hashValue % 100))) * 1.2
             let at = CGPoint(x: head.x, y: head.y + bob)
             if let speech = a.speech, isMarked || cam.k >= 1 {

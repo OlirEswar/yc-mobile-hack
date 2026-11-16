@@ -94,6 +94,7 @@ struct ColonyView: View {
                     .tint(.white)
                     .accessibilityLabel("\(game.stamp), simulation speed")
                 }
+<<<<<<< HEAD
                 ToolbarItem(placement: .topBarLeading) {
                     Button(game.speed == 0 ? "Resume" : "Pause", systemImage: game.speed == 0 ? "play.fill" : "pause.fill") { game.togglePause() }
                         .tint(.white)
@@ -104,6 +105,8 @@ struct ColonyView: View {
                     }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
+=======
+>>>>>>> origin/Onboarding
                 ToolbarItem(placement: .topBarTrailing) { PowerMenu() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {

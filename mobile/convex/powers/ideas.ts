@@ -9,6 +9,7 @@ import type { GoalKind } from '../../shared/types';
 import { agentsAt, emitEvent, enqueueCognition, learnBelief, loadAgent, loadMind, replan, touchMind } from '../engine/core';
 import type { AgentDoc, AgentId, MindDoc, Tx } from '../engine/core';
 import { rand, round2 } from '../lib/rng';
+import { ACCUSABLE } from '../engine/social';
 import { agentOf, fail, isFailure, locationOf, record, standingAt, textOf, withName } from './common';
 import type { Power, PowerFailure } from './common';
 
@@ -55,7 +56,10 @@ function ideaText(presets: IdeaPreset[], key: unknown, raw: unknown, about: Agen
   return { preset, text };
 }
 
-type WhisperParams = { agent: AgentDoc; presetKey: string; text: string; strength: number; about?: AgentDoc };
+type WhisperParams = { agent: AgentDoc; presetKey: string; text: string; strength: number; about?: AgentDoc; kind?: string };
+
+/** Belief kinds a whisper about someone may plant instead of its preset's (focus:plant reads them from free text). */
+export const WHISPER_KINDS = new Set([...ACCUSABLE, 'admirable']);
 
 /**
  * Plants an idea in one mind: a private belief from a divine source and, for most presets, a goal
@@ -81,11 +85,19 @@ export const whisper: Power<WhisperParams> = {
     if (preset?.needsSubject && !about) return fail('invalid', 'Choose who the whisper is about.');
     const idea = ideaText(WHISPER_PRESETS, p.presetKey, p.text, about, 'The whisper');
     if (isFailure(idea)) return idea;
-    return { agent, presetKey: idea.preset.key, text: idea.text, strength: round2(strength), about };
+    const kind = typeof p.kind === 'string' && WHISPER_KINDS.has(p.kind) && about ? p.kind : undefined;
+    return { agent, presetKey: idea.preset.key, text: idea.text, strength: round2(strength), about, kind };
   },
 
-  async apply(tx, { agent, presetKey, text, strength, about }) {
-    const effect = WHISPER_EFFECTS[presetKey];
+  async apply(tx, { agent, presetKey, text, strength, about, kind: planted }) {
+    const base = WHISPER_EFFECTS[presetKey];
+    // A planted suspicion of a named person works like suspect_hoarding, for whatever they are suspected of.
+    const effect = planted
+      ? {
+          belief: { kind: planted, valence: planted === 'admirable' ? 1 : -1 },
+          goal: planted === 'admirable' ? WHISPER_EFFECTS.befriend.goal : (_a: AgentDoc, b: AgentDoc | undefined): GoalSpec => ({ kind: 'investigate', description: 'Find out whether it is true: ' + text, predicate: 'belief_resolved' }),
+        }
+      : base;
     const { eventId } = await emitEvent(tx, {
       category: 'intervention',
       eventType: 'whisper',
@@ -95,7 +107,7 @@ export const whisper: Power<WhisperParams> = {
       salience: 0.5,
       visibility: 'private',
       witnesses: [],
-      facts: { presetKey, strength, text, aboutAgentId: about?._id },
+      facts: { presetKey, strength, text, aboutAgentId: about?._id, ...(planted ? { kind: planted } : {}) },
     });
 
     const kind = effect.belief?.kind ?? presetKey;
@@ -114,7 +126,7 @@ export const whisper: Power<WhisperParams> = {
 
     const mind = (await loadMind(tx, agent))!;
     const spec = effect.goal?.(agent, about, strength, text);
-    if (spec) addDivineGoal(tx, mind, spec, { drive: presetKey, strength, about, originEventId: eventId });
+    if (spec) addDivineGoal(tx, mind, spec, { drive: planted && planted !== 'admirable' ? planted : presetKey, strength, about, originEventId: eventId });
     mind.stateVersion += 1;
     touchMind(tx, mind);
     replan(tx, agent);

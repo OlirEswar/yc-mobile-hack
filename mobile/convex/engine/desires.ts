@@ -58,7 +58,7 @@ async function romance(c: Ctx): Promise<Choice | null> {
   const secretAffair = !partner && c.ties.some((t) => t.kind === 'romance' && t.toAlive);
   const key = partner ? 'desire.partner' : secretAffair ? 'desire.affair' : 'desire.court';
   const plan = new Plan(a.locationId).go(b.locationId, 'Looking for ' + b.name + ' at ' + locName(b.locationId)).add('court', [b._id], (partner ? 'Spending time with ' : 'Flirting with ') + b.name);
-  if (b.locationId === 'canteen' || b.locationId === 'plaza') plan.add('rest', [4], 'Lingering at ' + locName(b.locationId) + ' near ' + b.name);
+  if (b.locationId === 'canteen' || b.locationId === 'plaza') plan.add('rest', [2], 'Lingering at ' + locName(b.locationId) + ' near ' + b.name);
   return {
     score: (partner ? 0.28 : 0.3) + drawn + a.traits.sociability * 0.15 + a.needs.social / 250 + chance(c, 'love') * 0.1,
     routine: false,

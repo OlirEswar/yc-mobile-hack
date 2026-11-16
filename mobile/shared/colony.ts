@@ -8,8 +8,8 @@ export const TICKS_PER_HOUR = 6;
 export const TICKS_PER_DAY = 144;
 /** Tick 0 is 06:00 on Sol 1. */
 export const START_HOUR = 6;
-/** Real milliseconds per tick at 1x speed (one sim day is about 8 real minutes). */
-export const TICK_MS_AT_1X = 3333;
+/** Real milliseconds per tick at 1x speed (one sim day is about 5 real minutes). */
+export const TICK_MS_AT_1X = 2083;
 export const SPEEDS = [0, 1, 4, 8] as const;
 export type Speed = (typeof SPEEDS)[number];
 

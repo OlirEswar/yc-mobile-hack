@@ -16,7 +16,7 @@ import type { MutationCtx } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { START_HOUR, TICKS_PER_DAY, TICKS_PER_HOUR } from '../../shared/colony';
 import type { ActivityKind, EventCategory } from '../../shared/types';
-import { NEVER_DUE } from '../lib/constants';
+import { DEFAULT_LLM_CONFIG, NEVER_DUE } from '../lib/constants';
 import { clamp, round2 } from '../lib/rng';
 import {
   ROSTER_ASLEEP,
@@ -847,8 +847,8 @@ export type CognitionRequest = {
   detail?: string;
   /** 0..1. Higher runs first. */
   priority: number;
-  /** focus: the followed colonist. crisis: reacting to a high-salience event. normal: the rest. */
-  lane: 'focus' | 'crisis' | 'normal';
+  /** focus: the followed colonist. orbit: the people around them. crisis: reacting to a high-salience event. normal: the rest. */
+  lane: 'focus' | 'orbit' | 'crisis' | 'normal';
   eventId?: EventId;
 };
 
@@ -863,6 +863,7 @@ export async function enqueueCognition(tx: Tx, a: AgentDoc, request: CognitionRe
   const mind = await loadMind(tx, a);
   if (!mind) return false;
   if (request.kind === 'plan' && request.lane === 'normal' && mind.llmCooldownUntilTick > tx.tick) return false;
+  if (request.kind === 'plan' && request.lane === 'orbit' && tx.tick - (mind.lastLlmPlanTick ?? -Infinity) < (tx.world.config.llm.orbitCooldownTicks ?? DEFAULT_LLM_CONFIG.orbitCooldownTicks)) return false;
   const pending = await tx.ctx.db
     .query('cognitionJobs')
     .withIndex('by_agent_status', (q) => q.eq('agentId', a._id).eq('status', 'queued'))

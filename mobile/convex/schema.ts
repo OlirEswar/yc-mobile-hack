@@ -106,6 +106,8 @@ export const llmConfigV = v.object({
   focusReserve: num,
   crisisReserve: num,
   speechPerDay: num,
+  orbitReserve: v.optional(num),
+  orbitCooldownTicks: v.optional(num),
 });
 
 export default defineSchema({
@@ -151,7 +153,12 @@ export default defineSchema({
       day: num,
       focusUsed: num,
       crisisUsed: num,
+      orbitUsed: v.optional(num),
       speechToday: num,
+      /** Dollars spent on the LLM on the UTC day spendDay (days since the epoch), and ever. */
+      spendDay: v.optional(num),
+      spendUsd: v.optional(num),
+      spendTotalUsd: v.optional(num),
       failStreak: num,
       disabledUntil: v.optional(num),
       lastError: v.optional(str),
@@ -170,6 +177,10 @@ export default defineSchema({
     lastPriceTick: num,
     /** Set by the story director while the tick loop should fast-forward the followed colonist's routine. */
     focusWarp: v.optional(v.boolean()),
+    /** The people around the followed colonist, whose decisions go to the LLM's orbit lane. */
+    orbitIds: v.optional(v.array(v.id('agents'))),
+    /** Whether the followed colonist was asleep at the last tick, so waking up gets a monologue line. */
+    focusAsleep: v.optional(v.boolean()),
     /** The colonist the story introduction starts the player on. */
     starterAgentId: v.optional(v.id('agents')),
     /** Authored character key (seed/keyCharacters.ts, e.g. 'ines', 'dmitri') to agent id, for story:intro. */
@@ -300,6 +311,8 @@ export default defineSchema({
     /** Bumped by events that should invalidate an LLM plan computed before them. */
     stateVersion: num,
     llmCooldownUntilTick: num,
+    /** When an LLM plan was last committed; the orbit lane waits orbitCooldownTicks after it. */
+    lastLlmPlanTick: v.optional(num),
     thefts: num,
     nextGoalSeq: num,
     /** Society layer (docs/STORY_SPEC.md 8). All optional so older worlds still load. */

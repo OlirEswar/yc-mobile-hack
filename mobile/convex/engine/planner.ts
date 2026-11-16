@@ -6,7 +6,7 @@
  * It never waits for the LLM; when a decision is worth more thought it also asks for cognition.
  */
 import { societyChoices } from '../society/hooks';
-import { BASE_PRICES, BONUS_AT, CUT_AT } from '../lib/constants';
+import { BASE_PRICES, BONUS_AT, CUT_AT, NORMAL_LLM_SHARE } from '../lib/constants';
 import { clamp, rand, round2 } from '../lib/rng';
 import {
   droughtSeverity,
@@ -117,6 +117,7 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
   if (chosen.cooldown) cool(tx, mind, chosen.cooldown.key, chosen.cooldown.ticks);
   touchMind(tx, mind);
   if (chosen.llm) await enqueueCognition(tx, a, chosen.llm);
+  const why = chosen.trigger ?? chosen.intent;
   if (tx.world.focusAgentId === a._id && (!chosen.routine || p < 6)) {
     await enqueueCognition(tx, a, {
       kind: 'plan',
@@ -124,6 +125,11 @@ export async function planFor(tx: Tx, a: AgentDoc): Promise<void> {
       priority: 0.9,
       lane: 'focus',
     });
+  } else if (tx.world.orbitIds?.includes(a._id) && chosen.steps.some((s) => !s.startsWith('sleep|') && !s.startsWith('go|'))) {
+    // Close to the followed colonist: the player is watching them react, so they think it through.
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: 'near the person the player follows; habit says: ' + why, priority: 0.8, lane: 'orbit' });
+  } else if (!chosen.routine && !chosen.llm && rand(tx.world.seed, tx.tick, a.seq, 'llm-share') < NORMAL_LLM_SHARE) {
+    await enqueueCognition(tx, a, { kind: 'plan', trigger: why, priority: 0.4, lane: 'normal', eventId: chosen.causeEventId });
   }
 }
 
@@ -208,8 +214,8 @@ function leisure(c: Ctx): Choice | null {
   const plan = new Plan(a.locationId).go(venue, venue === a.homeLocationId ? 'Going home to unwind' : 'Heading to ' + locName(venue) + ' for some company');
   if (shopper) plan.add('buy', [r < 0.08 ? 'water' : 'food', 1], 'Browsing the stalls on the concourse');
   plan.add('talk', gossip ? ['any', hot!] : ['any'], gossip ? 'Sharing the latest talk at ' + locName(venue) : 'Chatting at ' + locName(venue));
-  plan.add('rest', [6], 'Lingering at ' + locName(venue));
-  if (a.traits.sociability > 0.75) plan.add('talk', ['any'], 'Catching up with someone else at ' + locName(venue));
+  plan.add('rest', [3], 'Lingering at ' + locName(venue));
+  plan.add('talk', ['any'], 'Catching up with someone else at ' + locName(venue));
   return {
     score: 0.32 + social / 160 + a.traits.sociability * 0.18 - (p < SHIFT_START ? 0.1 : 0),
     routine: !gossip,

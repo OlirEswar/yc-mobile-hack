@@ -360,3 +360,81 @@ test('the daily allowance of questions runs out', async () => {
   });
   expect(await t.action(api.focus.ask, { sessionToken, worldId, agentId: agents[0]._id, question: 'How are you?' })).toMatchObject({ ok: false, code: 'rate_limited' });
 });
+
+
+const sessionOf = (t: T, token: string) => t.run(async (ctx) => (await ctx.db.query('sessions').withIndex('by_token', (q) => q.eq('token', token)).first())!);
+
+test('focus:plant without the LLM reads the text by rules, lands as a whisper and the colonist reacts', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t);
+  const f = agents[0];
+  const d = agents.find((a) => a.householdId !== f.householdId && a.alive && a._id !== f._id)!;
+  await setPersona(t, f._id);
+  await pose(t, worldId, f._id, { locationId: 'depot', move: undefined, activity: 'working', cur: encodeStep('work', 2), busyUntilTick: 302, q: [encodeStep('go', 'canteen')] });
+
+  const result = await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: d.name + ' has been cutting the drill heads, I know it!' });
+  expect(result).toMatchObject({ ok: true, message: expect.stringContaining(d.name.split(' ')[0]) });
+
+  const lines = await thoughtsOf(t, f._id);
+  expect(lines.map((l) => l.source)).toEqual(['planted', 'rules']);
+  expect(lines[0].text).toBe(result.message);
+  expect(lines[1].text).not.toBe(lines[0].text);
+
+  const beliefs = await t.run((ctx) => ctx.db.query('beliefs').withIndex('by_agent_key', (q) => q.eq('agentId', f._id)).collect());
+  expect(beliefs.some((b) => b.kind === 'saboteur' && b.subjectAgentId === d._id && b.sourceType === 'divine')).toBe(true);
+  const whisper = await t.run(async (ctx) => (await ctx.db.query('events').collect()).find((e) => e.eventType === 'whisper'));
+  expect(whisper).toMatchObject({ category: 'intervention', actorId: f._id, facts: { kind: 'saboteur', aboutAgentId: d._id } });
+  const after = await t.run((ctx) => ctx.db.get(f._id));
+  expect(after!.q).toEqual([]);
+  expect(after!.cur).toBeUndefined();
+  const mind = await t.run((ctx) => ctx.db.get(after!.mindId!));
+  expect(mind!.goals.some((g) => g.source === 'divine' && g.kind === 'investigate' && g.targetAgentId === d._id)).toBe(true);
+  expect((await sessionOf(t, sessionToken)).powerTimes).toHaveLength(1);
+});
+
+test('focus:plant refuses the dead, bad text, strangers and too many voices at once', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t);
+  const [f, dead] = agents;
+  await t.run((ctx) => ctx.db.patch(dead._id, { alive: false }));
+  const deadResult = await t.action(api.focus.plant, { sessionToken, worldId, agentId: dead._id, text: 'You deserve more than this.' });
+  expect(deadResult).toMatchObject({ ok: false, message: expect.stringContaining('died') });
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: '  a ' })).toMatchObject({ ok: false });
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'x'.repeat(201) })).toMatchObject({ ok: false });
+  expect(await t.action(api.focus.plant, { sessionToken: 'x'.repeat(32), worldId, agentId: f._id, text: 'You deserve more than this.' })).toMatchObject({ ok: false });
+  const session = await sessionOf(t, sessionToken);
+  await t.run((ctx) => ctx.db.patch(session._id, { powerTimes: Array.from({ length: 12 }, () => Date.now()) }));
+  expect(await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'You deserve more than this.' })).toMatchObject({ ok: false, message: expect.stringContaining('Too many') });
+  expect(await thoughtsOf(t, f._id)).toEqual([]);
+});
+
+test('focus:plant with the LLM: the model reads the thought, and the reaction is an LLM line', async () => {
+  const t = newTest();
+  const { worldId, sessionToken, agents } = await colony(t, { llm: true });
+  const [f, d] = agents;
+  await setPersona(t, f._id);
+  const calls: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const system = String(body.messages[0].content);
+      calls.push(system.includes('unseen force') ? 'plant' : body.response_format?.json_schema?.name ?? 'other');
+      const content = system.includes('unseen force')
+        ? { preset: 'distrust', kind: null, about: d.name, strength: 0.8, surfaced: 'Why does ' + d.name.split(' ')[0] + ' always count the crates when nobody is looking?' }
+        : { thought: 'It fits too well. I will watch ' + d.name.split(' ')[0] + ' at the depot tomorrow.', mood: 'Wary' };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }], usage: { prompt_tokens: 900, completion_tokens: 60 } }), { status: 200 });
+    }),
+  );
+  const result = await t.action(api.focus.plant, { sessionToken, worldId, agentId: f._id, text: 'Do not trust ' + d.name.split(' ')[0] + '.' });
+  expect(result).toMatchObject({ ok: true, message: expect.stringContaining('count the crates') });
+  await settle(t);
+  const lines = await thoughtsOf(t, f._id);
+  expect(lines.find((l) => l.source === 'planted')!.text).toContain('count the crates');
+  expect(lines.some((l) => l.source === 'llm' && l.text.includes('It fits too well'))).toBe(true);
+  expect(calls[0]).toBe('plant');
+  const beliefs = await t.run((ctx) => ctx.db.query('beliefs').withIndex('by_agent_key', (q) => q.eq('agentId', f._id)).collect());
+  expect(beliefs.some((b) => b.kind === 'untrustworthy' && b.subjectAgentId === d._id)).toBe(true);
+  expect((await get(t, worldId)).llm.spendTotalUsd ?? 0).toBeGreaterThan(0);
+});
+

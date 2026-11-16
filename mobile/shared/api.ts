@@ -8,6 +8,7 @@ import type {
   AgentDetail,
   AgentLite,
   AskResult,
+  PlantResult,
   AskTurn,
   FocusState,
   SocietyOverview,
@@ -95,6 +96,12 @@ export type ApiContract = {
   'focus:conversation': { args: { sessionToken: string; agentId: Id }; returns: AskTurn[] };
   /** action. Ask the colonist a question. They answer in character; it never changes the world. */
   'focus:ask': { args: { sessionToken: string; worldId: Id; agentId: Id; question: string }; returns: AskResult };
+  /**
+   * action. Plant a thought (3 to 200 characters of free text) in a colonist's head. It is read into
+   * a whisper (a belief about someone, a goal), surfaces at once as a 'planted' monologue line, and
+   * the colonist reacts to it within a tick or two. Counts as a god power for rate limits.
+   */
+  'focus:plant': { args: { sessionToken: string; worldId: Id; agentId: Id; text: string }; returns: PlantResult };
 
   // ----- billing -----
   /** query. Reactive. True once the Whop payment.succeeded webhook has marked this session premium. */

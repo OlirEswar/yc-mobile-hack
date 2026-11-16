@@ -9,6 +9,10 @@ protocol SourceSink: AnyObject {
     /// Recent events, oldest first.
     func received(events: [WorldEventPublic])
     func received(premium: Bool)
+    /// avatar:mine. nil when the player has no sources, profile or avatar yet.
+    func received(avatar: AvatarPublic?)
+    /// multiplayer:state.
+    func received(multiplayer: MultiplayerPublic?)
     func sourceFailed(_ message: String)
 }
 
@@ -46,5 +50,21 @@ protocol WorldSource: AnyObject {
     func startTimeskip(span: TimeskipSpan) async throws -> TimeskipStartResult
     /// timeskip:get, reactive: progress and, once done, the chronicle. Returns a cancel closure.
     func watchTimeskip(_ timeskipId: Id?, _ onValue: @escaping (TimeskipPublic?) -> Void) -> () -> Void
+
+    // avatar:*
+    func addSource(_ source: PersonaSourceInput) async throws -> AvatarResult
+    func removeSource(_ sourceId: Id) async throws -> AvatarResult
+    func synthesize(name: String?) async throws -> AvatarResult
+    func saveProfile(_ profile: AvatarProfile) async throws -> AvatarResult
+    func spawnAvatar() async throws -> AvatarResult
+    func direct(_ text: String) async throws -> AvatarResult
+    func forgetAvatar() async throws -> AvatarResult
+
+    // multiplayer:*
+    func setPlayerName(_ name: String) async throws -> MultiplayerResult
+    func invite() async throws -> MultiplayerResult
+    /// After a successful join or leave the session's world has changed: restart with start().
+    func join(code: String) async throws -> MultiplayerResult
+    func leave() async throws -> MultiplayerResult
     func stop()
 }

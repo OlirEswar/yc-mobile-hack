@@ -130,6 +130,7 @@ export const get = query({
       persona: mind.persona ? toPersonaPublic(mind.persona) : undefined,
       storylineIds: (await liveStorylines(ctx, worldId)).filter((s) => s.participantIds.includes(agentId)).map((s) => s._id),
       ...(await societyDetail(ctx, agent, mind)),
+      avatarPersona: mind.avatarPersona,
     };
   },
 });

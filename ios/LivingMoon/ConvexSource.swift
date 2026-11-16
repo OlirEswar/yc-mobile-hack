@@ -41,6 +41,8 @@ final class ConvexSource: WorldSource {
         watch("agents:list", ["worldId": worldId], as: [AgentLite].self, onError: fail) { [weak sink] in sink?.received(agents: $0) }.store(in: &bag)
         watch("chronicle:feed", ["worldId": worldId, "limit": 100.0, "minSalience": 0.0], as: [WorldEventPublic].self, onError: fail) { [weak sink] in sink?.received(events: $0.reversed()) }.store(in: &bag)
         watch("billing:status", ["sessionToken": sessionToken], as: Premium.self) { [weak sink] in sink?.received(premium: $0.premium) }.store(in: &bag)
+        watch("avatar:mine", ["sessionToken": sessionToken], as: AvatarPublic?.self, onError: fail) { [weak sink] in sink?.received(avatar: $0) }.store(in: &bag)
+        watch("multiplayer:state", ["sessionToken": sessionToken], as: MultiplayerPublic?.self, onError: fail) { [weak sink] in sink?.received(multiplayer: $0) }.store(in: &bag)
     }
 
     func heartbeat() async {
@@ -174,7 +176,75 @@ final class ConvexSource: WorldSource {
         return url
     }
 
+    // MARK: Avatar
+
+    func addSource(_ source: PersonaSourceInput) async throws -> AvatarResult {
+        let input: [String: ConvexEncodable?] = ["kind": source.kind.rawValue, "label": source.label, "text": source.text]
+        return try await client.mutation("avatar:addSource", with: ["sessionToken": sessionToken, "source": input])
+    }
+
+    func removeSource(_ sourceId: Id) async throws -> AvatarResult {
+        try await client.mutation("avatar:removeSource", with: ["sessionToken": sessionToken, "sourceId": sourceId])
+    }
+
+    func synthesize(name: String?) async throws -> AvatarResult {
+        var args: [String: ConvexEncodable?] = ["sessionToken": sessionToken]
+        if let name { args["name"] = name }
+        return try await client.action("avatar:synthesize", with: args)
+    }
+
+    func saveProfile(_ profile: AvatarProfile) async throws -> AvatarResult {
+        try await client.mutation("avatar:saveProfile", with: ["sessionToken": sessionToken, "profile": profile.convex])
+    }
+
+    func spawnAvatar() async throws -> AvatarResult {
+        try await client.mutation("avatar:spawn", with: ["sessionToken": sessionToken])
+    }
+
+    func direct(_ text: String) async throws -> AvatarResult {
+        try await client.mutation("avatar:direct", with: ["sessionToken": sessionToken, "text": text])
+    }
+
+    func forgetAvatar() async throws -> AvatarResult {
+        try await client.mutation("avatar:forget", with: ["sessionToken": sessionToken])
+    }
+
+    // MARK: Multiplayer
+
+    func setPlayerName(_ name: String) async throws -> MultiplayerResult {
+        try await client.mutation("multiplayer:setName", with: ["sessionToken": sessionToken, "name": name])
+    }
+
+    func invite() async throws -> MultiplayerResult {
+        try await client.mutation("multiplayer:invite", with: ["sessionToken": sessionToken])
+    }
+
+    func join(code: String) async throws -> MultiplayerResult {
+        try await client.mutation("multiplayer:join", with: ["sessionToken": sessionToken, "code": code])
+    }
+
+    func leave() async throws -> MultiplayerResult {
+        try await client.mutation("multiplayer:leave", with: ["sessionToken": sessionToken])
+    }
+
     func stop() {
         bag.removeAll()
+    }
+}
+
+private extension AvatarProfile {
+    /// The profile as Convex arguments: nested dictionaries and arrays, every number a Double.
+    var convex: [String: ConvexEncodable?] {
+        let goalArgs: [ConvexEncodable?] = goals.map { ["kind": $0.kind, "description": $0.description] as [String: ConvexEncodable?] }
+        var out: [String: ConvexEncodable?] = [
+            "name": name, "spriteId": spriteId, "ageBand": ageBand, "occupation": occupation,
+            "homeLocationId": homeLocationId.rawValue, "backstory": backstory, "summary": summary, "speechStyle": speechStyle,
+        ]
+        out["traits"] = traits.mapValues { $0 as ConvexEncodable? }
+        out["values"] = values.mapValues { $0 as ConvexEncodable? }
+        out["interests"] = interests.map { $0 as ConvexEncodable? }
+        out["habits"] = habits.map { $0 as ConvexEncodable? }
+        out["goals"] = goalArgs
+        return out
     }
 }

@@ -387,7 +387,7 @@ export function paintGround() {
   const top = new Img(W, H);
   paintTubes(top);
   for (const p of posts) paintPost(top, p.x, p.y);
-  img.blit(top.upscale2x(), 0, 0);
+  img.blit(S === 1 ? top : top.upscale2x(), 0, 0);
   return img;
 }
 

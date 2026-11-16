@@ -119,3 +119,31 @@ How the three backend parts meet:
 - The simulation asks for LLM reasoning with `enqueueCognition` and carries on with rule-based
   plans. The cognition layer answers by calling `setPlan` (source `llm`) through a mutation, only
   if the mind's `stateVersion` has not moved since the job was queued.
+
+## Avatars and multiplayer
+
+A player can put a colonist modelled on themself into the world, and friends can join that world
+with their own.
+
+- **Import.** The iOS client digests material on the device and sends only the digest:
+  Gmail through OAuth (senders' domains, subject lines and labels, never bodies or addresses; the
+  token never leaves the phone), the answer the player's own assistant (ChatGPT, Claude, Gemini)
+  gives to a fixed "what do you know about me" prompt, and free text. `avatar:addSource` scrubs
+  email addresses, phone numbers and links again before storing (`personaSources`, at most 6).
+- **Build.** `avatar:synthesize` asks the LLM for an `AvatarProfile` (job, traits, values,
+  backstory, interests, speech style, habits, goals). Keyword rules in `convex/avatar/profile.ts`
+  build the same shape with no model and patch any field the model gets wrong. The player can edit
+  the result (`avatar:saveProfile`, checked strictly).
+- **Spawn.** `avatar:spawn` runs the create_character arrival, then marks the agent with
+  `ownerSessionId`/`ownerName` and the mind with `persona`. Other players' living avatars in
+  the world become friends, and the first LLM plan is queued in the focus lane.
+- **Act like the player.** For an avatar, the plan and speech prompts add who the player is, how
+  they talk, what they tend to do and their latest directive, and mark other players' avatars in
+  the people list. Avatars get a third of the normal LLM cooldown.
+- **Directives.** `avatar:direct` turns "go make friends with the medics" into the avatar's top
+  goal (source `owner`), an immediate keyword plan (`convex/avatar/directive.ts`) and a
+  focus-lane LLM request that replaces it when it arrives.
+- **Multiplayer.** The host's `multiplayer:invite` gives the world a 6-character code; a friend's
+  `multiplayer:join` moves their session into that world (keeping `homeWorldId` to go back to
+  with `multiplayer:leave`), and the client restarts its subscriptions with
+  `session:bootstrap`. Up to 8 players per world. kill and whisper refuse another player's avatar.

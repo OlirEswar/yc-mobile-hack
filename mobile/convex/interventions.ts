@@ -41,6 +41,15 @@ export const apply = mutation({
       return fail('rate_limited', 'Too many arrivals at once. The next shuttle is a minute away.');
     }
 
+    if (type === 'kill' || type === 'whisper') {
+      const raw = (args.params as { agentId?: unknown } | null)?.agentId;
+      const targetId = typeof raw === 'string' ? ctx.db.normalizeId('agents', raw) : null;
+      const target = targetId ? await ctx.db.get(targetId) : null;
+      if (target?.ownerSessionId && target.ownerSessionId !== session._id) {
+        return fail('unauthorized', target.name + ' is ' + (target.ownerName ?? 'another player') + "'s avatar. Only they can guide them.");
+      }
+    }
+
     const tx = beginTx(ctx, world);
     const outcome = await POWERS[type](tx, args.params);
     if (isFailure(outcome)) return outcome;

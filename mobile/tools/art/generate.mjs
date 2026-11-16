@@ -9,6 +9,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodePng, encodePng } from './lib/image.mjs';
+import { quantize } from './lib/palette.mjs';
 import { ART_SCALE, LOCATION_IDS, LOCATION_LAYOUT, MAP_HEIGHT, MAP_WIDTH, RESOURCES, SPRITE_ARCHETYPES, SPRITE_VARIANTS } from './lib/layout.mjs';
 import { paintGround } from './ground.mjs';
 import { paintBuilding } from './buildings/index.mjs';
@@ -23,16 +24,16 @@ const POWERS = ['drought', 'storm', 'grant', 'kill', 'whisper', 'rumor', 'create
 function save(name, img) {
   const file = join(OUT, name);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, encodePng(img));
+  writeFileSync(file, encodePng(quantize(img)));
 }
 
 if (parts.has('ground')) save('ground.png', paintGround());
 if (parts.has('buildings'))
   LOCATION_IDS.forEach((id, i) => {
     const b = paintBuilding(id, 100 + i);
-    save('buildings/' + id + '_base.png', b.base.upscale2x());
-    save('buildings/' + id + '_overlay.png', b.overlay.upscale2x());
-    save('buildings/' + id + '_damaged.png', b.damaged.upscale2x());
+    save('buildings/' + id + '_base.png', b.base);
+    save('buildings/' + id + '_overlay.png', b.overlay);
+    save('buildings/' + id + '_damaged.png', b.damaged);
   });
 if (parts.has('characters')) {
   const { atlas, portraits } = paintCharacters();
@@ -42,10 +43,10 @@ if (parts.has('characters')) {
 if (parts.has('icons')) {
   for (const [name, img] of Object.entries(paintPowerIcons())) save('icons/power_' + name + '.png', img);
   for (const [name, img] of Object.entries(paintResourceIcons())) save('icons/res_' + name + '.png', img);
-  save('fx/grave.png', paintGrave().upscale2x());
-  save('fx/selection.png', paintSelection().upscale2x());
-  save('fx/storm_overlay.png', paintStormOverlay().scaled(2));
-  save('fx/drought_overlay.png', paintDroughtOverlay().scaled(2));
+  save('fx/grave.png', paintGrave());
+  save('fx/selection.png', paintSelection());
+  save('fx/storm_overlay.png', paintStormOverlay());
+  save('fx/drought_overlay.png', paintDroughtOverlay());
 }
 
 // ---------- manifest ----------

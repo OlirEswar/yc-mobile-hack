@@ -87,6 +87,14 @@ import type * as storyteller_prose from "../storyteller/prose.js";
 import type * as storyteller_spotlight from "../storyteller/spotlight.js";
 import type * as storyteller_storylines from "../storyteller/storylines.js";
 import type * as sync from "../sync.js";
+import type * as timeskip from "../timeskip.js";
+import type * as timeskip_effects from "../timeskip/effects.js";
+import type * as timeskip_llm from "../timeskip/llm.js";
+import type * as timeskip_model from "../timeskip/model.js";
+import type * as timeskip_rules from "../timeskip/rules.js";
+import type * as timeskip_spans from "../timeskip/spans.js";
+import type * as timeskip_stories from "../timeskip/stories.js";
+import type * as timeskip_summary from "../timeskip/summary.js";
 import type * as world from "../world.js";
 
 import type {
@@ -175,6 +183,14 @@ declare const fullApi: ApiFromModules<{
   "storyteller/spotlight": typeof storyteller_spotlight;
   "storyteller/storylines": typeof storyteller_storylines;
   sync: typeof sync;
+  timeskip: typeof timeskip;
+  "timeskip/effects": typeof timeskip_effects;
+  "timeskip/llm": typeof timeskip_llm;
+  "timeskip/model": typeof timeskip_model;
+  "timeskip/rules": typeof timeskip_rules;
+  "timeskip/spans": typeof timeskip_spans;
+  "timeskip/stories": typeof timeskip_stories;
+  "timeskip/summary": typeof timeskip_summary;
   world: typeof world;
 }>;
 

@@ -27,7 +27,7 @@ export function warpCadence(speed: number): { ticks: number; intervalMs: number 
 }
 
 export function shouldRun(world: Doc<'worlds'>, now: number): boolean {
-  return !world.deleted && world.speed > 0 && now - world.lastHeartbeatAt < HEARTBEAT_FRESH_MS;
+  return !world.deleted && !world.timeskip && world.speed > 0 && now - world.lastHeartbeatAt < HEARTBEAT_FRESH_MS;
 }
 
 /**

@@ -176,6 +176,8 @@ export default defineSchema({
     keyAgents: v.optional(v.record(v.string(), v.id('agents'))),
     /** The director's last nudge: when it brought the story to the followed colonist, and who it sent. */
     nudge: v.optional(v.object({ agentId: v.id('agents'), tick: num, visitorId: v.optional(v.id('agents')) })),
+    /** Set while a timeskip (convex/timeskip) runs the world forward in coarse steps: the loop stays stopped until it ends. */
+    timeskip: v.optional(v.object({ id: v.id('timeskips'), resumeSpeed: num })),
     /** Bookkeeping of the tick engine (engine/state.ts). Created on the first tick. */
     sim: v.optional(
       v.object({
@@ -558,6 +560,46 @@ export default defineSchema({
     question: str,
     answer: str,
   }).index('by_session_agent', ['sessionId', 'agentId']),
+
+  /** Multi-year skips (convex/timeskip): progress, the beats collected on the way, and the closing chronicle. */
+  timeskips: defineTable({
+    worldId: v.id('worlds'),
+    sessionId: v.optional(v.id('sessions')),
+    span: str,
+    /** running, summarizing, done or failed. */
+    status: str,
+    startTick: num,
+    endTick: num,
+    /** Chapters done so far; each chapter is one LLM decision and one macro mutation. */
+    chapter: num,
+    chapters: num,
+    chapterTicks: num,
+    resumeSpeed: num,
+    focusAgentId: v.optional(v.id('agents')),
+    createdAt: num,
+    updatedAt: num,
+    beats: v.array(
+      v.object({
+        tick: num,
+        chapter: num,
+        period: str,
+        kind: str,
+        text: str,
+        weight: num,
+        agentIds: v.array(v.id('agents')),
+        eventId: v.optional(v.id('events')),
+        storylineId: v.optional(v.id('storylines')),
+      }),
+    ),
+    stats: v.record(str, num),
+    /** Who the key people were when the skip began (occupation, status, partner...), for the closing contrast. */
+    start: v.any(),
+    llm: v.object({ calls: num, failures: num, tokensIn: num, tokensOut: num, lastError: v.optional(str) }),
+    newStorylineIds: v.array(v.id('storylines')),
+    /** TimeskipSummary (shared/types.ts) once done. */
+    summary: v.optional(v.any()),
+    error: v.optional(str),
+  }).index('by_world', ['worldId']),
 
   sessions: defineTable({
     deviceId: str,

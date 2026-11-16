@@ -2,30 +2,30 @@
 import type { AssetManifest } from '../../shared/assets';
 
 /** Art pixels per world pixel for the map, buildings, characters and fx (icons and portraits are UI art). */
-export const ART_SCALE = 2;
+export const ART_SCALE = 1;
 
 export const MANIFEST: AssetManifest = {
-  map: { width: 1280, height: 1920, ground: { source: require('./ground.png'), width: 2560, height: 3840 } },
+  map: { width: 1280, height: 1920, ground: { source: require('./ground.png'), width: 1280, height: 1920 } },
   buildings: {
-    plaza: { x: 480, y: 560, base: { source: require('./buildings/plaza_base.png'), width: 640, height: 576 }, overlay: { source: require('./buildings/plaza_overlay.png'), width: 640, height: 576 }, damaged: { source: require('./buildings/plaza_damaged.png'), width: 640, height: 576 } },
-    market: { x: 856, y: 592, base: { source: require('./buildings/market_base.png'), width: 576, height: 448 }, overlay: { source: require('./buildings/market_overlay.png'), width: 576, height: 448 }, damaged: { source: require('./buildings/market_damaged.png'), width: 576, height: 448 } },
-    canteen: { x: 142, y: 592, base: { source: require('./buildings/canteen_base.png'), width: 512, height: 448 }, overlay: { source: require('./buildings/canteen_overlay.png'), width: 512, height: 448 }, damaged: { source: require('./buildings/canteen_damaged.png'), width: 512, height: 448 } },
-    hydroponics: { x: 58, y: 920, base: { source: require('./buildings/hydroponics_base.png'), width: 768, height: 576 }, overlay: { source: require('./buildings/hydroponics_overlay.png'), width: 768, height: 576 }, damaged: { source: require('./buildings/hydroponics_damaged.png'), width: 768, height: 576 } },
-    depot: { x: 528, y: 968, base: { source: require('./buildings/depot_base.png'), width: 448, height: 384 }, overlay: { source: require('./buildings/depot_overlay.png'), width: 448, height: 384 }, damaged: { source: require('./buildings/depot_damaged.png'), width: 448, height: 384 } },
-    workshop: { x: 856, y: 936, base: { source: require('./buildings/workshop_base.png'), width: 576, height: 512 }, overlay: { source: require('./buildings/workshop_overlay.png'), width: 576, height: 512 }, damaged: { source: require('./buildings/workshop_damaged.png'), width: 576, height: 512 } },
-    medbay: { x: 528, y: 1328, base: { source: require('./buildings/medbay_base.png'), width: 448, height: 384 }, overlay: { source: require('./buildings/medbay_overlay.png'), width: 448, height: 384 }, damaged: { source: require('./buildings/medbay_damaged.png'), width: 448, height: 384 } },
-    habitat_a: { x: 84, y: 1280, base: { source: require('./buildings/habitat_a_base.png'), width: 704, height: 576 }, overlay: { source: require('./buildings/habitat_a_overlay.png'), width: 704, height: 576 }, damaged: { source: require('./buildings/habitat_a_damaged.png'), width: 704, height: 576 } },
-    habitat_b: { x: 844, y: 1280, base: { source: require('./buildings/habitat_b_base.png'), width: 704, height: 576 }, overlay: { source: require('./buildings/habitat_b_overlay.png'), width: 704, height: 576 }, damaged: { source: require('./buildings/habitat_b_damaged.png'), width: 704, height: 576 } },
-    ice_wells: { x: 164, y: 1712, base: { source: require('./buildings/ice_wells_base.png'), width: 704, height: 352 }, overlay: { source: require('./buildings/ice_wells_overlay.png'), width: 704, height: 352 }, damaged: { source: require('./buildings/ice_wells_damaged.png'), width: 704, height: 352 } },
-    quarry: { x: 784, y: 1712, base: { source: require('./buildings/quarry_base.png'), width: 704, height: 352 }, overlay: { source: require('./buildings/quarry_overlay.png'), width: 704, height: 352 }, damaged: { source: require('./buildings/quarry_damaged.png'), width: 704, height: 352 } },
-    solar_farm: { x: 88, y: 80, base: { source: require('./buildings/solar_farm_base.png'), width: 768, height: 512 }, overlay: { source: require('./buildings/solar_farm_overlay.png'), width: 768, height: 512 }, damaged: { source: require('./buildings/solar_farm_damaged.png'), width: 768, height: 512 } },
-    observatory: { x: 528, y: 100, base: { source: require('./buildings/observatory_base.png'), width: 448, height: 448 }, overlay: { source: require('./buildings/observatory_overlay.png'), width: 448, height: 448 }, damaged: { source: require('./buildings/observatory_damaged.png'), width: 448, height: 448 } },
-    landing_pad: { x: 840, y: 80, base: { source: require('./buildings/landing_pad_base.png'), width: 640, height: 512 }, overlay: { source: require('./buildings/landing_pad_overlay.png'), width: 640, height: 512 }, damaged: { source: require('./buildings/landing_pad_damaged.png'), width: 640, height: 512 } },
+    plaza: { x: 480, y: 560, base: { source: require('./buildings/plaza_base.png'), width: 320, height: 288 }, overlay: { source: require('./buildings/plaza_overlay.png'), width: 320, height: 288 }, damaged: { source: require('./buildings/plaza_damaged.png'), width: 320, height: 288 } },
+    market: { x: 856, y: 592, base: { source: require('./buildings/market_base.png'), width: 288, height: 224 }, overlay: { source: require('./buildings/market_overlay.png'), width: 288, height: 224 }, damaged: { source: require('./buildings/market_damaged.png'), width: 288, height: 224 } },
+    canteen: { x: 142, y: 592, base: { source: require('./buildings/canteen_base.png'), width: 256, height: 224 }, overlay: { source: require('./buildings/canteen_overlay.png'), width: 256, height: 224 }, damaged: { source: require('./buildings/canteen_damaged.png'), width: 256, height: 224 } },
+    hydroponics: { x: 58, y: 920, base: { source: require('./buildings/hydroponics_base.png'), width: 384, height: 288 }, overlay: { source: require('./buildings/hydroponics_overlay.png'), width: 384, height: 288 }, damaged: { source: require('./buildings/hydroponics_damaged.png'), width: 384, height: 288 } },
+    depot: { x: 528, y: 968, base: { source: require('./buildings/depot_base.png'), width: 224, height: 192 }, overlay: { source: require('./buildings/depot_overlay.png'), width: 224, height: 192 }, damaged: { source: require('./buildings/depot_damaged.png'), width: 224, height: 192 } },
+    workshop: { x: 856, y: 936, base: { source: require('./buildings/workshop_base.png'), width: 288, height: 256 }, overlay: { source: require('./buildings/workshop_overlay.png'), width: 288, height: 256 }, damaged: { source: require('./buildings/workshop_damaged.png'), width: 288, height: 256 } },
+    medbay: { x: 528, y: 1328, base: { source: require('./buildings/medbay_base.png'), width: 224, height: 192 }, overlay: { source: require('./buildings/medbay_overlay.png'), width: 224, height: 192 }, damaged: { source: require('./buildings/medbay_damaged.png'), width: 224, height: 192 } },
+    habitat_a: { x: 84, y: 1280, base: { source: require('./buildings/habitat_a_base.png'), width: 352, height: 288 }, overlay: { source: require('./buildings/habitat_a_overlay.png'), width: 352, height: 288 }, damaged: { source: require('./buildings/habitat_a_damaged.png'), width: 352, height: 288 } },
+    habitat_b: { x: 844, y: 1280, base: { source: require('./buildings/habitat_b_base.png'), width: 352, height: 288 }, overlay: { source: require('./buildings/habitat_b_overlay.png'), width: 352, height: 288 }, damaged: { source: require('./buildings/habitat_b_damaged.png'), width: 352, height: 288 } },
+    ice_wells: { x: 164, y: 1712, base: { source: require('./buildings/ice_wells_base.png'), width: 352, height: 176 }, overlay: { source: require('./buildings/ice_wells_overlay.png'), width: 352, height: 176 }, damaged: { source: require('./buildings/ice_wells_damaged.png'), width: 352, height: 176 } },
+    quarry: { x: 784, y: 1712, base: { source: require('./buildings/quarry_base.png'), width: 352, height: 176 }, overlay: { source: require('./buildings/quarry_overlay.png'), width: 352, height: 176 }, damaged: { source: require('./buildings/quarry_damaged.png'), width: 352, height: 176 } },
+    solar_farm: { x: 88, y: 80, base: { source: require('./buildings/solar_farm_base.png'), width: 384, height: 256 }, overlay: { source: require('./buildings/solar_farm_overlay.png'), width: 384, height: 256 }, damaged: { source: require('./buildings/solar_farm_damaged.png'), width: 384, height: 256 } },
+    observatory: { x: 528, y: 100, base: { source: require('./buildings/observatory_base.png'), width: 224, height: 224 }, overlay: { source: require('./buildings/observatory_overlay.png'), width: 224, height: 224 }, damaged: { source: require('./buildings/observatory_damaged.png'), width: 224, height: 224 } },
+    landing_pad: { x: 840, y: 80, base: { source: require('./buildings/landing_pad_base.png'), width: 320, height: 256 }, overlay: { source: require('./buildings/landing_pad_overlay.png'), width: 320, height: 256 }, damaged: { source: require('./buildings/landing_pad_damaged.png'), width: 320, height: 256 } },
   },
   characters: {
-    atlas: { source: require('./characters.png'), width: 768, height: 15360 },
-    frameWidth: 48,
-    frameHeight: 96,
+    atlas: { source: require('./characters.png'), width: 512, height: 6400 },
+    frameWidth: 32,
+    frameHeight: 40,
     framesPerDirection: 4,
     rows: {
       farmer_0: 0,
@@ -189,7 +189,7 @@ export const MANIFEST: AssetManifest = {
       civilian_14: 158,
       civilian_15: 159,
     },
-    feet: { x: 24, y: 90 },
+    feet: { x: 16, y: 37 },
   },
   portraits: {
     farmer_0: { source: require('./portraits/farmer_0.png'), width: 128, height: 128 },
@@ -372,9 +372,9 @@ export const MANIFEST: AssetManifest = {
     },
   },
   fx: {
-    grave: { source: require('./fx/grave.png'), width: 48, height: 56 },
-    selection: { source: require('./fx/selection.png'), width: 32, height: 28 },
-    stormOverlay: { source: require('./fx/storm_overlay.png'), width: 256, height: 256 },
-    droughtOverlay: { source: require('./fx/drought_overlay.png'), width: 256, height: 256 },
+    grave: { source: require('./fx/grave.png'), width: 24, height: 28 },
+    selection: { source: require('./fx/selection.png'), width: 16, height: 14 },
+    stormOverlay: { source: require('./fx/storm_overlay.png'), width: 128, height: 128 },
+    droughtOverlay: { source: require('./fx/drought_overlay.png'), width: 128, height: 128 },
   },
 };

@@ -28,7 +28,7 @@ struct BuildingArt {
 enum MapLayout {
     static let size = CGSize(width: 1280, height: 1920)
     /// Art pixels per world pixel in the ground, building, character and fx images.
-    static let artScale: CGFloat = 2
+    static let artScale: CGFloat = 1
     static let ground = "ground"
 
     static let locations: [LocationId: LocationLayout] = [
@@ -86,9 +86,9 @@ enum MapLayout {
 enum CharacterArt {
     static let atlas = "characters"
     /// One frame in world px; in the atlas it is artScale times larger.
-    static let frame = CGSize(width: 24, height: 48)
+    static let frame = CGSize(width: 32, height: 40)
     /// The point between the feet inside a frame, in world px; it sits on the colonist's world position.
-    static let feet = CGPoint(x: 12, y: 45)
+    static let feet = CGPoint(x: 16, y: 37)
     static let framesPerDirection = 4
     static let rows: [String: Int] = [
         "farmer_0": 0,

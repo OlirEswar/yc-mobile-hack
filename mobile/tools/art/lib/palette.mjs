@@ -32,6 +32,52 @@ export const INK = rgba('#0a0b12');
 export const WHITE = rgba('#f4f6fa');
 export const CLEAR = [0, 0, 0, 0];
 
+/**
+ * The one shared palette (ENDESGA 32). Every PNG is snapped onto it as it is saved, so ground,
+ * buildings, characters and icons read as one game.
+ */
+export const PALETTE = [
+  '#be4a2f', '#d77643', '#ead4aa', '#e4a672', '#b86f50', '#733e39', '#3e2731', '#a22633',
+  '#e43b44', '#f77622', '#feae34', '#fee761', '#63c74d', '#3e8948', '#265c42', '#193c3e',
+  '#124e89', '#0099db', '#2ce8f5', '#ffffff', '#c0cbdc', '#8b9bb4', '#5a6988', '#3a4466',
+  '#262b44', '#181425', '#ff0044', '#68386c', '#b55088', '#f6757a', '#e8b796', '#c28569',
+].map((h) => rgba(h));
+
+const snapCache = new Map();
+/** The nearest palette colour (redmean-weighted RGB distance). */
+export function snap(c) {
+  const key = (c[0] << 16) | (c[1] << 8) | c[2];
+  let hit = snapCache.get(key);
+  if (!hit) {
+    let best = Infinity;
+    for (const p of PALETTE) {
+      const rm = (c[0] + p[0]) / 2;
+      const dr = c[0] - p[0];
+      const dg = c[1] - p[1];
+      const db = c[2] - p[2];
+      const d = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
+      if (d < best) {
+        best = d;
+        hit = p;
+      }
+    }
+    snapCache.set(key, hit);
+  }
+  return hit;
+}
+
+/** Snaps every pixel of an image onto PALETTE in place, keeping alpha. */
+export function quantize(img) {
+  for (let i = 0; i < img.data.length; i += 4) {
+    if (!img.data[i + 3]) continue;
+    const p = snap([img.data[i], img.data[i + 1], img.data[i + 2]]);
+    img.data[i] = p[0];
+    img.data[i + 1] = p[1];
+    img.data[i + 2] = p[2];
+  }
+  return img;
+}
+
 /** A ramp colour by index, clamped to the ramp. */
 export function tone(name, i) {
   const r = RAMPS[name];

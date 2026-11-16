@@ -41,6 +41,38 @@ enum Power: String, CaseIterable, Identifiable {
     }
     /// Whispers and rumors change what people believe; the rest change the world.
     var believed: Bool { self == .whisper || self == .rumor }
+    var tint: Color {
+        switch self {
+        case .meteors: Color(red: 1, green: 0.45, blue: 0.2)
+        case .endLife: Color(red: 0.85, green: 0.3, blue: 0.3)
+        case .whisper, .rumor, .arrival: .earth
+        default: .amber
+        }
+    }
+}
+
+/// The full-screen moment that plays after a power lands, and what it needs to tell the story.
+struct Cinematic: Identifiable {
+    let id = UUID()
+    var power: Power
+    var headline: String
+    var result: String
+    var severity: Double = 0.7
+    var sites: [LocationId] = []
+    var subject: AgentLite?
+    /// The whispered or rumored words, the cause of a death, or the amount granted.
+    var quote: String?
+    var resource: Resource?
+    /// Who felt it, to show how they took it.
+    var affected: [Id] = []
+    var tick: Double = 0
+}
+
+/// A camera move the colony map should make, e.g. to where a power just landed.
+struct Flight: Equatable {
+    let id = UUID()
+    var point: CGPoint
+    var zoom: CGFloat
 }
 
 /// A high-tension storyline beat, shown as a banner over the wide view.
@@ -64,7 +96,7 @@ struct Toast: Identifiable, Equatable {
 @MainActor
 final class Game: SourceSink {
     enum Phase: Equatable { case loading, ready, failed(String) }
-    enum Tab: Hashable { case colony, people, stories, chronicle }
+    enum Tab: Hashable { case colony, people, stories, chronicle, you }
 
     static let convexURL = "https://utmost-hyena-958.convex.cloud"
     private static let liveKey = "livingMoon.useLiveBackend"
@@ -76,6 +108,10 @@ final class Game: SourceSink {
     private var index: [Id: Int] = [:]
     private(set) var events: [WorldEventPublic] = []
     var premium = false
+    /// The player's sources, profile, avatar in this world and recent directives.
+    private(set) var avatar: AvatarPublic?
+    /// Who shares this world.
+    private(set) var multiplayer: MultiplayerPublic?
     /// The live deployment by default; the offline mock stays behind the menu toggle.
     var useLive = UserDefaults.standard.object(forKey: liveKey) as? Bool ?? true {
         didSet {
@@ -96,6 +132,10 @@ final class Game: SourceSink {
     var showTimeskip = false
     var chronicleEventID: Id?
     var toast: Toast?
+    var cinematic: Cinematic?
+    var flight: Flight?
+    /// Colonists who just felt a power, and when, so the map can show them react.
+    var reactions: [Id: Date] = [:]
     var backendNote: String?
 
     /// The world's introduction, when the backend has one.
@@ -136,6 +176,8 @@ final class Game: SourceSink {
         agents = []
         index = [:]
         events = []
+        avatar = nil
+        multiplayer = nil
         backendNote = nil
         selectedID = nil
         followingID = nil
@@ -256,6 +298,8 @@ final class Game: SourceSink {
 
     func received(events next: [WorldEventPublic]) { events = next }
     func received(premium next: Bool) { premium = next }
+    func received(avatar next: AvatarPublic?) { avatar = next }
+    func received(multiplayer next: MultiplayerPublic?) { multiplayer = next }
     func sourceFailed(_ message: String) {
         if backendNote == nil { backendNote = message }
     }
@@ -263,6 +307,10 @@ final class Game: SourceSink {
     // MARK: Lookup
 
     func colonist(_ id: Id?) -> AgentLite? { id.flatMap { index[$0] }.map { agents[$0] } }
+
+    /// The player's own avatar in this world, alive or dead.
+    var myAvatar: AgentLite? { colonist(avatar?.agentId) }
+    func isMine(_ id: Id) -> Bool { avatar?.agentId == id }
 
     /// The world tick with the fraction elapsed since it arrived, for smooth movement.
     /// Trails the latest tick at the pace ticks arrive, so nobody jumps when one lands.
@@ -411,16 +459,34 @@ final class Game: SourceSink {
         do {
             let r = try await source.apply(intervention, commandId: commandId)
             guard r.ok else { return r.message ?? "The colony refused." }
-            show(.ok, resultText(intervention, r))
             didAct(.use_power)
-            if let created = r.createdAgentId { selectedID = created }
-            // From the wide view, go to whoever it hit hardest.
-            if followingID == nil, let hit = r.affectedAgentIds.first(where: { colonist($0)?.alive == true }) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { if self.followingID == nil { self.follow(hit) } }
-            }
+            withAnimation(.easeOut(duration: 0.35)) { cinematic = makeCinematic(intervention, r) }
             return nil
         } catch {
             return unsupported(error, "reach the colony") + " Nothing was changed. You can try again."
+        }
+    }
+
+    /// Close the cinematic and take the player to where it happened, or follow the person it happened to.
+    func endCinematic(follow id: Id? = nil) {
+        guard let c = cinematic else { return }
+        withAnimation(.smooth(duration: 0.5)) { cinematic = nil }
+        let now = Date()
+        reactions = reactions.filter { now.timeIntervalSince($0.value) < 8 }
+        for a in c.affected.prefix(40) { reactions[a] = now }
+        if c.power != .rumor, let s = c.subject?.id { reactions[s] = now }
+        if let id {
+            follow(id)
+            return
+        }
+        let point: CGPoint? = if c.power != .rumor, let s = c.subject.flatMap({ colonist($0.id) }) {
+            Placement.position(of: s, at: displayTick(at: now)).point
+        } else if let site = c.sites.first {
+            MapLayout.locations[site]!.center
+        } else { nil }
+        if let point {
+            tab = .colony
+            flight = Flight(point: point, zoom: c.sites.count > 1 ? 1.3 : 2.4)
         }
     }
 
@@ -428,6 +494,78 @@ final class Game: SourceSink {
         do { return try await source?.checkoutURL() } catch {
             show(.error, error.localizedDescription)
             return nil
+        }
+    }
+
+    // MARK: Avatar and multiplayer
+
+    /// Each returns nil on success, else a message for the screen.
+    func addSource(_ input: PersonaSourceInput) async -> String? {
+        await reply("save that source") { try await $0.addSource(input) }
+    }
+
+    func removeSource(_ id: Id) async -> String? {
+        await reply("remove that source") { try await $0.removeSource(id) }
+    }
+
+    func synthesize(name: String?) async -> String? {
+        await reply("build your character") { try await $0.synthesize(name: name) }
+    }
+
+    func saveProfile(_ profile: AvatarProfile) async -> String? {
+        await reply("save your character") { try await $0.saveProfile(profile) }
+    }
+
+    func spawnAvatar() async -> String? {
+        let error = await reply("drop your character in") { try await $0.spawnAvatar() }
+        if error == nil { show(.ok, "\(avatar?.profile?.name ?? "Your character") stepped off the shuttle at the Landing Pad.") }
+        return error
+    }
+
+    func direct(_ text: String) async -> String? {
+        let error = await reply("reach your character") { try await $0.direct(text) }
+        if error == nil { show(.ok, "\(myAvatar?.first ?? "They") will see to it.") }
+        return error
+    }
+
+    func forgetAvatar() async -> String? {
+        await reply("forget your sources") { try await $0.forgetAvatar() }
+    }
+
+    func setPlayerName(_ name: String) async -> String? {
+        await reply("change your name") { try await $0.setPlayerName(name) }
+    }
+
+    func invite() async -> String? {
+        await reply("open the colony to friends") { try await $0.invite() }
+    }
+
+    /// Joining or leaving moves this session to another world, so every subscription restarts.
+    func join(code: String) async -> String? {
+        let error = await reply("join that colony") { try await $0.join(code: code) }
+        if error == nil {
+            await boot()
+            show(.ok, "You joined \(world?.name ?? "your friend's colony").")
+        }
+        return error
+    }
+
+    func leave() async -> String? {
+        let error = await reply("leave this colony") { try await $0.leave() }
+        if error == nil {
+            await boot()
+            show(.info, "Back in your own colony.")
+        }
+        return error
+    }
+
+    private func reply<R: SourceReply>(_ what: String, _ op: (WorldSource) async throws -> R) async -> String? {
+        guard let source else { return "Not connected." }
+        do {
+            let r = try await op(source)
+            return r.ok ? nil : r.message ?? "The colony refused."
+        } catch {
+            return unsupported(error, what)
         }
     }
 
@@ -450,6 +588,30 @@ final class Game: SourceSink {
         return "Could not \(what): \(text)"
     }
 
+    private func makeCinematic(_ iv: Intervention, _ r: InterventionResult) -> Cinematic {
+        let result = resultText(iv, r)
+        let tick = world?.tick ?? 0
+        switch iv {
+        case let .drought(severity, days):
+            return Cinematic(power: .drought, headline: "The ice wells run dry", result: result, severity: severity, sites: [.ice_wells], quote: "\(Int(days)) sol\(days == 1 ? "" : "s")", affected: r.affectedAgentIds, tick: tick)
+        case let .storm(severity, ids):
+            let sites = ids.isEmpty ? LocationId.allCases.filter { $0.def.exposed } : ids
+            let headline = sites.count == 1 ? "Meteors strike \(sites[0].name)" : "Meteors strike \(sites.count) sites"
+            return Cinematic(power: .meteors, headline: headline, result: result, severity: severity, sites: sites, affected: r.affectedAgentIds, tick: tick)
+        case let .grant(id, resource, amount):
+            return Cinematic(power: .supplyDrop, headline: "A gift from nowhere", result: result, subject: colonist(id), quote: "+\(Int(amount)) \(resource.label.lowercased())", resource: resource, affected: [id], tick: tick)
+        case let .kill(id, cause):
+            return Cinematic(power: .endLife, headline: colonist(id)?.name ?? "A life", result: result, subject: colonist(id), quote: cause, affected: r.affectedAgentIds.filter { $0 != id }, tick: tick)
+        case let .whisper(id, _, text, strength, _):
+            return Cinematic(power: .whisper, headline: "A voice in \(colonist(id)?.first ?? "their")'s mind", result: result, severity: strength, subject: colonist(id), quote: text, affected: [id], tick: tick)
+        case let .rumor(about, _, text, seed):
+            return Cinematic(power: .rumor, headline: "Word gets around", result: result, sites: [seed ?? .canteen], subject: colonist(about), quote: text, affected: r.affectedAgentIds, tick: tick)
+        case let .createCharacter(p):
+            let created = colonist(r.createdAgentId)
+            return Cinematic(power: .arrival, headline: p.name, result: result, sites: [.landing_pad], subject: created, quote: occupation(p.occupation).label, affected: created.map { [$0.id] } ?? [], tick: tick)
+        }
+    }
+
     private func resultText(_ iv: Intervention, _ r: InterventionResult) -> String {
         func name(_ id: Id) -> String { colonist(id)?.name ?? "They" }
         switch iv {
@@ -465,3 +627,11 @@ final class Game: SourceSink {
         }
     }
 }
+
+/// The { ok, message } answer shared by the avatar and multiplayer calls.
+protocol SourceReply {
+    var ok: Bool { get }
+    var message: String? { get }
+}
+extension AvatarResult: SourceReply {}
+extension MultiplayerResult: SourceReply {}

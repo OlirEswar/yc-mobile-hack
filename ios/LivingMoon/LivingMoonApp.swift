@@ -47,6 +47,7 @@ struct RootView: View {
                     Tab("Stories", systemImage: "book.pages.fill", value: .stories) { StoriesView() }
                     Tab("People", systemImage: "person.2.fill", value: .people) { PeopleView() }
                     Tab("Chronicle", systemImage: "scroll.fill", value: .chronicle) { ChronicleView() }
+                    Tab("You", systemImage: "person.crop.circle.badge.plus", value: .you) { YouView() }
                 }
                 .onChange(of: game.tab) { _, tab in
                     if tab == .chronicle { game.didAct(.open_chronicle) }
@@ -79,6 +80,13 @@ struct RootView: View {
                     }
                 }
                 .overlay(alignment: .top) { ToastView() }
+                .overlay {
+                    if let c = game.cinematic {
+                        CinematicOverlay(cinematic: c)
+                            .id(c.id)
+                            .transition(.opacity)
+                    }
+                }
             }
         }
     }

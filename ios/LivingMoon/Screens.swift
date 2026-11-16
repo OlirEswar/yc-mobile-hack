@@ -250,6 +250,10 @@ struct InspectSheet: View {
                     HStack(spacing: 14) {
                         Avatar(spriteId: c.spriteId, alive: c.alive, size: 60)
                         VStack(alignment: .leading, spacing: 3) {
+                            if let owner = c.ownerName {
+                                Label(game.isMine(c.id) ? "Your avatar" : "Player avatar of \(owner)", systemImage: "person.crop.circle.fill")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(Color.amber)
+                            }
                             Text(c.name).font(.title.weight(.regular)).fontDesign(.serif)
                             Text(occupation(c.occupation).label + (c.alive ? " · feels \(c.mood)" : " · died")).font(.subheadline).foregroundStyle(.secondary)
                             if let epithet = detail?.persona?.epithet {
@@ -313,8 +317,24 @@ struct InspectSheet: View {
                 }
 
                 Section("Doing") {
-                    Text(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel)
-                    if let plan = detail?.plan { Text(plan.intent).foregroundStyle(.secondary) }
+                    Label(detail?.death.map { "Died: " + $0.cause } ?? c.activityLabel, systemImage: c.alive ? Mind.symbol(activity: c.activity) : "moon.zzz")
+                }
+
+                if c.alive {
+                    Section("On their mind") {
+                        ThoughtCard(agent: c, detail: detail, nowTick: game.world?.tick ?? 0)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    }
+                }
+
+                if let persona = detail?.avatarPersona {
+                    Section("Who they are") {
+                        if !persona.summary.isEmpty { Text(persona.summary) }
+                        if !persona.interests.isEmpty { LabeledContent("Into", value: persona.interests.joined(separator: ", ")) }
+                        if !persona.speechStyle.isEmpty { LabeledContent("Talks", value: persona.speechStyle) }
+                        ForEach(persona.habits, id: \.self) { Label($0, systemImage: "repeat").font(.subheadline) }
+                    }
                 }
 
                 Section("Needs") {
@@ -336,8 +356,11 @@ struct InspectSheet: View {
                 if let goals = detail?.goals, !goals.isEmpty {
                     Section("Wants most") {
                         ForEach(goals.prefix(3)) { g in
-                            Label(g.description, systemImage: g.source == "divine" ? "sparkles" : "scope")
-                                .foregroundStyle(g.source == "divine" ? Color.earth : .primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label(g.description, systemImage: g.source == "divine" ? "sparkles" : g.source == "owner" ? "person.wave.2.fill" : "scope")
+                                    .foregroundStyle(g.source == "divine" ? Color.earth : g.source == "owner" ? Color.amber : .primary)
+                                if g.source == "owner" { Text("From their player").font(.caption).foregroundStyle(.secondary) }
+                            }
                         }
                     }
                 }
@@ -371,13 +394,6 @@ struct InspectSheet: View {
                                 Text(t.kind.capitalized)
                             }
                         }
-                    }
-                }
-
-                if let thought = detail?.lastThought {
-                    Section("Why") {
-                        Text(thought.intent)
-                        Text("after " + thought.trigger).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -755,7 +771,10 @@ struct PeopleView: View {
             HStack(spacing: 12) {
                 Avatar(spriteId: c.spriteId, alive: c.alive, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(c.name).foregroundStyle(c.alive ? .primary : .secondary)
+                    HStack(spacing: 6) {
+                        Text(c.name).foregroundStyle(c.alive ? .primary : .secondary)
+                        if let owner = c.ownerName { Badge(text: game.isMine(c.id) ? "You" : owner) }
+                    }
                     Text(c.alive ? c.activityLabel : "Died").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()

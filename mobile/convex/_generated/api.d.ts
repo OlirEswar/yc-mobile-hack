@@ -10,6 +10,9 @@
 
 import type * as admin from "../admin.js";
 import type * as agents from "../agents.js";
+import type * as avatar from "../avatar.js";
+import type * as avatar_directive from "../avatar/directive.js";
+import type * as avatar_profile from "../avatar/profile.js";
 import type * as billing from "../billing.js";
 import type * as chronicle from "../chronicle.js";
 import type * as cognition from "../cognition.js";
@@ -48,8 +51,10 @@ import type * as http from "../http.js";
 import type * as interventions from "../interventions.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_players from "../lib/players.js";
 import type * as lib_public from "../lib/public.js";
 import type * as lib_rng from "../lib/rng.js";
+import type * as multiplayer from "../multiplayer.js";
 import type * as powers_arrival from "../powers/arrival.js";
 import type * as powers_colonists from "../powers/colonists.js";
 import type * as powers_common from "../powers/common.js";
@@ -109,6 +114,9 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   agents: typeof agents;
+  avatar: typeof avatar;
+  "avatar/directive": typeof avatar_directive;
+  "avatar/profile": typeof avatar_profile;
   billing: typeof billing;
   chronicle: typeof chronicle;
   cognition: typeof cognition;
@@ -147,8 +155,10 @@ declare const fullApi: ApiFromModules<{
   interventions: typeof interventions;
   "lib/auth": typeof lib_auth;
   "lib/constants": typeof lib_constants;
+  "lib/players": typeof lib_players;
   "lib/public": typeof lib_public;
   "lib/rng": typeof lib_rng;
+  multiplayer: typeof multiplayer;
   "powers/arrival": typeof powers_arrival;
   "powers/colonists": typeof powers_colonists;
   "powers/common": typeof powers_common;

@@ -14,10 +14,16 @@ import type {
   SocietyOverview,
   StoryIntro,
   StorylinePublic,
+  AvatarProfile,
+  AvatarPublic,
+  AvatarResult,
   Id,
   TimeskipPublic,
   TimeskipSpan,
   TimeskipStartResult,
+  MultiplayerPublic,
+  MultiplayerResult,
+  PersonaSourceInput,
   InterventionCommand,
   InterventionResult,
   SyncUpdates,
@@ -121,8 +127,53 @@ export type ApiContract = {
   'billing:createCheckout': { args: { sessionToken: string }; returns: { purchaseUrl: string } };
 
   // ----- god powers -----
-  /** mutation. Validated and idempotent on commandId. */
+  /**
+   * mutation. Validated and idempotent on commandId. kill and whisper refuse another player's
+   * avatar (code 'unauthorized'): only its owner guides it, through avatar:direct.
+   */
   'interventions:apply': { args: InterventionCommand; returns: InterventionResult };
+
+  // ----- avatar: your own colonist, built from what you import about yourself -----
+  /** query. Reactive. The player's sources, profile, avatar in the current world and recent directives. */
+  'avatar:mine': { args: { sessionToken: string }; returns: AvatarPublic | null };
+  /** mutation. Stores one digested source after scrubbing emails, phone numbers and links. At most 6. */
+  'avatar:addSource': { args: { sessionToken: string; source: PersonaSourceInput }; returns: AvatarResult };
+  /** mutation. */
+  'avatar:removeSource': { args: { sessionToken: string; sourceId: Id }; returns: AvatarResult };
+  /**
+   * action. Builds the profile from every source with the LLM, or with keyword rules when no model
+   * is configured or the call fails. name, when given, is used as the character's name.
+   */
+  'avatar:synthesize': { args: { sessionToken: string; name?: string }; returns: AvatarResult };
+  /** mutation. Saves a profile the player edited. Validated with the same rules as create_character. */
+  'avatar:saveProfile': { args: { sessionToken: string; profile: AvatarProfile }; returns: AvatarResult };
+  /**
+   * mutation. Puts the avatar into the player's current world at the Landing Pad. Friends' avatars
+   * already there become friends. Refused while the player's avatar in this world is alive.
+   */
+  'avatar:spawn': { args: { sessionToken: string }; returns: AvatarResult };
+  /**
+   * mutation. Tells the avatar what its player wants, e.g. "make friends with the medics". Becomes a
+   * goal and an immediate plan (keyword rules now, the LLM's plan when it answers). 3..140 chars.
+   */
+  'avatar:direct': { args: { sessionToken: string; text: string }; returns: AvatarResult };
+  /** mutation. Deletes every source and the profile. A spawned avatar stays as an ordinary colonist. */
+  'avatar:forget': { args: { sessionToken: string }; returns: AvatarResult };
+
+  // ----- multiplayer -----
+  /** query. Reactive. The players sharing the session's current world. */
+  'multiplayer:state': { args: { sessionToken: string }; returns: MultiplayerPublic | null };
+  /** mutation. Display name shown to the other players. 2..24 chars. */
+  'multiplayer:setName': { args: { sessionToken: string; name: string }; returns: MultiplayerResult };
+  /** mutation. Host only. Opens the world to friends and returns its 6-character join code. */
+  'multiplayer:invite': { args: { sessionToken: string }; returns: MultiplayerResult };
+  /**
+   * mutation. Moves this session into the world with that code. The client then restarts its
+   * subscriptions with session:bootstrap, which now returns the shared world.
+   */
+  'multiplayer:join': { args: { sessionToken: string; code: string }; returns: MultiplayerResult };
+  /** mutation. Guests only. Returns to the player's own world (seeding a new one if it is gone). */
+  'multiplayer:leave': { args: { sessionToken: string }; returns: MultiplayerResult };
 };
 
 export type ApiPath = keyof ApiContract;

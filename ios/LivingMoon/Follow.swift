@@ -13,6 +13,8 @@ struct FollowView: View {
     @State private var power: Power?
     @State private var profile = false
     @State private var keyboard = false
+    /// Shows the colony through the colonist's eyes: who they know, how they feel about them, what they believe.
+    @State private var lens = false
 
     /// The monologue: the backend's when it has one, else the last recorded decision.
     private var thoughts: [ThoughtLine] {
@@ -23,7 +25,7 @@ struct FollowView: View {
 
     var body: some View {
         ZStack {
-            MapView(focus: game.followingID, focusAnchor: 0.47)
+            MapView(focus: game.followingID, focusAnchor: 0.47, lens: lens ? detail : nil)
             if let c = game.colonist(game.followingID) {
                 VStack(spacing: 10) {
                     topBar
@@ -71,6 +73,14 @@ struct FollowView: View {
                 Label("Colony", systemImage: "chevron.left").padding(.horizontal, 2)
             }
             .buttonStyle(.glass)
+            Button { withAnimation(.smooth) { lens.toggle() } } label: {
+                Image(systemName: lens ? "brain.head.profile.fill" : "brain.head.profile")
+                    .symbolEffect(.bounce, value: lens)
+            }
+            .buttonStyle(.glass)
+            .tint(lens ? .earth : nil)
+            .foregroundStyle(lens ? Color.earth : .primary)
+            .accessibilityLabel(lens ? "Hide their mind" : "See through their eyes")
             Spacer()
             if game.warping {
                 Label("Fast-forwarding", systemImage: "forward.fill")
